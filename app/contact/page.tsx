@@ -128,7 +128,7 @@ export default function ContactPage() {
                 </h2>
                 <form
                   className="flex flex-col gap-5"
-                  action="/api/contact"
+                  action="https://formspree.io/f/xwvzvokq"
                   method="POST"
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

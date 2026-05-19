@@ -55,7 +55,7 @@ export default function ApplyPage() {
             <div className="card">
               <form
                 className="flex flex-col gap-8"
-                action="/api/apply"
+                action="https://formspree.io/f/mojbjdqv"
                 method="POST"
               >
                 {/* Section: Your Information */}
