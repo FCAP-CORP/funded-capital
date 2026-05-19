@@ -1,11 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Skip linting during builds (run locally instead)
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-
   // Enable React strict mode for better performance warnings
   reactStrictMode: true,
 
