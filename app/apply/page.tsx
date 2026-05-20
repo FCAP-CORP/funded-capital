@@ -57,8 +57,8 @@ export default function ApplyPage() {
                 className="flex flex-col gap-8"
                 action="https://formspree.io/f/mojbjdqv"
                 method="POST"
-                data-next="https://www.fundedcapital.com/thank-you"
               >
+                <input type="hidden" name="_next" value="https://www.fundedcapital.com/thank-you" />
                 {/* Section: Your Information */}
                 <fieldset className="flex flex-col gap-5">
                   <legend className="font-bold text-navy-900 text-lg border-b border-slate-100 pb-3 w-full">

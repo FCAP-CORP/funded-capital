@@ -130,8 +130,8 @@ export default function ContactPage() {
                   className="flex flex-col gap-5"
                   action="https://formspree.io/f/xwvzvokq"
                   method="POST"
-                  data-next="https://www.fundedcapital.com/thank-you"
                 >
+                  <input type="hidden" name="_next" value="https://www.fundedcapital.com/thank-you" />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label htmlFor="firstName" className="form-label">
