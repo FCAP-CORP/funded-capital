@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Mail, Phone, MapPin, Clock, ArrowRight } from "lucide-react";
+import { Mail, Phone, MapPin, Clock } from "lucide-react";
+import ContactForm from "@/components/ContactForm";
 
 export const metadata: Metadata = {
   title: "Contact Us",
@@ -122,120 +123,7 @@ export default function ContactPage() {
 
             {/* Contact Form */}
             <div className="lg:col-span-2">
-              <div className="card">
-                <h2 className="text-xl font-bold text-navy-900 mb-6">
-                  Send Us a Message
-                </h2>
-                <form
-                  className="flex flex-col gap-5"
-                  action="https://formspree.io/f/xwvzvokq"
-                  method="POST"
-                >
-                  <input type="hidden" name="_next" value="https://www.fundedcapital.com/thank-you" />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="firstName" className="form-label">
-                        First Name *
-                      </label>
-                      <input
-                        id="firstName"
-                        name="firstName"
-                        type="text"
-                        required
-                        className="form-input"
-                        placeholder="John"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="lastName" className="form-label">
-                        Last Name *
-                      </label>
-                      <input
-                        id="lastName"
-                        name="lastName"
-                        type="text"
-                        required
-                        className="form-input"
-                        placeholder="Smith"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label htmlFor="email" className="form-label">
-                        Email Address *
-                      </label>
-                      <input
-                        id="email"
-                        name="email"
-                        type="email"
-                        required
-                        className="form-input"
-                        placeholder="john@example.com"
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="phone" className="form-label">
-                        Phone Number
-                      </label>
-                      <input
-                        id="phone"
-                        name="phone"
-                        type="tel"
-                        className="form-input"
-                        placeholder="(555) 000-0000"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label htmlFor="subject" className="form-label">
-                      Subject *
-                    </label>
-                    <select
-                      id="subject"
-                      name="subject"
-                      required
-                      className="form-input"
-                    >
-                      <option value="">Select a topic...</option>
-                      <option value="loan-inquiry">Loan Inquiry</option>
-                      <option value="broker">Broker Partnership</option>
-                      <option value="existing-loan">Existing Loan Question</option>
-                      <option value="rates">Rates & Programs</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label htmlFor="message" className="form-label">
-                      Message *
-                    </label>
-                    <textarea
-                      id="message"
-                      name="message"
-                      required
-                      rows={5}
-                      className="form-input resize-none"
-                      placeholder="Tell us about your deal or question..."
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="btn-primary w-full justify-center text-base py-4"
-                  >
-                    Send Message
-                    <ArrowRight size={16} />
-                  </button>
-
-                  <p className="text-xs text-slate-400 text-center">
-                    We typically respond within 4 business hours. Your information
-                    is kept confidential.
-                  </p>
-                </form>
-              </div>
+              <ContactForm />
             </div>
           </div>
         </div>
