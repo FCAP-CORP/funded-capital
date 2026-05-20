@@ -5,7 +5,7 @@ import ApplyForm from "@/components/ApplyForm";
 export const metadata: Metadata = {
   title: "Apply Now",
   description:
-    "Apply for a private real estate loan with Funded Capital. Complete our 5-minute application and receive a term sheet within 24–48 hours.",
+    "Apply for a private real estate loan with Funded Capital. Complete our 5-minute application and receive a preliminary term sheet in as little as 2 hours.",
 };
 
 const trustPoints = [

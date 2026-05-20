@@ -11,9 +11,9 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Broker Program",
+  title: "Broker Partner Program — Earn Up to 3% Per Closed Loan | Funded Capital",
   description:
-    "Partner with Funded Capital as a registered broker and earn competitive referral fees on every closed loan. Fast approvals, dedicated support, and no minimums.",
+    "Join 200+ brokers who partner with Funded Capital. Earn 0.5%–3% referral fees on Fix & Flip, DSCR, Construction, and Multifamily loans. No minimums, paid at closing.",
 };
 
 const benefits = [

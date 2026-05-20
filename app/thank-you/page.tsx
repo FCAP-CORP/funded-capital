@@ -5,6 +5,7 @@ import { CheckCircle2, ArrowRight, Phone, Mail } from "lucide-react";
 export const metadata: Metadata = {
   title: "Thank You | Funded Capital",
   description: "Your message has been received. A Funded Capital loan officer will be in touch shortly.",
+  robots: { index: false, follow: false },
 };
 
 export default function ThankYouPage() {

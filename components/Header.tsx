@@ -5,7 +5,18 @@ import { useState } from "react";
 import { Menu, X, ChevronDown } from "lucide-react";
 
 const navLinks = [
-  { label: "Loan Programs", href: "/loan-programs" },
+  {
+    label: "Loan Programs",
+    href: "/loan-programs",
+    children: [
+      { label: "Fix & Flip Loans", href: "/fix-and-flip-loans" },
+      { label: "DSCR / Rental Loans", href: "/dscr-loans" },
+      { label: "New Construction", href: "/new-construction-loans" },
+      { label: "Multifamily Loans", href: "/multifamily-loans" },
+      { label: "View All Programs", href: "/loan-programs" },
+    ],
+  },
+  { label: "Calculator", href: "/calculator" },
   { label: "How It Works", href: "/how-it-works" },
   { label: "Broker Program", href: "/broker-program" },
   {
@@ -21,7 +32,10 @@ const navLinks = [
 
 export default function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+
+  const toggleDropdown = (label: string) =>
+    setOpenDropdown((prev) => (prev === label ? null : label));
 
   return (
     <header className="sticky top-0 z-50 bg-navy-900 border-b border-navy-800">
@@ -44,24 +58,28 @@ export default function Header() {
               link.children ? (
                 <div key={link.label} className="relative">
                   <button
-                    onClick={() => setDropdownOpen(!dropdownOpen)}
+                    onClick={() => toggleDropdown(link.label)}
                     className="flex items-center gap-1 text-slate-300 hover:text-white font-medium text-sm transition-colors"
-                    aria-expanded={dropdownOpen}
+                    aria-expanded={openDropdown === link.label}
                   >
                     {link.label}
                     <ChevronDown
                       size={14}
-                      className={`transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`}
+                      className={`transition-transform duration-200 ${openDropdown === link.label ? "rotate-180" : ""}`}
                     />
                   </button>
-                  {dropdownOpen && (
-                    <div className="absolute top-full left-0 mt-2 w-44 bg-navy-800 border border-navy-700 rounded-xl shadow-card-hover py-1 z-50">
-                      {link.children.map((child) => (
+                  {openDropdown === link.label && (
+                    <div className="absolute top-full left-0 mt-2 w-52 bg-navy-800 border border-navy-700 rounded-xl shadow-card-hover py-1 z-50">
+                      {link.children.map((child, i) => (
                         <Link
                           key={child.href}
                           href={child.href}
-                          onClick={() => setDropdownOpen(false)}
-                          className="block px-4 py-2.5 text-sm text-slate-300 hover:text-white hover:bg-navy-700 transition-colors"
+                          onClick={() => setOpenDropdown(null)}
+                          className={`block px-4 py-2.5 text-sm text-slate-300 hover:text-white hover:bg-navy-700 transition-colors ${
+                            i === link.children!.length - 1
+                              ? "border-t border-navy-700 mt-1 pt-3 text-gold-400 hover:text-gold-300"
+                              : ""
+                          }`}
                         >
                           {child.label}
                         </Link>

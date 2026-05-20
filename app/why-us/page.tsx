@@ -11,9 +11,9 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Why Us",
+  title: "Why Choose Funded Capital — Speed, Transparency & Competitive Rates",
   description:
-    "Why investors and brokers choose Funded Capital over traditional lenders — speed, transparency, competitive rates, and a relationship-first approach.",
+    "See how Funded Capital compares to traditional banks and other hard money lenders. Term sheets in 2 hours, closings in 5 days, transparent fees — every time.",
 };
 
 const differentiators = [

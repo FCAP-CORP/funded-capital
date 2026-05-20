@@ -4,9 +4,9 @@ import { Mail, Phone, MapPin, Clock, ArrowRight } from "lucide-react";
 import ContactForm from "@/components/ContactForm";
 
 export const metadata: Metadata = {
-  title: "Contact Us",
+  title: "Contact a Private Real Estate Lender — Funded Capital",
   description:
-    "Get in touch with the Funded Capital team — by phone, email, or form. We respond within 4 business hours.",
+    "Reach the Funded Capital team by phone, email, or form. Loan officers available Mon–Fri 8am–6pm ET. Miami, FL. Lending in 44 states.",
 };
 
 const contactInfo = [
@@ -112,7 +112,7 @@ export default function ContactPage() {
                 </p>
                 <p className="text-slate-500 text-xs mt-1">
                   Skip the back-and-forth — apply online and get a term sheet
-                  within 24–48 hours.
+                  in as little as 2 hours.
                 </p>
                 <Link href="/apply" className="btn-primary mt-4 text-sm w-full justify-center">
                   Apply Now

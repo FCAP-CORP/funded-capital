@@ -3,9 +3,9 @@ import Link from "next/link";
 import { ArrowRight, Target, Heart, Lightbulb } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "About Us",
+  title: "About Funded Capital — Private Real Estate Lender, Miami FL",
   description:
-    "Learn about Funded Capital — our story, our mission, and why we built a better private lending experience for real estate investors and brokers.",
+    "Founded in Miami in 2018, Funded Capital has funded $500M+ in private real estate loans nationwide. Learn our story and why investors trust us to close.",
 };
 
 const values = [

@@ -12,9 +12,9 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "How It Works",
+  title: "How Our Private Loan Process Works — From Application to Funded in 5 Days",
   description:
-    "Learn how Funded Capital's loan process works — from application to funding in as little as 5 business days. Simple, transparent, fast.",
+    "Funded Capital's 5-step loan process: apply in 5 minutes, get a term sheet in 2 hours, close in as little as 5 days. No income verification for most programs.",
 };
 
 const steps = [
