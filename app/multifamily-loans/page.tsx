@@ -109,8 +109,71 @@ const faqs = [
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function MultifamilyLoansPage() {
+  const schemaData = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "What is the minimum number of units to qualify for a multifamily loan?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Our multifamily loan program requires a minimum of 5 residential units. Properties with 2–4 units may qualify under our DSCR rental loan program instead.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "Do you offer non-recourse multifamily loans?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. Non-recourse options are available for stabilized assets and qualified borrowers. Non-recourse loans typically require a stronger LTV, higher net worth, and a demonstrated track record. Talk to a loan officer to discuss eligibility.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "Can I do interest-only payments on a multifamily loan?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. Interest-only periods are available on both bridge and term loan structures, subject to underwriting approval. This can significantly improve cash flow during the hold period.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "What is the maximum LTV for value-add multifamily?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "For value-add properties, we go up to 80% of the total project cost (LTC). For stabilized assets, the maximum LTV is 75%. Properties with 20+ units are evaluated on an individual basis with negotiated terms.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "Do you lend on mixed-use properties?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. We lend on mixed-use properties where the majority of the income and value is derived from the residential component. Properties with significant commercial tenants may require additional review and may have adjusted LTV requirements.",
+            },
+          },
+        ],
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://www.fundedcapital.com" },
+          { "@type": "ListItem", "position": 2, "name": "Loan Programs", "item": "https://www.fundedcapital.com/loan-programs" },
+          { "@type": "ListItem", "position": 3, "name": "Multifamily Loans", "item": "https://www.fundedcapital.com/multifamily-loans" },
+        ],
+      },
+    ],
+  };
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }}
+      />
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="bg-navy-900 py-20 lg:py-28 relative overflow-hidden" aria-labelledby="hero-heading">
         <div

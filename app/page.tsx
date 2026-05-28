@@ -113,8 +113,60 @@ const whyUs = [
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function HomePage() {
+  const schemaData = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": ["Organization", "FinancialService"],
+        "@id": "https://www.fundedcapital.com/#organization",
+        "name": "Funded Capital",
+        "url": "https://www.fundedcapital.com",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://www.fundedcapital.com/Original.png",
+        },
+        "description":
+          "Funded Capital provides fast private real estate loans for investors and brokers. Fix & Flip, DSCR, New Construction, and Multifamily loans. Term sheets in 2 hours, closings in as little as 5 days.",
+        "telephone": "+13058575620",
+        "email": "processing@fundedcapital.com",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "100 N Biscayne Blvd, Suite 1210",
+          "addressLocality": "Miami",
+          "addressRegion": "FL",
+          "postalCode": "33132",
+          "addressCountry": "US",
+        },
+        "areaServed": { "@type": "Country", "name": "United States" },
+        "openingHoursSpecification": [
+          {
+            "@type": "OpeningHoursSpecification",
+            "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+            "opens": "08:00",
+            "closes": "18:00",
+          },
+          {
+            "@type": "OpeningHoursSpecification",
+            "dayOfWeek": ["Saturday"],
+            "opens": "10:00",
+            "closes": "14:00",
+          },
+        ],
+        "aggregateRating": {
+          "@type": "AggregateRating",
+          "ratingValue": "5",
+          "reviewCount": "3",
+        },
+      },
+    ],
+  };
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }}
+      />
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="relative bg-navy-900 overflow-hidden">
         {/* Aerial background photo */}

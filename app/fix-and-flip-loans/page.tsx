@@ -104,8 +104,71 @@ const faqs = [
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function FixAndFlipLoansPage() {
+  const schemaData = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "What is the maximum LTC for Fix & Flip loans?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We lend up to 90% of the combined purchase price and rehab budget (Loan-to-Cost). On the purchase component alone, we go up to 90% of the as-is value. We also fund 100% of rehab costs within that LTC.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "Do I need income verification or W-2s for a Fix & Flip loan?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. Funded Capital's Fix & Flip loans are asset-based. We qualify on the deal — the property value, your ARV, and your exit strategy — not your personal income or employment history.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "How fast can I close a Fix & Flip loan?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We issue term sheets within 2 hours of application and can close loans in as little as 5 business days for straightforward deals. More complex transactions typically close in 7–14 business days.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "What credit score do I need for a Fix & Flip loan?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We prefer a 680+ credit score, but we evaluate each deal holistically. Strong deals with experienced borrowers may qualify with scores below 680. Talk to a loan officer to discuss your specific situation.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "Can you fund the rehab costs as well as the purchase?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. We fund both the acquisition and up to 100% of your approved rehab budget within the overall 90% LTC cap. Rehab funds are disbursed via a draw schedule as work is completed and inspected.",
+            },
+          },
+        ],
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://www.fundedcapital.com" },
+          { "@type": "ListItem", "position": 2, "name": "Loan Programs", "item": "https://www.fundedcapital.com/loan-programs" },
+          { "@type": "ListItem", "position": 3, "name": "Fix & Flip Loans", "item": "https://www.fundedcapital.com/fix-and-flip-loans" },
+        ],
+      },
+    ],
+  };
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }}
+      />
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="bg-navy-900 py-20 lg:py-28 relative overflow-hidden" aria-labelledby="hero-heading">
         <div

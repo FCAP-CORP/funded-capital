@@ -78,8 +78,71 @@ const faqs = [
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function DSCRLoansPage() {
+  const schemaData = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "What is a DSCR loan?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "DSCR stands for Debt Service Coverage Ratio. It measures whether a property's rental income is sufficient to cover its debt payments. DSCR loans qualify you based on the property's income, not your personal W-2 or tax returns — making them ideal for investors.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "What is the minimum DSCR to qualify?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Our minimum DSCR is 1.0x for SFR and condo properties, and 1.05x for 2–4 unit properties. A DSCR of 1.0x means the property's rent exactly covers the debt payment. Higher ratios may unlock better rates.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "Can I use projected rent to qualify for a DSCR loan?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "In some cases, yes. For new acquisitions, we may use a market rent analysis or appraiser's rental assessment when there is no current lease in place. Talk to a loan officer to confirm eligibility for your specific property.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "Is there a limit on the number of properties I can finance with DSCR loans?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No. Funded Capital places no limit on the number of DSCR loans you can have with us. This makes our program ideal for investors actively growing a rental portfolio.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "Do you offer cash-out refinance on DSCR loans?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. We offer cash-out refinance on stabilized rental properties up to 75% LTV. Use the proceeds to fund your next acquisition, complete renovations, or consolidate other debt.",
+            },
+          },
+        ],
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://www.fundedcapital.com" },
+          { "@type": "ListItem", "position": 2, "name": "Loan Programs", "item": "https://www.fundedcapital.com/loan-programs" },
+          { "@type": "ListItem", "position": 3, "name": "DSCR / Rental Loans", "item": "https://www.fundedcapital.com/dscr-loans" },
+        ],
+      },
+    ],
+  };
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }}
+      />
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="bg-navy-900 py-20 lg:py-28 relative overflow-hidden" aria-labelledby="hero-heading">
         <div

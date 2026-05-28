@@ -100,8 +100,71 @@ const faqs = [
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function NewConstructionLoansPage() {
+  const schemaData = {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "How do construction draws work?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Draws are disbursements released as construction milestones are completed and verified. Our team schedules inspections at key stages — foundation, framing, rough-in, drywall, and final completion. Once a milestone is confirmed, funds are released to your account.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "Do I need prior construction experience for a new construction loan?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Experienced builders are preferred, but first-time builders with a qualified general contractor may still qualify. We evaluate the strength of your build team, project plans, and overall deal economics.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "What is the maximum loan size for a ground-up construction project?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We do not have a hard cap. Projects over $5M are evaluated on a case-by-case basis with negotiated rates and terms. Contact us directly to discuss your large-scale project.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "Can I refinance into a DSCR loan after construction is complete?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Yes. Many of our borrowers build with us and then refinance into our 30-year DSCR rental loan once the property is stabilized. We make this transition as seamless as possible for repeat clients.",
+            },
+          },
+          {
+            "@type": "Question",
+            "name": "What states do you lend in for new construction?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "We lend in 44 states nationwide. A few states are excluded due to licensing requirements. Contact a loan officer to confirm eligibility in your specific state before submitting an application.",
+            },
+          },
+        ],
+      },
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://www.fundedcapital.com" },
+          { "@type": "ListItem", "position": 2, "name": "Loan Programs", "item": "https://www.fundedcapital.com/loan-programs" },
+          { "@type": "ListItem", "position": 3, "name": "New Construction Loans", "item": "https://www.fundedcapital.com/new-construction-loans" },
+        ],
+      },
+    ],
+  };
+
   return (
     <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }}
+      />
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="bg-navy-900 py-20 lg:py-28 relative overflow-hidden" aria-labelledby="hero-heading">
         <div
