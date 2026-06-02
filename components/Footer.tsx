@@ -57,7 +57,7 @@ export default function Footer() {
             <Link href="/" className="inline-block mb-4">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src="/Original.png"
+                src="/LogoWhite.png"
                 alt="Funded Capital — Close with Confidence"
                 style={{ height: "36px", width: "auto" }}
               />

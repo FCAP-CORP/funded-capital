@@ -46,7 +46,7 @@ export default function Header() {
           <Link href="/" className="flex items-center shrink-0">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/Original.png"
+              src="/LogoWhite.png"
               alt="Funded Capital — Close with Confidence"
               style={{ height: "44px", width: "auto" }}
             />
