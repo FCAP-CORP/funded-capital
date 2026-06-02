@@ -47,8 +47,8 @@ export default function Header() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/Original.png"
-              alt="Funded Capital — The Key To Limitless Capital"
-              style={{ height: "52px", width: "auto" }}
+              alt="Funded Capital — Close with Confidence"
+              style={{ height: "44px", width: "auto" }}
             />
           </Link>
 

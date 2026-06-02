@@ -58,8 +58,8 @@ export default function Footer() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/Original.png"
-                alt="Funded Capital"
-                style={{ height: "42px", width: "auto" }}
+                alt="Funded Capital — Close with Confidence"
+                style={{ height: "36px", width: "auto" }}
               />
             </Link>
             <p className="text-slate-400 text-sm leading-relaxed max-w-sm">

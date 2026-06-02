@@ -33,18 +33,31 @@ export default async function Image() {
           }}
         />
 
-        {/* Label */}
+        {/* Brand name */}
+        <div
+          style={{
+            color: "white",
+            fontSize: 22,
+            fontWeight: 800,
+            letterSpacing: "0.15em",
+            textTransform: "uppercase",
+            marginBottom: 12,
+          }}
+        >
+          Funded Capital
+        </div>
+
+        {/* Tagline */}
         <div
           style={{
             color: "#C9A84C",
-            fontSize: 18,
-            fontWeight: 700,
-            letterSpacing: "0.2em",
-            textTransform: "uppercase",
-            marginBottom: 28,
+            fontSize: 16,
+            fontWeight: 600,
+            letterSpacing: "0.1em",
+            marginBottom: 40,
           }}
         >
-          Private Real Estate Lending — Nationwide
+          Close with confidence.
         </div>
 
         {/* Headline */}
