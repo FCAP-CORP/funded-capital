@@ -59,7 +59,7 @@ export default function Footer() {
               <img
                 src="/LogoWhite.png"
                 alt="Funded Capital — Close with Confidence"
-                style={{ height: "52px", width: "auto" }}
+                style={{ height: "64px", width: "auto" }}
               />
             </Link>
             <p className="text-slate-400 text-sm leading-relaxed max-w-sm">

@@ -48,7 +48,7 @@ export default function Header() {
             <img
               src="/LogoWhite.png"
               alt="Funded Capital — Close with Confidence"
-              style={{ height: "60px", width: "auto" }}
+              style={{ height: "72px", width: "auto" }}
             />
           </Link>
 
