@@ -27,6 +27,7 @@ const navLinks = [
       { label: "Why Us", href: "/why-us" },
     ],
   },
+  { label: "Blog", href: "/blog" },
   { label: "Contact", href: "/contact" },
 ];
 
