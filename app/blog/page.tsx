@@ -31,9 +31,9 @@ export default function BlogPage() {
             Real Estate Investor Blog
           </h1>
           <p className="text-slate-300 text-lg mt-4 leading-relaxed">
-            Practical guides on hard money loans, DSCR financing, fix & flip
-            strategies, and building a real estate portfolio — from the team at
-            Funded Capital.
+            Expert insights on hard money lending, fix & flip financing, DSCR
+            loans, and real estate investment strategies — written by the team
+            that has funded over $500M in deals.
           </p>
         </div>
       </section>
