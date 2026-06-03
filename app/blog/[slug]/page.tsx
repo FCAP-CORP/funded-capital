@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MDXRemote } from "next-mdx-remote/rsc";
+import remarkGfm from "remark-gfm";
 import { ArrowRight, ArrowLeft, Clock, Tag } from "lucide-react";
 import { getAllSlugs, getPostBySlug } from "@/lib/blog";
 
@@ -145,7 +146,11 @@ export default async function BlogPostPage({ params }: Props) {
 
             {/* Article */}
             <article className="lg:col-span-2 prose-custom max-w-none">
-              <MDXRemote source={post.content} components={mdxComponents} />
+              <MDXRemote
+                source={post.content}
+                components={mdxComponents}
+                options={{ mdxOptions: { remarkPlugins: [remarkGfm] } }}
+              />
             </article>
 
             {/* Sidebar */}
