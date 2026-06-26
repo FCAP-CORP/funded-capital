@@ -17,8 +17,8 @@
 ## Extended Calendar — Publish in This Order (13–20)
 
 13. **dscr-cash-out-refinance.mdx** — "DSCR Cash-Out Refinance: How to Pull Equity From Your Rentals" — keyword: "DSCR cash-out refinance" — category: DSCR Loans ✅ *(published 2026-06-24)*
-14. **fix-and-flip-vs-brrrr.mdx** — "Fix & Flip vs. BRRRR: Which Strategy Builds Wealth Faster?" — keyword: "fix and flip vs BRRRR" — category: Fix & Flip
-15. **new-construction-loans-guide.mdx** — "New Construction Loans for Investors: How Ground-Up Financing Works" — keyword: "new construction loan" — category: New Construction
+14. **fix-and-flip-vs-brrrr.mdx** — "Fix & Flip vs. BRRRR: Which Strategy Builds Wealth Faster?" — keyword: "fix and flip vs BRRRR" — category: Fix & Flip ✅ *(published 2026-06-25)*
+15. **new-construction-loans-guide.mdx** — "New Construction Loans for Investors: How Ground-Up Financing Works" — keyword: "new construction loan" — category: New Construction ✅ *(published 2026-06-26)*
 16. **multifamily-loans-guide.mdx** — "Multifamily Loans: Financing 5+ Unit Properties" — keyword: "multifamily loans" — category: Multifamily
 17. **hard-money-vs-conventional.mdx** — "Hard Money vs. Conventional Loans: When Each One Wins" — keyword: "hard money vs conventional loan" — category: Hard Money Loans
 18. **how-to-get-a-hard-money-loan.mdx** — "How to Get a Hard Money Loan: A Step-by-Step Walkthrough" — keyword: "how to get a hard money loan" — category: Hard Money Loans
