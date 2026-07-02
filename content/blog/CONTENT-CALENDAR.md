@@ -19,8 +19,8 @@
 13. **dscr-cash-out-refinance.mdx** — "DSCR Cash-Out Refinance: How to Pull Equity From Your Rentals" — keyword: "DSCR cash-out refinance" — category: DSCR Loans ✅ *(published 2026-06-24)*
 14. **fix-and-flip-vs-brrrr.mdx** — "Fix & Flip vs. BRRRR: Which Strategy Builds Wealth Faster?" — keyword: "fix and flip vs BRRRR" — category: Fix & Flip ✅ *(published 2026-06-25)*
 15. **new-construction-loans-guide.mdx** — "New Construction Loans for Investors: How Ground-Up Financing Works" — keyword: "new construction loan" — category: New Construction ✅ *(published 2026-06-26)*
-16. **multifamily-loans-guide.mdx** — "Multifamily Loans: Financing 5+ Unit Properties" — keyword: "multifamily loans" — category: Multifamily
-17. **hard-money-vs-conventional.mdx** — "Hard Money vs. Conventional Loans: When Each One Wins" — keyword: "hard money vs conventional loan" — category: Hard Money Loans
-18. **how-to-get-a-hard-money-loan.mdx** — "How to Get a Hard Money Loan: A Step-by-Step Walkthrough" — keyword: "how to get a hard money loan" — category: Hard Money Loans
-19. **rental-property-loans.mdx** — "Rental Property Loans: The Investor's Financing Playbook" — keyword: "rental property loans" — category: DSCR Loans
-20. **private-money-vs-hard-money.mdx** — "Private Money vs. Hard Money Loans: What's the Difference?" — keyword: "private money vs hard money" — category: Hard Money Loans
+16. **multifamily-loans-guide.mdx** — "Multifamily Loans: Financing 5+ Unit Properties" — keyword: "multifamily loans" — category: Multifamily ✅ *(published 2026-06-30)*
+17. **hard-money-vs-conventional.mdx** — "Hard Money vs. Conventional Loans: When Each One Wins" — keyword: "hard money vs conventional loan" — category: Hard Money Loans ✅ *(published 2026-06-30)*
+18. **how-to-get-a-hard-money-loan.mdx** — "How to Get a Hard Money Loan: A Step-by-Step Walkthrough" — keyword: "how to get a hard money loan" — category: Hard Money Loans ✅ *(published 2026-07-01)*
+19. **rental-property-loans.mdx** — "Rental Property Loans: The Investor's Financing Playbook" — keyword: "rental property loans" — category: DSCR Loans ✅ *(published 2026-07-02)*
+20. **private-money-vs-hard-money.mdx** — "Private Money vs. Hard Money Loans: What's the Difference?" — keyword: "private money vs hard money" — category: Hard Money Loans ✅ *(published 2026-07-02)*
