@@ -24,3 +24,10 @@
 18. **how-to-get-a-hard-money-loan.mdx** — "How to Get a Hard Money Loan: A Step-by-Step Walkthrough" — keyword: "how to get a hard money loan" — category: Hard Money Loans ✅ *(published 2026-07-01)*
 19. **rental-property-loans.mdx** — "Rental Property Loans: The Investor's Financing Playbook" — keyword: "rental property loans" — category: DSCR Loans ✅ *(published 2026-07-02)*
 20. **private-money-vs-hard-money.mdx** — "Private Money vs. Hard Money Loans: What's the Difference?" — keyword: "private money vs hard money" — category: Hard Money Loans ✅ *(published 2026-07-02)*
+
+## Extended Calendar (21+)
+
+21. **hard-money-loan-down-payment.mdx** — "Hard Money Loan Down Payment: How Much Do You Really Need?" — keyword: "hard money loan down payment" — category: Hard Money Loans ✅ *(published 2026-07-03)*
+22. **70-percent-rule-house-flipping.mdx** — "The 70% Rule in House Flipping: How to Calculate Your Maximum Offer" — keyword: "70% rule" — category: Fix & Flip ✅ *(published 2026-07-07)*
+23. **hard-money-loan-rates.mdx** — "Hard Money Loan Rates in 2026: What Investors Should Expect" — keyword: "hard money loan rates" — category: Hard Money Loans ✅ *(published 2026-07-08)*
+24. **dscr-loan-airbnb-short-term-rental.mdx** — "DSCR Loans for Airbnb & Short-Term Rentals: How to Finance an STR in 2026" — keyword: "DSCR loan for Airbnb" — category: DSCR Loans ✅ *(published 2026-07-09)* — added autonomously: calendar was exhausted through #23, selected to fill the STR/Airbnb DSCR content gap*
