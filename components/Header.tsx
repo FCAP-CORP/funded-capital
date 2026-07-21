@@ -102,6 +102,9 @@ export default function Header() {
 
           {/* Desktop CTA */}
           <div className="hidden lg:flex items-center gap-3">
+            <Link href="/sign-in" className="text-slate-300 hover:text-white font-medium text-sm transition-colors">
+              Broker Login
+            </Link>
             <Link href="/apply" className="btn-primary text-sm px-5 py-2.5">
               Apply Now
             </Link>

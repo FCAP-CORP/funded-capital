@@ -1,7 +1,8 @@
+import { ClerkProvider } from "@clerk/nextjs";
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import "./globals.css";
-import Header from "@/components/Header";
-import Footer from "@/components/Footer";
+import SiteChrome from "@/components/SiteChrome";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://fundedcapital.com"),
@@ -56,9 +57,17 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased">
-        <Header />
-        <main>{children}</main>
-        <Footer />
+        {/*
+          Next.js 16 Cache Components: Clerk reads live auth data, which is
+          dynamic. `dynamic` opts the provider into dynamic rendering, and the
+          Suspense boundary lets the static shell prerender while auth streams
+          in — resolving "connection() accessed outside <Suspense>".
+        */}
+        <Suspense fallback={null}>
+          <ClerkProvider dynamic>
+            <SiteChrome>{children}</SiteChrome>
+          </ClerkProvider>
+        </Suspense>
       </body>
     </html>
   );

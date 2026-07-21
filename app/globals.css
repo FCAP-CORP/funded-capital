@@ -96,3 +96,83 @@
     @apply block text-sm font-semibold text-slate-700 mb-1.5;
   }
 }
+
+/* ---- Term sheet print styles ---- */
+@media print {
+  /* Real page margins so nothing touches the edge */
+  @page {
+    size: letter portrait;
+    margin: 0.4in;
+  }
+
+  /*
+   * The term sheet is rendered through a portal as a direct child of <body>
+   * with the class .ts-print-root. Removing every OTHER body child from flow
+   * (display:none — not visibility) lets the sheet start on page 1 and
+   * paginate normally instead of inheriting the portal page's height.
+   */
+  body > *:not(.ts-print-root) {
+    display: none !important;
+  }
+
+  .ts-print-root {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    background: #fff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+  .ts-print-root .no-print {
+    display: none !important;
+  }
+  /* Let the centered wrapper span the full printable width */
+  .ts-print-root .w-full {
+    max-width: none !important;
+  }
+
+  #term-sheet {
+    width: 100% !important;
+    max-width: none !important;
+    box-sizing: border-box;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  /* Inner padding so text never touches the page margin */
+  #term-sheet .ts-inner {
+    padding: 0.25in !important;
+  }
+
+  /*
+   * The portfolio schedule is a wide multi-column table. Without a fixed
+   * layout its columns size to content and overflow the printable width,
+   * which is what clipped the right-hand border. Fixing the layout forces
+   * every column inside 100% and wraps long addresses instead.
+   */
+  #term-sheet table {
+    width: 100% !important;
+    max-width: 100% !important;
+    table-layout: fixed;
+    border-collapse: collapse;
+  }
+  #term-sheet th,
+  #term-sheet td {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    padding-left: 2px;
+    padding-right: 2px;
+  }
+  /* Give the address column room; keep numeric columns tight */
+  #term-sheet th:nth-child(2),
+  #term-sheet td:nth-child(2) {
+    width: 26%;
+  }
+  #term-sheet th:first-child,
+  #term-sheet td:first-child {
+    width: 3%;
+  }
+}
