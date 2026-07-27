@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
+import SmsConsentField from "@/components/SmsConsentField";
 
 export default function ApplyForm() {
   const router = useRouter();
@@ -13,7 +14,14 @@ export default function ApplyForm() {
     setSubmitting(true);
     const form = e.currentTarget;
     const data = new FormData(form);
-    await fetch("https://formspree.io/f/mojbjdqv", {
+    // Routed through our own API so the server can capture the real IP,
+    // a trustworthy timestamp, and the exact consent language as proof.
+    data.append("formType", "apply");
+    data.append(
+      "consent_page_url",
+      typeof window !== "undefined" ? window.location.href : ""
+    );
+    await fetch("/api/lead", {
       method: "POST",
       body: data,
       headers: { Accept: "application/json" },
@@ -49,6 +57,10 @@ export default function ApplyForm() {
               <input id="phone" name="phone" type="tel" required className="form-input" placeholder="(555) 000-0000" />
             </div>
           </div>
+
+          {/* SMS / call consent — directly below the phone field. Optional. */}
+          <SmsConsentField />
+
           <div>
             <label htmlFor="borrowerType" className="form-label">I am a... *</label>
             <select id="borrowerType" name="borrowerType" required className="form-input">
@@ -165,7 +177,7 @@ export default function ApplyForm() {
           </div>
         </fieldset>
 
-        {/* Consent */}
+        {/* General consent to be contacted about the inquiry (required). */}
         <div className="flex items-start gap-3">
           <input id="consent" name="consent" type="checkbox" required className="mt-1 w-4 h-4 accent-gold-500" />
           <label htmlFor="consent" className="text-xs text-slate-500 leading-relaxed">

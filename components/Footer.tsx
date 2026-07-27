@@ -18,7 +18,7 @@ const footerLinks = {
     { label: "Contact Us", href: "/contact" },
     { label: "Apply Now", href: "/apply" },
     { label: "Privacy Policy", href: "/privacy" },
-    { label: "Terms of Service", href: "/terms" },
+    { label: "Terms & Conditions", href: "/terms" },
   ],
 };
 

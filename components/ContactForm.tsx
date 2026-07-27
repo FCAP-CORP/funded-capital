@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight } from "lucide-react";
+import SmsConsentField from "@/components/SmsConsentField";
 
 export default function ContactForm() {
   const router = useRouter();
@@ -13,7 +14,14 @@ export default function ContactForm() {
     setSubmitting(true);
     const form = e.currentTarget;
     const data = new FormData(form);
-    await fetch("https://formspree.io/f/xwvzvokq", {
+    // Routed through our own API so the server can capture the real IP,
+    // a trustworthy timestamp, and the exact consent language as proof.
+    data.append("formType", "contact");
+    data.append(
+      "consent_page_url",
+      typeof window !== "undefined" ? window.location.href : ""
+    );
+    await fetch("/api/lead", {
       method: "POST",
       body: data,
       headers: { Accept: "application/json" },
@@ -48,6 +56,9 @@ export default function ContactForm() {
             <input id="phone" name="phone" type="tel" className="form-input" placeholder="(555) 000-0000" />
           </div>
         </div>
+
+        {/* SMS / call consent — directly below the phone field. Optional. */}
+        <SmsConsentField />
 
         <div>
           <label htmlFor="subject" className="form-label">Subject *</label>
