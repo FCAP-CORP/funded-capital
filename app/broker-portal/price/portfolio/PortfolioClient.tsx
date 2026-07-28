@@ -265,7 +265,7 @@ export default function PortfolioClient() {
                 <RangeField
                   label="Default Initial LTC (% of total cost basis)"
                   value={Math.round(effInitialPct * 100)}
-                  min={40}
+                  min={10}
                   max={initSliderMaxPct}
                   onChange={(v) => set("defaultInitialLtcPct", v / 100)}
                   display={`${Math.round(effInitialPct * 100)}%`}
@@ -288,7 +288,7 @@ export default function PortfolioClient() {
                 <RangeField
                   label="Default target LTV (%)"
                   value={Math.round(form.defaultTargetLtvPct * 100)}
-                  min={40}
+                  min={10}
                   max={85}
                   onChange={(v) => set("defaultTargetLtvPct", v / 100)}
                   display={`${Math.round(form.defaultTargetLtvPct * 100)}%`}

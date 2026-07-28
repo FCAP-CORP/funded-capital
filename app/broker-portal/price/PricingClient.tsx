@@ -346,7 +346,7 @@ export default function PricingClient() {
                 <RangeField
                   label="Initial LTC (% of total cost basis)"
                   value={Math.round(effInitialPct * 100)}
-                  min={40}
+                  min={10}
                   max={initSliderMaxPct}
                   onChange={(v) => set("initialAdvancePct", v / 100)}
                   display={`${Math.round(effInitialPct * 100)}%`}
@@ -403,7 +403,7 @@ export default function PricingClient() {
                 <RangeField
                   label={`Target LTV (%)${isStab ? " — max 70%" : ""}`}
                   value={Math.round(effTargetLtv * 100)}
-                  min={40}
+                  min={10}
                   max={ltvSliderMax}
                   onChange={(v) => set("targetLtvPct", v / 100)}
                   display={`${Math.round(effTargetLtv * 100)}%`}

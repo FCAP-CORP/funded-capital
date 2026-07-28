@@ -94,6 +94,7 @@ const FEES: Record<"bridge" | "dscr", Record<number, { processing: number; under
 
 export const THIRD_PARTY_FEES = {
   legalReview: 995,
+  corelogix: 250, // CoreLogix valuation/data fee — DSCR (rental) deals
   servicingSetup: 30,
   appraisalRange: "$625 – $795",
   appraisalRangePortfolio: "$350 – $550",
@@ -826,6 +827,7 @@ export function priceDeal(input: QuoteInput): QuoteResult {
     { label: "Processing", amount: tierFees.processing },
     { label: "Underwriting", amount: tierFees.underwriting },
     { label: "Legal / doc review", amount: THIRD_PARTY_FEES.legalReview },
+    ...(family === "dscr" && !isStab ? [{ label: "Corelogix", amount: THIRD_PARTY_FEES.corelogix }] : []),
     { label: "Servicing setup", amount: THIRD_PARTY_FEES.servicingSetup },
     { label: "Appraisal", amount: null, display: THIRD_PARTY_FEES.appraisalRange },
     { label: "Title / settlement", amount: null, display: THIRD_PARTY_FEES.titleSettlement },
@@ -1356,6 +1358,7 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
     { label: "Processing", amount: tierFees.processing },
     { label: "Underwriting", amount: tierFees.underwriting },
     { label: "Legal / doc review", amount: THIRD_PARTY_FEES.legalReview },
+    ...(isDscr ? [{ label: "Corelogix", amount: THIRD_PARTY_FEES.corelogix }] : []),
     { label: "Servicing setup", amount: THIRD_PARTY_FEES.servicingSetup },
     { label: `Appraisal (${n} propert${n === 1 ? "y" : "ies"})`, amount: null, display: `${THIRD_PARTY_FEES.appraisalRangePortfolio} each` },
     { label: "Title / settlement", amount: null, display: THIRD_PARTY_FEES.titleSettlement },
