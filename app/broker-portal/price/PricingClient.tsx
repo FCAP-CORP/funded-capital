@@ -161,6 +161,8 @@ export function priceOption(form: DealForm, ov: OptionOverride, ustBasis?: numbe
   const holdbackPct = ov.holdbackPct ?? form.holdbackPct;
   const budgetTotal = isGU ? form.constructionBudget : form.rehabBudget;
   const build = Math.round(budgetTotal * holdbackPct);
+  // Sunk costs apply to refinances only — on a purchase the borrower is acquiring
+  // today, so there is no prior spend to carry into the cost basis.
   const sunk = isRefi ? form.sunkCosts : 0;
   const costBasis = form.purchasePrice + sunk;
   const initSliderMaxPct = isGU ? (form.permitsInHand ? 75 : 60) : 90;
@@ -455,6 +457,7 @@ export default function PricingClient() {
                       <NumberField label="Sunk costs (soft + hard)" value={form.sunkCosts} onChange={(v) => set("sunkCosts", v)} />
                     </div>
                     <p className="text-xs text-slate-400">
+                      {isGU ? "Land/plans, permits, architect, site work" : "Acquisition and rehab dollars"} already spent by the borrower.
                       Total cost basis = purchase + sunk costs = <strong className="text-slate-600">{fmtUsd(costBasis)}</strong>. Initial LTC is
                       measured against this.
                     </p>
