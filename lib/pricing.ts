@@ -480,8 +480,9 @@ export interface QuoteInput {
 
   // Bridge
   purchasePrice?: number;
-  rehabBudget?: number; // amount HELD BACK (remaining budget on a refi)
-  constructionBudget?: number; // amount HELD BACK (remaining budget on a refi)
+  rehabBudget?: number; // TOTAL remaining budget (financed portion = × holdbackPct)
+  constructionBudget?: number; // TOTAL remaining budget (financed portion = × holdbackPct)
+  holdbackPct?: number; // share of the budget the lender finances (0–1, default 1 = 100%)
   sunkCosts?: number; // soft + hard costs already spent (refi)
   estimatedPayoff?: number; // existing lien to retire (refi)
   arv?: number;
@@ -588,12 +589,17 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   const payoff = input.estimatedPayoff ?? 0;
 
   if (family === "bridge") {
-    const build = isGU ? input.constructionBudget ?? 0 : input.rehabBudget ?? 0; // held back
+    // Total remaining budget vs. the financed portion. The lender need not hold
+    // back 100% of the budget — holdbackPct sets how much is financed. The LTFC
+    // denominator still uses the FULL budget, since the borrower funds the rest.
+    const budgetTotal = isGU ? input.constructionBudget ?? 0 : input.rehabBudget ?? 0;
+    const hbPct = Math.min(1, Math.max(0, input.holdbackPct ?? 1));
+    const build = Math.round(budgetTotal * hbPct); // financed holdback
     holdback = build;
     initialLoan = Math.max(0, input.loanAmount - build);
 
     const costBasis = purchase + sunk; // Initial LTC denominator
-    const fullCost = purchase + sunk + build; // Ground-Up LTFC denominator
+    const fullCost = purchase + sunk + budgetTotal; // Ground-Up LTFC denominator (full cost)
     const arvVal = input.arv ?? 0;
 
     const arltvVal = arvVal > 0 ? input.loanAmount / arvVal : 0;

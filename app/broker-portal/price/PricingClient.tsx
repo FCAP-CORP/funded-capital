@@ -49,8 +49,9 @@ export interface DealForm {
   rural: boolean;
   // bridge
   purchasePrice: number;
-  rehabBudget: number; // held back (remaining on a refi)
-  constructionBudget: number; // held back (remaining on a refi)
+  rehabBudget: number; // total remaining budget
+  constructionBudget: number; // total remaining budget
+  holdbackPct: number; // share of budget financed (0–1)
   sunkCosts: number;
   estimatedPayoff: number;
   arv: number;
@@ -91,6 +92,7 @@ const DEFAULTS: DealForm = {
   purchasePrice: 400_000,
   rehabBudget: 75_000,
   constructionBudget: 300_000,
+  holdbackPct: 1,
   sunkCosts: 0,
   estimatedPayoff: 0,
   arv: 550_000,
@@ -137,7 +139,8 @@ export default function PricingClient() {
   const set = <K extends keyof DealForm>(k: K, v: DealForm[K]) => setForm((f) => ({ ...f, [k]: v }));
 
   // Initial LTC is measured against total cost basis (purchase + sunk costs).
-  const build = isGU ? form.constructionBudget : form.rehabBudget; // held back
+  const budgetTotal = isGU ? form.constructionBudget : form.rehabBudget; // full remaining budget
+  const build = Math.round(budgetTotal * form.holdbackPct); // financed holdback
   const sunk = isRefi ? form.sunkCosts : 0;
   const costBasis = form.purchasePrice + sunk;
   const initSliderMaxPct = isGU ? (form.permitsInHand ? 75 : 60) : 90;
@@ -171,6 +174,7 @@ export default function PricingClient() {
             purchasePrice: form.purchasePrice,
             rehabBudget: form.rehabBudget,
             constructionBudget: form.constructionBudget,
+            holdbackPct: form.holdbackPct,
             sunkCosts: sunk,
             arv: form.arv,
             extendedTerm: form.extendedTerm,
@@ -314,6 +318,20 @@ export default function PricingClient() {
                   <NumberField label={isGU ? "Land / purchase price" : "Purchase price"} value={form.purchasePrice} onChange={(v) => set("purchasePrice", v)} />
                   <NumberField label={budgetLabel} value={isGU ? form.constructionBudget : form.rehabBudget} onChange={(v) => set(isGU ? "constructionBudget" : "rehabBudget", v)} />
                 </div>
+
+                <RangeField
+                  label={`${isGU ? "Construction" : "Rehab"} holdback financed (%)`}
+                  value={Math.round(form.holdbackPct * 100)}
+                  min={0}
+                  max={100}
+                  onChange={(v) => set("holdbackPct", v / 100)}
+                  display={`${Math.round(form.holdbackPct * 100)}% · ${fmtUsd(build)}`}
+                />
+                <p className="text-xs text-slate-400 -mt-2">
+                  Share of the {fmtUsd(budgetTotal)} budget we hold back and fund by draw.
+                  {form.holdbackPct < 1 && ` Borrower funds the remaining ${fmtUsd(budgetTotal - build)}.`}
+                  {isGU && " LTFC is still measured against the full project cost."}
+                </p>
 
                 {isRefi && (
                   <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 space-y-4">
