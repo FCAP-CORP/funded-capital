@@ -30,7 +30,7 @@ const TERM_SHEET_DATE = "2026"; // static year to satisfy Cache Components
  */
 function comparisonRows(options: PricedOption[], isBridge: boolean, isTpo: boolean) {
   const val = (fn: (o: PricedOption) => string) => options.map(fn);
-  const rows: { label: string; values: string[] }[] = [];
+  const rows: { label: string; values: string[]; section?: boolean }[] = [];
   const push = (label: string, fn: (o: PricedOption) => string) => rows.push({ label, values: val(fn) });
 
   if (isBridge) {
@@ -53,12 +53,35 @@ function comparisonRows(options: PricedOption[], isBridge: boolean, isTpo: boole
     o.quote.estMonthlyPayment ? fmtUsd(o.quote.estMonthlyPayment) : "—"
   );
   if (!isBridge) push("DSCR", (o) => (o.quote.dscr !== null ? o.quote.dscr.toFixed(2) : "—"));
-  push("Lender Origination", (o) => `${o.quote.points.toFixed(2)}%`);
-  if (isTpo) push("Broker Points", (o) => `${o.quote.brokerPointsPct.toFixed(2)}%`);
+  push("Origination Points", (o) => `${o.quote.points.toFixed(2)}%`);
+
+  // ---- Itemized fees, so nothing is hidden inside a lump sum ----
+  // Fee labels are identical across options except the buydown, whose label
+  // carries the point count — normalize that one so it lines up in a single row.
+  rows.push({ label: "Estimated Fees", values: [], section: true });
+  const feeKey = (l: string) => (l.startsWith("Rate buydown") ? "Rate buydown" : l);
+  const keys: string[] = [];
+  options.forEach((o) =>
+    o.quote.fees.forEach((f) => {
+      const k = feeKey(f.label);
+      if (!keys.includes(k)) keys.push(k);
+    })
+  );
+  for (const k of keys) {
+    rows.push({
+      label: k === "Rate buydown" ? "Rate buydown (discount points)" : k,
+      values: options.map((o) => {
+        const f = o.quote.fees.find((x) => feeKey(x.label) === k);
+        if (!f) return "—";
+        return f.display ?? (f.amount === null ? "At cost" : fmtUsd(f.amount));
+      }),
+    });
+  }
+  push("Total Estimated Fees", (o) => fmtUsd(o.quote.knownFees));
+
   push(`Interest Reserve (${options[0].quote.reserveLabel})`, (o) =>
     o.quote.interestReserve !== null ? fmtUsd(o.quote.interestReserve) : "—"
   );
-  push("Estimated Fees", (o) => fmtUsd(o.quote.knownFees));
   push("Estimated Cash to Close", (o) =>
     o.quote.cashToClose === null
       ? "—"
@@ -165,16 +188,27 @@ export default function TermSheet({
                     </tr>
                   </thead>
                   <tbody>
-                    {comparisonRows(options!, isBridge, form.channel === "tpo").map((r, ri) => (
-                      <tr key={ri} className="border-b border-slate-100">
-                        <td className="text-slate-500 py-1.5 pr-3">{r.label}</td>
-                        {r.values.map((v, vi) => (
-                          <td key={vi} className={`text-center py-1.5 px-2 font-medium ${vi === 0 ? "text-navy-900" : "text-slate-800"}`}>
-                            {v}
+                    {comparisonRows(options!, isBridge, form.channel === "tpo").map((r, ri) =>
+                      r.section ? (
+                        <tr key={ri}>
+                          <td
+                            colSpan={options!.length + 1}
+                            className={`pt-3 pb-1 text-xs font-semibold uppercase tracking-widest ${sectionHead}`}
+                          >
+                            {r.label}
                           </td>
-                        ))}
-                      </tr>
-                    ))}
+                        </tr>
+                      ) : (
+                        <tr key={ri} className="border-b border-slate-100">
+                          <td className="text-slate-500 py-1.5 pr-3">{r.label}</td>
+                          {r.values.map((v, vi) => (
+                            <td key={vi} className={`text-center py-1.5 px-2 font-medium ${vi === 0 ? "text-navy-900" : "text-slate-800"}`}>
+                              {v}
+                            </td>
+                          ))}
+                        </tr>
+                      )
+                    )}
                   </tbody>
                 </table>
                 <p className="text-[11px] text-slate-400 mt-2">
