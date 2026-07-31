@@ -8,6 +8,7 @@ import {
   LOAN_PURPOSE_OPTIONS,
   EXPERIENCE_BUCKETS,
   CHANNEL_OPTIONS,
+  PPP_OPTIONS,
   isRefiPurpose,
   fmtUsd,
   type QuoteResult,
@@ -19,11 +20,67 @@ import {
   BrandContact,
   brandPreparedBy,
 } from "@/components/TermSheetBranding";
-import type { DealForm } from "./PricingClient";
+import type { DealForm, PricedOption } from "./PricingClient";
 
 const TERM_SHEET_DATE = "2026"; // static year to satisfy Cache Components
 
-export default function TermSheet({ form, quote, onClose }: { form: DealForm; quote: QuoteResult; onClose: () => void }) {
+/**
+ * Rows for the "Compare Pricing Options" table — one column per priced option,
+ * mirroring the layout of the internal committee conditional quote.
+ */
+function comparisonRows(options: PricedOption[], isBridge: boolean, isTpo: boolean) {
+  const val = (fn: (o: PricedOption) => string) => options.map(fn);
+  const rows: { label: string; values: string[] }[] = [];
+  const push = (label: string, fn: (o: PricedOption) => string) => rows.push({ label, values: val(fn) });
+
+  if (isBridge) {
+    push("Initial LTC", (o) => `${(o.effInitialPct * 100).toFixed(1)}%`);
+    push("Initial Loan Amount", (o) => fmtUsd(o.initialLoan));
+    push("Holdback", (o) => fmtUsd(o.build));
+    push("Holdback Financed", (o) => `${Math.round(o.holdbackPct * 100)}%`);
+    push("Total Loan Amount", (o) => fmtUsd(o.loanAmount));
+    push(options[0].quote.primaryRatioLabel, (o) => (o.quote.primaryRatio !== null ? `${(o.quote.primaryRatio * 100).toFixed(1)}%` : "—"));
+  } else {
+    push("LTV", (o) => (o.quote.primaryRatio !== null ? `${(o.quote.primaryRatio * 100).toFixed(1)}%` : "—"));
+    push("Loan Amount", (o) => fmtUsd(o.loanAmount));
+    push("Amortization", (o) => (o.interestOnly ? "Interest-Only" : "Fully Amortizing"));
+    push("Pre-Payment Penalty", (o) => PPP_OPTIONS.find((p) => p.key === o.ppp)?.label ?? "—");
+  }
+
+  push("Today's Gross Rate", (o) => (o.quote.ratePct !== null ? `${o.quote.ratePct.toFixed(3)}%` : "—"));
+  push("Discount Points", (o) => (o.buydownPct > 0 ? `${(o.buydownPct * 100).toFixed(2)} pt` : "None"));
+  push(isBridge ? "Monthly Payment (IO, fully drawn)" : "Monthly Payment", (o) =>
+    o.quote.estMonthlyPayment ? fmtUsd(o.quote.estMonthlyPayment) : "—"
+  );
+  if (!isBridge) push("DSCR", (o) => (o.quote.dscr !== null ? o.quote.dscr.toFixed(2) : "—"));
+  push("Lender Origination", (o) => `${o.quote.points.toFixed(2)}%`);
+  if (isTpo) push("Broker Points", (o) => `${o.quote.brokerPointsPct.toFixed(2)}%`);
+  push(`Interest Reserve (${options[0].quote.reserveLabel})`, (o) =>
+    o.quote.interestReserve !== null ? fmtUsd(o.quote.interestReserve) : "—"
+  );
+  push("Estimated Fees", (o) => fmtUsd(o.quote.knownFees));
+  push("Estimated Cash to Close", (o) =>
+    o.quote.cashToClose === null
+      ? "—"
+      : (o.quote.cashToBorrower ?? 0) > 0
+      ? `(${fmtUsd(o.quote.cashToBorrower ?? 0)}) to borrower`
+      : fmtUsd(o.quote.cashToClose)
+  );
+  return rows;
+}
+
+export default function TermSheet({
+  form,
+  quote,
+  options,
+  onClose,
+}: {
+  form: DealForm;
+  quote: QuoteResult;
+  options?: PricedOption[];
+  onClose: () => void;
+}) {
+  const multi = !!options && options.length > 1;
   const isBridge = quote.product.family === "bridge";
   const isGU = form.product === "new_construction";
   const isRefi = isRefiPurpose(form.loanPurpose);
@@ -82,15 +139,52 @@ export default function TermSheet({ form, quote, onClose }: { form: DealForm; qu
               {form.borrowerName || "Borrower"} · {form.propertyAddress || "Subject property"}
             </p>
 
-            {/* Headline */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-              <Headline label="Interest Rate" value={`${quote.ratePct?.toFixed(3)}%`} boxCls={accentBox} accentText={accentText} accent />
-              <Headline label="Loan Amount" value={fmtUsd(quote.loanAmount)} />
-              <Headline label={branded ? "Lender Origination" : "Origination"} value={`${quote.points.toFixed(2)}%`} />
-              <Headline label={quote.interestOnly ? "Payment (IO)" : "Payment (P&I)"} value={quote.estMonthlyPayment ? fmtUsd(quote.estMonthlyPayment) : "—"} />
-            </div>
+            {/* Headline — single option only */}
+            {!multi && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+                <Headline label="Interest Rate" value={`${quote.ratePct?.toFixed(3)}%`} boxCls={accentBox} accentText={accentText} accent />
+                <Headline label="Loan Amount" value={fmtUsd(quote.loanAmount)} />
+                <Headline label={branded ? "Lender Origination" : "Origination"} value={`${quote.points.toFixed(2)}%`} />
+                <Headline label={quote.interestOnly ? "Payment (IO)" : "Payment (P&I)"} value={quote.estMonthlyPayment ? fmtUsd(quote.estMonthlyPayment) : "—"} />
+              </div>
+            )}
+
+            {/* Compare Pricing Options */}
+            {multi && (
+              <div className="mb-8">
+                <h3 className={`text-xs font-semibold uppercase tracking-widest mb-2 ${sectionHead}`}>Compare Pricing Options</h3>
+                <table className="w-full text-sm" style={{ tableLayout: "fixed" }}>
+                  <thead>
+                    <tr>
+                      <th className="text-left font-medium text-slate-500 py-2 pr-3" style={{ width: "34%" }}></th>
+                      {options!.map((o, i) => (
+                        <th key={i} className={`text-center font-bold py-2 px-2 rounded-t ${i === 0 ? accentBox : "bg-slate-100 text-slate-800"}`}>
+                          {o.label}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {comparisonRows(options!, isBridge, form.channel === "tpo").map((r, ri) => (
+                      <tr key={ri} className="border-b border-slate-100">
+                        <td className="text-slate-500 py-1.5 pr-3">{r.label}</td>
+                        {r.values.map((v, vi) => (
+                          <td key={vi} className={`text-center py-1.5 px-2 font-medium ${vi === 0 ? "text-navy-900" : "text-slate-800"}`}>
+                            {v}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-[11px] text-slate-400 mt-2">
+                  All options reflect the same borrower, property, and program. Appraisal and title/settlement are quoted separately.
+                </p>
+              </div>
+            )}
 
             <div className="grid sm:grid-cols-2 gap-x-10 gap-y-6">
+              {!multi && (
               <TermBlock title="Loan Terms" headCls={sectionHead}>
                 <Line k="Program" v={quote.product.label} />
                 <Line k="Purpose" v={purpose} />
@@ -105,6 +199,16 @@ export default function TermSheet({ form, quote, onClose }: { form: DealForm; qu
                 <Line k={`Interest Reserve (${quote.reserveLabel})`} v={quote.interestReserve !== null ? fmtUsd(quote.interestReserve) : "—"} />
                 {quote.liquidityRequirement !== null && <Line k="Reserves (12 mo PITIA)" v={fmtUsd(quote.liquidityRequirement)} />}
               </TermBlock>
+              )}
+
+              {multi && (
+                <TermBlock title="Loan Terms" headCls={sectionHead}>
+                  <Line k="Program" v={quote.product.label} />
+                  <Line k="Purpose" v={purpose} />
+                  <Line k="Term" v={quote.product.termLabel} />
+                  {quote.liquidityRequirement !== null && <Line k="Reserves (12 mo PITIA)" v={fmtUsd(quote.liquidityRequirement)} />}
+                </TermBlock>
+              )}
 
               <TermBlock title="Borrower" headCls={sectionHead}>
                 <Line k="Name" v={form.borrowerName || "—"} />
@@ -147,8 +251,8 @@ export default function TermSheet({ form, quote, onClose }: { form: DealForm; qu
               </TermBlock>
             </div>
 
-            {/* Fees */}
-            <div className="mt-8">
+            {/* Fees — itemized for a single option; folded into the table when comparing */}
+            <div className="mt-8" style={multi ? { display: "none" } : undefined}>
               <h3 className={`text-xs font-semibold uppercase tracking-widest mb-2 ${sectionHead}`}>Estimated Fees</h3>
               <div className="grid sm:grid-cols-2 gap-x-10">
                 <dl className="divide-y divide-slate-100 text-sm">
@@ -165,7 +269,7 @@ export default function TermSheet({ form, quote, onClose }: { form: DealForm; qu
             </div>
 
             {/* Cash to close */}
-            {quote.cashToClose !== null && (
+            {!multi && quote.cashToClose !== null && (
               <div className="mt-6 rounded-xl bg-slate-50 border border-slate-200 p-4 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-semibold text-slate-700">
