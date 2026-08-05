@@ -662,12 +662,14 @@ export function priceDeal(input: QuoteInput): QuoteResult {
       const rank: Record<Ppp, number> = { ppp_5yr: 3, ppp_3yr: 2, ppp_1yr: 1, ppp_none: 0 };
       let effPpp: Ppp = input.ppp ?? "ppp_5yr";
       const pppRule = pppAllowance(input.propertyState, input.loanAmount, input.units);
+      // State overrides are surfaced as warnings (not quiet notes) — otherwise the
+      // PPP dropdown looks broken: changing it can't move the rate once forced.
       if (pppRule.allowance === "none" && effPpp !== "ppp_none") {
         effPpp = "ppp_none";
-        messages.push(`${pppRule.note} PPP set to none for compliance.`);
+        warnings.push(`${pppRule.note} PPP forced to "No prepay penalty" — the selected term is overridden and the rate reflects no-prepay pricing.`);
       } else if (pppRule.allowance === "cap_1pct" && rank[effPpp] > rank["ppp_1yr"]) {
         effPpp = "ppp_1yr";
-        messages.push(`${pppRule.note} PPP capped at 1-yr for compliance.`);
+        warnings.push(`${pppRule.note} PPP capped at 1-yr — the selected term is overridden and priced as 1-yr.`);
       }
       if (effPpp !== "ppp_5yr") addAdj(`PPP ${PPP_OPTIONS.find((p) => p.key === effPpp)!.label}`, { rate: PPP_ADJ[effPpp] });
       if (input.buydown && input.buydown > 0) {

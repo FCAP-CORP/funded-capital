@@ -657,13 +657,44 @@ function SelectField({ label, value, onChange, options }: { label: string; value
   );
 }
 
+/** 5% steps + tick marks + exact-entry box (see PricingClient for rationale). */
 function RangeField({ label, value, min, max, onChange, display }: { label: string; value: number; min: number; max: number; onChange: (n: number) => void; display: string }) {
+  const ticks: number[] = [];
+  for (let v = Math.ceil(min / 5) * 5; v <= max; v += 5) ticks.push(v);
+  const pos = (v: number) => (max > min ? ((v - min) / (max - min)) * 100 : 0);
+  const clamp = (n: number) => Math.max(min, Math.min(max, n));
+
   return (
     <div>
       <label className={labelCls}>
         {label} <span className="text-gold-600 font-semibold">({display})</span>
       </label>
-      <input type="range" min={min} max={max} step={1} value={value} onChange={(e) => onChange(+e.target.value)} className="w-full accent-gold-600 mt-2" />
+      <div className="flex items-center gap-3 mt-2">
+        <input type="range" min={min} max={max} step={5} value={value} onChange={(e) => onChange(clamp(+e.target.value))} className="flex-1 accent-gold-600" />
+        <div className="relative shrink-0">
+          <input
+            type="number"
+            min={min}
+            max={max}
+            value={value}
+            onChange={(e) => onChange(clamp(+e.target.value || min))}
+            className="w-[4.5rem] rounded-lg border border-slate-300 py-1.5 pl-2 pr-5 text-sm text-right text-slate-900 focus:outline-none focus:ring-2 focus:ring-gold-500 focus:border-gold-500"
+          />
+          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">%</span>
+        </div>
+      </div>
+      <div className="relative h-5 mr-[5.5rem]">
+        {ticks.map((v) => (
+          <span key={v} className={`absolute top-0 w-px ${v % 10 === 0 ? "h-2 bg-slate-300" : "h-1 bg-slate-200"}`} style={{ left: `${pos(v)}%` }} />
+        ))}
+        {ticks
+          .filter((v) => v % 10 === 0)
+          .map((v) => (
+            <span key={`l${v}`} className="absolute top-2 text-[10px] text-slate-400 -translate-x-1/2" style={{ left: `${pos(v)}%` }}>
+              {v}
+            </span>
+          ))}
+      </div>
     </div>
   );
 }

@@ -251,16 +251,16 @@ export function presetAlternatives(form: DealForm): OptionOverride[] {
   if (isBridge) {
     const cap = (isGU ? (form.permitsInHand ? 75 : 60) : 90) / 100;
     return [
-      { label: "Max Leverage", initialAdvancePct: cap, holdbackPct: 1 },
-      { label: "Lower Leverage", initialAdvancePct: Math.max(0.1, form.initialAdvancePct - 0.1), holdbackPct: form.holdbackPct },
+      { label: "Option 2", initialAdvancePct: cap, holdbackPct: 1 },
+      { label: "Option 3", initialAdvancePct: Math.max(0.1, form.initialAdvancePct - 0.1), holdbackPct: form.holdbackPct },
     ];
   }
   const ltvCap = isStab ? 0.7 : 0.85;
   return [
-    { label: "Max Leverage", targetLtvPct: Math.min(ltvCap, form.targetLtvPct + 0.05), buydown: 0 },
+    { label: "Option 2", targetLtvPct: Math.min(ltvCap, form.targetLtvPct + 0.05), buydown: 0 },
     isStab
-      ? { label: "Lower Leverage", targetLtvPct: Math.max(0.1, form.targetLtvPct - 0.1) }
-      : { label: "Lowest Rate", buydown: 0.01 },
+      ? { label: "Option 3", targetLtvPct: Math.max(0.1, form.targetLtvPct - 0.1) }
+      : { label: "Option 3", buydown: 0.01 },
   ];
 }
 
@@ -821,13 +821,24 @@ function MiniLine({ k, v }: { k: string; v: string }) {
 }
 
 function MiniRange({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
+  const clamp = (n: number) => Math.max(min, Math.min(max, n));
   return (
     <div>
-      <div className="flex justify-between text-[11px] mb-1">
+      <div className="flex justify-between items-center text-[11px] mb-1">
         <span className="text-slate-500">{label}</span>
-        <span className="font-semibold text-slate-800">{value}%</span>
+        <div className="relative">
+          <input
+            type="number"
+            min={min}
+            max={max}
+            value={value}
+            onChange={(e) => onChange(clamp(Number(e.target.value) || min))}
+            className="w-14 rounded border border-slate-300 py-0.5 pl-1 pr-4 text-[11px] text-right font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-gold-500"
+          />
+          <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">%</span>
+        </div>
       </div>
-      <input type="range" min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))} className="w-full accent-gold-600" />
+      <input type="range" min={min} max={max} step={5} value={value} onChange={(e) => onChange(clamp(Number(e.target.value)))} className="w-full accent-gold-600" />
     </div>
   );
 }
@@ -885,13 +896,61 @@ function SelectField({ label, value, onChange, options }: { label: string; value
   );
 }
 
+/**
+ * Percentage slider that snaps to 5% steps (the increments lenders actually
+ * quote), with tick marks, labelled gradations every 10%, and a number box for
+ * an exact value. Dragging alone made precise targets like 75% fiddly.
+ */
 function RangeField({ label, value, min, max, onChange, display }: { label: string; value: number; min: number; max: number; onChange: (n: number) => void; display: string }) {
+  const ticks: number[] = [];
+  for (let v = Math.ceil(min / 5) * 5; v <= max; v += 5) ticks.push(v);
+  const pos = (v: number) => (max > min ? ((v - min) / (max - min)) * 100 : 0);
+  const clamp = (n: number) => Math.max(min, Math.min(max, n));
+
   return (
     <div>
       <label className={labelCls}>
         {label} <span className="text-gold-600 font-semibold">({display})</span>
       </label>
-      <input type="range" min={min} max={max} step={1} value={value} onChange={(e) => onChange(+e.target.value)} className="w-full accent-gold-600 mt-2" />
+      <div className="flex items-center gap-3 mt-2">
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={5}
+          value={value}
+          onChange={(e) => onChange(clamp(+e.target.value))}
+          className="flex-1 accent-gold-600"
+        />
+        <div className="relative shrink-0">
+          <input
+            type="number"
+            min={min}
+            max={max}
+            value={value}
+            onChange={(e) => onChange(clamp(+e.target.value || min))}
+            className="w-[4.5rem] rounded-lg border border-slate-300 py-1.5 pl-2 pr-5 text-sm text-right text-slate-900 focus:outline-none focus:ring-2 focus:ring-gold-500 focus:border-gold-500"
+          />
+          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">%</span>
+        </div>
+      </div>
+      {/* tick marks every 5%, labelled every 10% */}
+      <div className="relative h-5 mr-[5.5rem]">
+        {ticks.map((v) => (
+          <span
+            key={v}
+            className={`absolute top-0 w-px ${v % 10 === 0 ? "h-2 bg-slate-300" : "h-1 bg-slate-200"}`}
+            style={{ left: `${pos(v)}%` }}
+          />
+        ))}
+        {ticks
+          .filter((v) => v % 10 === 0)
+          .map((v) => (
+            <span key={`l${v}`} className="absolute top-2 text-[10px] text-slate-400 -translate-x-1/2" style={{ left: `${pos(v)}%` }}>
+              {v}
+            </span>
+          ))}
+      </div>
     </div>
   );
 }
