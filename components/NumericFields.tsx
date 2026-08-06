@@ -144,3 +144,94 @@ export function PercentField({
     </div>
   );
 }
+
+/**
+ * Small percent box that sits beside a slider.
+ *
+ * Clamping on every keystroke made this unusable: typing "75" clamped the "7"
+ * up to the minimum before the "5" arrived, so the field fought the user.
+ *
+ * Rules:
+ *  - Free text while focused; clamped on blur / Enter (Esc reverts).
+ *  - Committed *live* when the typed value already sits inside [min,max], so the
+ *    native up/down arrows still respond instantly.
+ *  - Decimals accepted ("72.5") and rounded on commit — stays a whole percent.
+ */
+export function PctInput({
+  value,
+  min,
+  max,
+  onCommit,
+  className = "",
+}: {
+  value: number;
+  min: number;
+  max: number;
+  onCommit: (n: number) => void;
+  className?: string;
+}) {
+  const [draft, setDraft] = useState(String(value));
+  const [focused, setFocused] = useState(false);
+
+  // Follow external changes (slider drags, preset resets) unless mid-edit.
+  useEffect(() => {
+    if (!focused) setDraft(String(value));
+  }, [value, focused]);
+
+  const parse = (s: string): number | null => {
+    if (s.trim() === "" || s === "." ) return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const commit = () => {
+    const n = parse(draft);
+    if (n === null) {
+      setDraft(String(value)); // junk/empty → revert
+      return;
+    }
+    const clamped = Math.max(min, Math.min(max, Math.round(n)));
+    setDraft(String(clamped));
+    onCommit(clamped);
+  };
+
+  const handleChange = (raw: string) => {
+    // digits + a single decimal point
+    const cleaned = raw.replace(/[^\d.]/g, "").replace(/(\..*)\./g, "$1");
+    setDraft(cleaned);
+    // Already a legal value? Commit live so the spinner arrows feel instant.
+    const n = parse(cleaned);
+    if (n !== null && n >= min && n <= max) onCommit(Math.round(n));
+  };
+
+  return (
+    <div className="relative shrink-0">
+      <input
+        type="number"
+        inputMode="decimal"
+        min={min}
+        max={max}
+        step={1}
+        value={draft}
+        onFocus={(e) => {
+          setFocused(true);
+          e.currentTarget.select();
+        }}
+        onChange={(e) => handleChange(e.target.value)}
+        onBlur={() => {
+          setFocused(false);
+          commit();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            setDraft(String(value));
+            e.currentTarget.blur();
+          }
+        }}
+        className={className}
+      />
+      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">%</span>
+    </div>
+  );
+}

@@ -24,7 +24,7 @@ import {
   type PortfolioInput,
 } from "@/lib/pricing";
 import PortfolioTermSheet from "./PortfolioTermSheet";
-import { MoneyField as NumberField, PercentField as NumberPlainField, MoneyField } from "@/components/NumericFields";
+import { MoneyField as NumberField, PercentField as NumberPlainField, MoneyField, PctInput } from "@/components/NumericFields";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 import { CashToCloseCard, RateBreakdown, RateLadder } from "@/components/QuoteExtras";
 
@@ -671,17 +671,13 @@ function RangeField({ label, value, min, max, onChange, display }: { label: stri
       </label>
       <div className="flex items-center gap-3 mt-2">
         <input type="range" min={min} max={max} step={5} value={value} onChange={(e) => onChange(clamp(+e.target.value))} className="flex-1 accent-gold-600" />
-        <div className="relative shrink-0">
-          <input
-            type="number"
-            min={min}
-            max={max}
-            value={value}
-            onChange={(e) => onChange(clamp(+e.target.value || min))}
-            className="w-[4.5rem] rounded-lg border border-slate-300 py-1.5 pl-2 pr-5 text-sm text-right text-slate-900 focus:outline-none focus:ring-2 focus:ring-gold-500 focus:border-gold-500"
-          />
-          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">%</span>
-        </div>
+        <PctInput
+          value={value}
+          min={min}
+          max={max}
+          onCommit={onChange}
+          className="w-[4.5rem] rounded-lg border border-slate-300 py-1.5 pl-2 pr-5 text-sm text-right text-slate-900 focus:outline-none focus:ring-2 focus:ring-gold-500 focus:border-gold-500"
+        />
       </div>
       <div className="relative h-5 mr-[5.5rem]">
         {ticks.map((v) => (

@@ -27,7 +27,7 @@ import {
   type QuoteInput,
 } from "@/lib/pricing";
 import TermSheet from "./TermSheet";
-import { MoneyField as NumberField, PercentField as NumberPlainField } from "@/components/NumericFields";
+import { MoneyField as NumberField, PercentField as NumberPlainField, PctInput } from "@/components/NumericFields";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 import { CashToCloseCard, RateBreakdown, RateLadder } from "@/components/QuoteExtras";
 
@@ -826,17 +826,13 @@ function MiniRange({ label, value, min, max, onChange }: { label: string; value:
     <div>
       <div className="flex justify-between items-center text-[11px] mb-1">
         <span className="text-slate-500">{label}</span>
-        <div className="relative">
-          <input
-            type="number"
-            min={min}
-            max={max}
-            value={value}
-            onChange={(e) => onChange(clamp(Number(e.target.value) || min))}
-            className="w-14 rounded border border-slate-300 py-0.5 pl-1 pr-4 text-[11px] text-right font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-gold-500"
-          />
-          <span className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">%</span>
-        </div>
+        <PctInput
+          value={value}
+          min={min}
+          max={max}
+          onCommit={onChange}
+          className="w-14 rounded border border-slate-300 py-0.5 pl-1 pr-4 text-[11px] text-right font-semibold text-slate-800 focus:outline-none focus:ring-1 focus:ring-gold-500"
+        />
       </div>
       <input type="range" min={min} max={max} step={5} value={value} onChange={(e) => onChange(clamp(Number(e.target.value)))} className="w-full accent-gold-600" />
     </div>
@@ -922,17 +918,13 @@ function RangeField({ label, value, min, max, onChange, display }: { label: stri
           onChange={(e) => onChange(clamp(+e.target.value))}
           className="flex-1 accent-gold-600"
         />
-        <div className="relative shrink-0">
-          <input
-            type="number"
-            min={min}
-            max={max}
-            value={value}
-            onChange={(e) => onChange(clamp(+e.target.value || min))}
-            className="w-[4.5rem] rounded-lg border border-slate-300 py-1.5 pl-2 pr-5 text-sm text-right text-slate-900 focus:outline-none focus:ring-2 focus:ring-gold-500 focus:border-gold-500"
-          />
-          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">%</span>
-        </div>
+        <PctInput
+          value={value}
+          min={min}
+          max={max}
+          onCommit={onChange}
+          className="w-[4.5rem] rounded-lg border border-slate-300 py-1.5 pl-2 pr-5 text-sm text-right text-slate-900 focus:outline-none focus:ring-2 focus:ring-gold-500 focus:border-gold-500"
+        />
       </div>
       {/* tick marks every 5%, labelled every 10% */}
       <div className="relative h-5 mr-[5.5rem]">
