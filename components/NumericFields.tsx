@@ -163,12 +163,15 @@ export function PctInput({
   max,
   onCommit,
   className = "",
+  unit = "%",
 }: {
   value: number;
   min: number;
   max: number;
   onCommit: (n: number) => void;
   className?: string;
+  /** "" for unitless values like a credit score. */
+  unit?: string;
 }) {
   const [draft, setDraft] = useState(String(value));
   const [focused, setFocused] = useState(false);
@@ -231,7 +234,9 @@ export function PctInput({
         }}
         className={className}
       />
-      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">%</span>
+      {unit && (
+        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">{unit}</span>
+      )}
     </div>
   );
 }

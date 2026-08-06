@@ -25,6 +25,7 @@ import {
 } from "@/lib/pricing";
 import PortfolioTermSheet from "./PortfolioTermSheet";
 import { MoneyField as NumberField, PercentField as NumberPlainField, MoneyField, PctInput } from "@/components/NumericFields";
+import { gradationStep } from "../PricingClient";
 import AddressAutocomplete from "@/components/AddressAutocomplete";
 import { CashToCloseCard, RateBreakdown, RateLadder } from "@/components/QuoteExtras";
 
@@ -224,7 +225,7 @@ export default function PortfolioClient() {
               options={EXPERIENCE_BUCKETS.map((b, i) => ({ value: String(i), label: `${b} (Tier ${i + 1})` }))}
             />
             <div className="grid sm:grid-cols-2 gap-4">
-              <RangeField label="Estimated credit score (mid)" value={form.fico} min={600} max={800} onChange={(v) => set("fico", v)} display={String(form.fico)} />
+              <RangeField label="Estimated credit score (mid)" value={form.fico} min={600} max={800} onChange={(v) => set("fico", v)} display={String(form.fico)} unit="" step={5} />
               <SelectField
                 label="Residency status"
                 value={form.residency}
@@ -657,12 +658,31 @@ function SelectField({ label, value, onChange, options }: { label: string; value
   );
 }
 
-/** 5% steps + tick marks + exact-entry box (see PricingClient for rationale). */
-function RangeField({ label, value, min, max, onChange, display }: { label: string; value: number; min: number; max: number; onChange: (n: number) => void; display: string }) {
+/** Adaptive tick density + exact-entry box (see PricingClient for rationale). */
+function RangeField({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+  display,
+  unit = "%",
+  step = 5,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (n: number) => void;
+  display: string;
+  unit?: string;
+  step?: number;
+}) {
+  const major = gradationStep(min, max);
+  const minor = Math.max(1, major / 2);
   const ticks: number[] = [];
-  for (let v = Math.ceil(min / 5) * 5; v <= max; v += 5) ticks.push(v);
+  for (let v = Math.ceil(min / minor) * minor; v <= max; v += minor) ticks.push(v);
   const pos = (v: number) => (max > min ? ((v - min) / (max - min)) * 100 : 0);
-  const clamp = (n: number) => Math.max(min, Math.min(max, n));
 
   return (
     <div>
@@ -670,21 +690,30 @@ function RangeField({ label, value, min, max, onChange, display }: { label: stri
         {label} <span className="text-gold-600 font-semibold">({display})</span>
       </label>
       <div className="flex items-center gap-3 mt-2">
-        <input type="range" min={min} max={max} step={5} value={value} onChange={(e) => onChange(clamp(+e.target.value))} className="flex-1 accent-gold-600" />
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(Math.max(min, Math.min(max, +e.target.value)))}
+          className="flex-1 accent-gold-600"
+        />
         <PctInput
           value={value}
           min={min}
           max={max}
           onCommit={onChange}
-          className="w-[4.5rem] rounded-lg border border-slate-300 py-1.5 pl-2 pr-5 text-sm text-right text-slate-900 focus:outline-none focus:ring-2 focus:ring-gold-500 focus:border-gold-500"
+          unit={unit}
+          className={`w-[4.5rem] rounded-lg border border-slate-300 py-1.5 pl-2 ${unit ? "pr-5" : "pr-2"} text-sm text-right text-slate-900 focus:outline-none focus:ring-2 focus:ring-gold-500 focus:border-gold-500`}
         />
       </div>
       <div className="relative h-5 mr-[5.5rem]">
         {ticks.map((v) => (
-          <span key={v} className={`absolute top-0 w-px ${v % 10 === 0 ? "h-2 bg-slate-300" : "h-1 bg-slate-200"}`} style={{ left: `${pos(v)}%` }} />
+          <span key={v} className={`absolute top-0 w-px ${v % major === 0 ? "h-2 bg-slate-300" : "h-1 bg-slate-200"}`} style={{ left: `${pos(v)}%` }} />
         ))}
         {ticks
-          .filter((v) => v % 10 === 0)
+          .filter((v) => v % major === 0)
           .map((v) => (
             <span key={`l${v}`} className="absolute top-2 text-[10px] text-slate-400 -translate-x-1/2" style={{ left: `${pos(v)}%` }}>
               {v}
