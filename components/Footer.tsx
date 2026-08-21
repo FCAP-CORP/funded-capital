@@ -23,7 +23,7 @@ const footerLinks = {
 };
 
 export default function Footer() {
-  const currentYear = 2025;
+  const currentYear = new Date().getFullYear();
 
   return (
     <footer className="bg-navy-900 text-slate-300">

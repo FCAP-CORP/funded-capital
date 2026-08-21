@@ -2,16 +2,18 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, AlertTriangle } from "lucide-react";
 import SmsConsentField from "@/components/SmsConsentField";
 
 export default function ContactForm() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(false);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setSubmitting(true);
+    setError(false);
     const form = e.currentTarget;
     const data = new FormData(form);
     // Routed through our own API so the server can capture the real IP,
@@ -21,12 +23,21 @@ export default function ContactForm() {
       "consent_page_url",
       typeof window !== "undefined" ? window.location.href : ""
     );
-    await fetch("/api/lead", {
-      method: "POST",
-      body: data,
-      headers: { Accept: "application/json" },
-    });
-    router.push("/thank-you");
+    // Only show the thank-you page when the lead actually went through.
+    // A failed submission keeps the visitor's answers on screen and shows
+    // a direct phone/email fallback so the lead is never silently lost.
+    try {
+      const res = await fetch("/api/lead", {
+        method: "POST",
+        body: data,
+        headers: { Accept: "application/json" },
+      });
+      if (!res.ok) throw new Error(`lead submit failed: ${res.status}`);
+      router.push("/thank-you");
+    } catch {
+      setError(true);
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -77,8 +88,26 @@ export default function ContactForm() {
           <textarea id="message" name="message" required rows={5} className="form-input resize-none" placeholder="Tell us about your deal or question..." />
         </div>
 
+        {error && (
+          <div className="flex items-start gap-3 rounded-xl bg-red-50 border border-red-200 p-4" role="alert">
+            <AlertTriangle size={18} className="text-red-600 shrink-0 mt-0.5" />
+            <p className="text-sm text-red-800 leading-relaxed">
+              Something went wrong sending your message — your answers are still
+              here. Please try again, or reach us directly at{" "}
+              <a href="tel:+13058575620" className="font-semibold underline">
+                +1 (305) 857-5620
+              </a>{" "}
+              or{" "}
+              <a href="mailto:processing@fundedcapital.com" className="font-semibold underline">
+                processing@fundedcapital.com
+              </a>
+              .
+            </p>
+          </div>
+        )}
+
         <button type="submit" disabled={submitting} className="btn-primary w-full justify-center text-base py-4">
-          {submitting ? "Sending..." : "Send Message"}
+          {submitting ? "Sending..." : error ? "Try Again" : "Send Message"}
           {!submitting && <ArrowRight size={16} />}
         </button>
 
