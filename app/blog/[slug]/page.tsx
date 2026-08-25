@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MDXRemote } from "next-mdx-remote/rsc";
 import remarkGfm from "remark-gfm";
-import { ArrowRight, ArrowLeft, Clock, Tag } from "lucide-react";
+import { ArrowRight, ArrowLeft, Clock, Tag, UserRound } from "lucide-react";
 import { getAllSlugs, getPostBySlug } from "@/lib/blog";
 
 interface Props {
@@ -27,6 +27,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       description: post.description,
       type: "article",
       publishedTime: post.date,
+      modifiedTime: post.updated,
+      authors: [post.author],
     },
   };
 }
@@ -81,13 +83,20 @@ export default async function BlogPostPage({ params }: Props) {
   const post = getPostBySlug(slug);
   if (!post) notFound();
 
-  const schemaData = {
+  const articleSchema = {
     "@context": "https://schema.org",
     "@type": "Article",
     "headline": post.title,
     "description": post.description,
     "datePublished": post.date,
-    "author": { "@type": "Organization", "name": "Funded Capital" },
+    "dateModified": post.updated || post.date,
+    "author": {
+      "@type": "Person",
+      "name": post.author,
+      "jobTitle": post.authorTitle,
+      "url": "https://www.fundedcapital.com/about",
+      "worksFor": { "@type": "Organization", "name": "Funded Capital" },
+    },
     "publisher": {
       "@type": "Organization",
       "name": "Funded Capital",
@@ -96,6 +105,21 @@ export default async function BlogPostPage({ params }: Props) {
     },
     "mainEntityOfPage": `https://www.fundedcapital.com/blog/${slug}`,
   };
+
+  const faqSchema =
+    post.faq.length > 0
+      ? {
+          "@context": "https://schema.org",
+          "@type": "FAQPage",
+          "mainEntity": post.faq.map((item) => ({
+            "@type": "Question",
+            "name": item.q,
+            "acceptedAnswer": { "@type": "Answer", "text": item.a },
+          })),
+        }
+      : null;
+
+  const schemaData = faqSchema ? [articleSchema, faqSchema] : [articleSchema];
 
   return (
     <>
@@ -123,7 +147,12 @@ export default async function BlogPostPage({ params }: Props) {
           <h1 className="text-3xl lg:text-4xl font-bold text-white leading-tight">
             {post.title}
           </h1>
-          <div className="flex items-center gap-4 mt-4 text-slate-400 text-sm">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-4 text-slate-400 text-sm">
+            <span className="flex items-center gap-1.5">
+              <UserRound size={14} className="text-gold-500" />
+              <span className="text-slate-300 font-medium">{post.author}</span>
+              <span className="hidden sm:inline text-slate-500">· {post.authorTitle}</span>
+            </span>
             <span className="flex items-center gap-1.5">
               <Clock size={14} />
               {post.readTime}
@@ -151,6 +180,45 @@ export default async function BlogPostPage({ params }: Props) {
                 components={mdxComponents}
                 options={{ mdxOptions: { remarkPlugins: [remarkGfm] } }}
               />
+
+              {/* FAQ — rendered from frontmatter so it always matches the FAQPage schema */}
+              {post.faq.length > 0 && (
+                <section className="mt-12 pt-8 border-t border-slate-100">
+                  <h2 className="text-2xl font-bold text-navy-900 mb-6">
+                    Frequently Asked Questions
+                  </h2>
+                  <div className="flex flex-col gap-3">
+                    {post.faq.map((item) => (
+                      <details
+                        key={item.q}
+                        className="group rounded-2xl border border-slate-200 bg-slate-50 open:bg-white transition-colors"
+                      >
+                        <summary className="cursor-pointer list-none px-5 py-4 font-semibold text-navy-900 flex items-start justify-between gap-4">
+                          <span>{item.q}</span>
+                          <span className="text-gold-600 shrink-0 transition-transform group-open:rotate-45 text-xl leading-none mt-0.5">
+                            +
+                          </span>
+                        </summary>
+                        <p className="px-5 pb-5 text-slate-600 leading-relaxed">{item.a}</p>
+                      </details>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Author byline card */}
+              <div className="mt-10 flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-navy-900 text-gold-500">
+                  <UserRound size={22} />
+                </div>
+                <div>
+                  <p className="font-semibold text-navy-900 leading-tight">{post.author}</p>
+                  <p className="text-sm text-slate-500 leading-snug">
+                    {post.authorTitle} · Lending to real estate investors nationwide — $500M+
+                    funded across 1,200+ deals.
+                  </p>
+                </div>
+              </div>
             </article>
 
             {/* Sidebar */}

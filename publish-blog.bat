@@ -2,9 +2,10 @@
 REM ==========================================================
 REM  Funded Capital - auto-commit & push new blog articles
 REM  Double-click to run, or schedule via Windows Task Scheduler.
+REM  (Path updated 2026-08-24 for the new machine.)
 REM ==========================================================
 
-cd /d "C:\Users\luisf\Documents\Claude\Projects\Lead Performance Architect\funded-capital"
+cd /d "C:\Users\luis\repos\funded-capital"
 
 REM Only stage blog content so unrelated edits don't get swept in
 git add content/blog
@@ -24,4 +25,5 @@ git push origin main
 echo Done. New articles pushed live.
 
 :end
-pause
+REM Short wait instead of pause, so Task Scheduler runs never hang
+timeout /t 5 >nul
