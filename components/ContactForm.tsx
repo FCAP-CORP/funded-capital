@@ -1,14 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, AlertTriangle } from "lucide-react";
 import SmsConsentField from "@/components/SmsConsentField";
+import { trackFormStart, trackLead, trackLeadError } from "@/lib/analytics";
 
 export default function ContactForm() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(false);
+  const startedRef = useRef(false);
+
+  /** Fires once, the first time the visitor touches any field. */
+  function handleFirstInteraction() {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    trackFormStart("contact");
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -16,6 +25,7 @@ export default function ContactForm() {
     setError(false);
     const form = e.currentTarget;
     const data = new FormData(form);
+    let reported = false;
     // Routed through our own API so the server can capture the real IP,
     // a trustworthy timestamp, and the exact consent language as proof.
     data.append("formType", "contact");
@@ -32,9 +42,21 @@ export default function ContactForm() {
         body: data,
         headers: { Accept: "application/json" },
       });
-      if (!res.ok) throw new Error(`lead submit failed: ${res.status}`);
+      if (!res.ok) {
+        // `reported` keeps the failure from being counted twice: this throw is
+        // caught below, which is also where a network error lands.
+        reported = true;
+        trackLeadError("contact", res.status);
+        throw new Error(`lead submit failed: ${res.status}`);
+      }
+      // Recorded only after the server confirms capture.
+      trackLead("contact", {
+        loanType: String(data.get("subject") ?? ""),
+        smsConsent: data.get("smsConsent") != null,
+      });
       router.push("/thank-you");
     } catch {
+      if (!reported) trackLeadError("contact", "network");
       setError(true);
       setSubmitting(false);
     }
@@ -45,7 +67,11 @@ export default function ContactForm() {
       <h2 className="text-xl font-bold text-navy-900 mb-6">
         Send Us a Message
       </h2>
-      <form className="flex flex-col gap-5" onSubmit={handleSubmit}>
+      <form
+        className="flex flex-col gap-5"
+        onSubmit={handleSubmit}
+        onFocusCapture={handleFirstInteraction}
+      >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="firstName" className="form-label">First Name *</label>

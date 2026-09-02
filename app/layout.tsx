@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import "./globals.css";
 import SiteChrome from "@/components/SiteChrome";
+import Analytics from "@/components/Analytics";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://fundedcapital.com"),
@@ -68,6 +69,13 @@ export default function RootLayout({
             <SiteChrome>{children}</SiteChrome>
           </ClerkProvider>
         </Suspense>
+        {/*
+          Measurement. Sits outside the Clerk boundary on purpose: analytics
+          must not depend on auth resolving, and must still record the visit if
+          that boundary ever fails. Loaded lazily, so it costs nothing before
+          the page is usable.
+        */}
+        <Analytics />
       </body>
     </html>
   );

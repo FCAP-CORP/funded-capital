@@ -43,7 +43,59 @@ export interface ProductMeta {
 
 // ---------- Confirmed rate tables ----------
 
+/** Posted base by tier — Fix & Flip (and the bridge-billed Stabilized Bridge). */
 const BRIDGE_POSTED_BASE: Record<number, number> = { 1: 0.0999, 2: 0.0975, 3: 0.095, 4: 0.09, 5: 0.0875 };
+
+/**
+ * NEW CONSTRUCTION (GROUND-UP) RATE CARD
+ * Confirmed by Luis 2026-09-01 against the internal committee portal breakdown.
+ *
+ * Ground-Up does NOT price off a per-tier posted base the way Fix & Flip does.
+ * It starts from ONE base rate and prices experience as an adjuster, alongside
+ * FICO, LTFC leverage, term and construction budget. It does NOT use the shared
+ * ARLTV leverage grid or the loan-size grid.
+ *
+ * Worked example (272 Brahman Trail, Tier 4, FICO 720, LTFC 84.83%, 12 mo,
+ * $370K budget):  9.99 − 0.50 + 0.20 = 9.69%.
+ */
+const GU_BASE_RATE = 0.0999;
+
+/**
+ * Experience adjuster. Tier 4 anchors at −0.50% and each tier BELOW adds
+ * +0.75% (Tier 3 = +0.25%) — both confirmed by Luis.
+ *
+ * Tier 5 at −1.25% extends the same 0.75% step upward and is INFERRED, not
+ * confirmed. Sanity check: it lands at 8.74%, one basis point under the 8.75%
+ * bridge floor, so BRIDGE_FLOOR clamps it — which suggests the step is right.
+ */
+const GU_EXPERIENCE_ADJ: Record<number, number> = {
+  1: 0.0175,
+  2: 0.01,
+  3: 0.0025,
+  4: -0.005,
+  5: -0.0125,
+};
+
+/** Ground-Up FICO grid. 720 = 0% confirmed; 680–699 +0.25%; 660–679 +0.50%. */
+function guFicoAdj(fico: number): Adj {
+  if (fico >= 700) return { rate: 0 };
+  if (fico >= 680) return { rate: 0.0025 };
+  return { rate: 0.005 };
+}
+
+/** Ground-Up leverage is priced on LTFC, not ARLTV. 80–85% adds 0.20%. */
+function guLeverageAdj(ltfc: number): Adj {
+  return ltfc >= 0.8 - 1e-9 ? { rate: 0.002 } : { rate: 0 };
+}
+
+/** Construction budget over $999K adds 0.25%. */
+function guBudgetAdj(budget: number): Adj {
+  return budget > 999_000 ? { rate: 0.0025 } : { rate: 0 };
+}
+
+/** Ground-Up 18–24 month term adds 0.50% (Fix & Flip adds 0.25%). */
+const GU_EXTENDED_TERM_ADJ = 0.005;
+
 const BRIDGE_FLOOR = 0.0875;
 
 /**
@@ -90,6 +142,27 @@ const FEES: Record<"bridge" | "dscr", Record<number, { processing: number; under
     4: { processing: 695, underwriting: 1295 },
     5: { processing: 0, underwriting: 1295 },
   },
+};
+
+/**
+ * Ground-Up origination, re-mapped to the GU tier scale (Luis 2026-09-01).
+ * The committee quote for a 5-build borrower — new Tier 4 — charged 1.75%
+ * retail, so the old Tier 5 pricing shifts down one rung and the new Tier 5
+ * (20+ builds) takes a further step.
+ * NOTE: Tier 5 retail 1.50% / Tier 5 fees are INFERRED, not confirmed by Luis.
+ */
+const GU_ORIGINATION: Record<Channel, Record<number, number>> = {
+  retail: { 1: 0.0275, 2: 0.025, 3: 0.0225, 4: 0.0175, 5: 0.015 },
+  tpo: { 1: 0.015, 2: 0.01, 3: 0.01, 4: 0.01, 5: 0.01 },
+};
+
+/** Ground-Up processing/underwriting, re-mapped to the GU tier scale. */
+const GU_FEES: Record<number, { processing: number; underwriting: number }> = {
+  1: { processing: 1250, underwriting: 1995 },
+  2: { processing: 1250, underwriting: 1995 },
+  3: { processing: 995, underwriting: 1695 },
+  4: { processing: 0, underwriting: 995 },
+  5: { processing: 0, underwriting: 995 },
 };
 
 export const THIRD_PARTY_FEES = {
@@ -238,6 +311,22 @@ export const RESIDENCY_ADJ: Record<ResidencyKey, number> = {
 export const PROPERTY_UNIT_OPTIONS = ["1", "2", "3", "4"];
 
 export const EXPERIENCE_BUCKETS = ["0", "1–2", "3–4", "5–9", "10+"];
+
+/**
+ * Ground-Up runs its own experience scale (Luis 2026-09-01), counted in
+ * COMPLETED GROUND-UP BUILDS — not general investment properties:
+ *   Tier 1  none   -> decline unless the borrower holds a GC license
+ *   Tier 2  1–2
+ *   Tier 3  3–4
+ *   Tier 4  5–19  -> unlocks 75% ARLTV
+ *   Tier 5  20+
+ */
+export const GU_EXPERIENCE_BUCKETS = ["0", "1–2", "3–4", "5–19", "20+"];
+
+/** The experience dropdown for a given product. */
+export function experienceBucketsFor(product: ProductKey): string[] {
+  return product === "new_construction" ? GU_EXPERIENCE_BUCKETS : EXPERIENCE_BUCKETS;
+}
 
 export const LOAN_PURPOSE_OPTIONS: { key: LoanPurpose; label: string }[] = [
   { key: "purchase", label: "Purchase" },
@@ -403,13 +492,29 @@ export function pppAllowance(
 
 export const CAPS = {
   fix_and_flip: { arltv: 0.75 },
-  new_construction: { arltv: 0.7, ltfc: 0.85, ltfcFinancedIR: 0.9 },
+  new_construction: {
+    arltv: 0.7, // Tiers 1-3
+    arltvTier4Plus: 0.75, // Tier 4+ (5+ completed builds) — Luis 2026-09-01
+    ltfc: 0.85, // construction dollars
+    ltfcWithIR: 0.9, // the extra 5% may fund the INTEREST RESERVE ONLY
+  },
   dscr: { purchase: 0.8, cashOut: 0.75, minDscr: 1.05 },
 };
 
+/** Max ARLTV on a Ground-Up deal at a given tier. Tier 4+ earns 75%. */
+export function guArltvCap(tier: number): number {
+  return tier >= 4 ? CAPS.new_construction.arltvTier4Plus : CAPS.new_construction.arltv;
+}
+
 // ---------- Tier logic ----------
 
-export function deriveTier(experienceBucket: number, licensedAgentOrGc: boolean): number {
+export function deriveTier(experienceBucket: number, licensedAgentOrGc: boolean, product?: ProductKey): number {
+  // Ground-Up: the bucket IS the tier, counted in completed ground-up builds.
+  // A GC license does NOT promote a Ground-Up tier — it only rescues Tier 1
+  // from an automatic decline (see the Ground-Up gate). Luis 2026-09-01.
+  if (product === "new_construction") {
+    return Math.max(1, Math.min(5, experienceBucket + 1));
+  }
   let tier = Math.max(1, Math.min(5, experienceBucket + 1));
   if (licensedAgentOrGc) {
     tier = Math.max(tier, 2);
@@ -560,7 +665,7 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   const messages: string[] = [];
   const warnings: string[] = [];
   const blockers: Blocker[] = [];
-  const tier = deriveTier(input.experienceBucket, input.licensedAgentOrGc);
+  const tier = deriveTier(input.experienceBucket, input.licensedAgentOrGc, input.product);
 
   const breakdown: { label: string; value: number }[] = [];
   let sumAdj = 0;
@@ -583,6 +688,8 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   let initialLoan = input.loanAmount;
   let holdback = 0;
   let dscrPitiaMonthly = 0;
+  /** Ground-Up: dollars of LTFC headroom reserved for a financed interest reserve. */
+  let guIrHeadroom = 0;
 
   const purchase = input.purchasePrice ?? 0;
   const sunk = input.sunkCosts ?? 0;
@@ -609,13 +716,22 @@ export function priceDeal(input: QuoteInput): QuoteResult {
     const initCap = initialAdvanceCap(product.key, tier, input.fico, input.permitsInHand ?? true);
 
     if (isGU) {
-      const ltfcCapPct = input.financedInterestReserve ? CAPS.new_construction.ltfcFinancedIR : CAPS.new_construction.ltfc;
+      // LTFC is 85% of full cost for CONSTRUCTION DOLLARS. A financed interest
+      // reserve rides ON TOP, up to a further 5% of full cost — and that extra
+      // 5% funds the reserve only, never more build budget. This corrects the
+      // old rule, which swung the whole cap to 90% and let the extra 5% buy
+      // construction. Luis 2026-09-01.
+      const ltfcHardCap = CAPS.new_construction.ltfc * fullCost;
+      guIrHeadroom = input.financedInterestReserve
+        ? (CAPS.new_construction.ltfcWithIR - CAPS.new_construction.ltfc) * fullCost
+        : 0;
+      const arltvCapPct = guArltvCap(tier);
       primaryRatio = ltfcVal;
       primaryRatioLabel = "LTFC";
       arltv = arltvVal;
       ltfc = ltfcVal;
-      maxLoan = Math.min(initCap * costBasis + build, CAPS.new_construction.arltv * arvVal, ltfcCapPct * fullCost);
-      capMessage = `exceeds the lesser of 70% ARLTV (${fmtUsd(CAPS.new_construction.arltv * arvVal)}) or ${(ltfcCapPct * 100).toFixed(0)}% LTFC (${fmtUsd(ltfcCapPct * fullCost)})`;
+      maxLoan = Math.min(initCap * costBasis + build, arltvCapPct * arvVal, ltfcHardCap);
+      capMessage = `exceeds the lesser of ${(arltvCapPct * 100).toFixed(0)}% ARLTV (${fmtUsd(arltvCapPct * arvVal)}) or ${(CAPS.new_construction.ltfc * 100).toFixed(0)}% LTFC (${fmtUsd(ltfcHardCap)})`;
     } else {
       primaryRatio = arltvVal;
       primaryRatioLabel = "ARLTV";
@@ -625,9 +741,19 @@ export function priceDeal(input: QuoteInput): QuoteResult {
       capMessage = `exceeds the 75% ARLTV max of ${fmtUsd(CAPS.fix_and_flip.arltv * arvVal)}`;
     }
 
-    if (arvVal > 0) addAdj(`Leverage (ARLTV ${(arltvVal * 100).toFixed(1)}%)`, leverageAdj(arltvVal));
-    if (input.extendedTerm) addAdj("18–24 mo term", { rate: 0.0025 });
-    if (isGU && input.permitsInHand === false) addAdj("Permits not approved (Ground-Up)", { rate: 0.005 });
+    if (isGU) {
+      // Ground-Up prices off its own card: experience, FICO, LTFC leverage,
+      // term and construction budget. The shared ARLTV-leverage and loan-size
+      // grids do NOT apply. Luis 2026-09-01.
+      addAdj(`Experience Tier ${tier}`, { rate: GU_EXPERIENCE_ADJ[tier] });
+      addAdj(`Leverage (LTFC ${(ltfcVal * 100).toFixed(2)}%)`, guLeverageAdj(ltfcVal));
+      addAdj(`Construction budget ${fmtUsd(budgetTotal)}`, guBudgetAdj(budgetTotal));
+      if (input.extendedTerm) addAdj("18–24 mo term", { rate: GU_EXTENDED_TERM_ADJ });
+      if (input.permitsInHand === false) addAdj("Permits not approved (Ground-Up)", { rate: 0.005 });
+    } else {
+      if (arvVal > 0) addAdj(`Leverage (ARLTV ${(arltvVal * 100).toFixed(1)}%)`, leverageAdj(arltvVal));
+      if (input.extendedTerm) addAdj("18–24 mo term", { rate: 0.0025 });
+    }
   } else {
     const asIs = input.asIsValue ?? purchase;
     const basisValue = input.loanPurpose === "purchase" ? Math.min(purchase || Infinity, asIs || Infinity) : asIs;
@@ -682,9 +808,13 @@ export function priceDeal(input: QuoteInput): QuoteResult {
     (product as ProductMeta & { _basisValue?: number })._basisValue = value;
   }
 
-  addAdj(`FICO ${input.fico}`, ficoAdj(input.fico));
-  addAdj(`Loan size ${fmtUsd(input.loanAmount)}`, loanSizeAdj(input.loanAmount));
-  if (input.units >= 2) addAdj("2–4 units", { rate: 0.0025 });
+  addAdj(`FICO ${input.fico}`, isGU ? guFicoAdj(input.fico) : ficoAdj(input.fico));
+  if (!isGU) {
+    // Ground-Up replaces the loan-size grid with the construction-budget row
+    // and carries no unit-count adjuster on its card.
+    addAdj(`Loan size ${fmtUsd(input.loanAmount)}`, loanSizeAdj(input.loanAmount));
+    if (input.units >= 2) addAdj("2–4 units", { rate: 0.0025 });
+  }
   if (input.rural) addAdj("Rural / stretch market", { rate: 0.005, maxLtv: -0.05 });
   if (input.residency && input.residency !== "us_citizen" && input.residency !== "permanent_resident") {
     const label = RESIDENCY_OPTIONS.find((r) => r.key === input.residency)!.label;
@@ -706,7 +836,9 @@ export function priceDeal(input: QuoteInput): QuoteResult {
 
   const base =
     family === "bridge"
-      ? BRIDGE_POSTED_BASE[tier]
+      ? isGU
+        ? GU_BASE_RATE
+        : BRIDGE_POSTED_BASE[tier]
       : (input.ustBasis ?? DSCR_UST_BASIS_DEFAULT) + DSCR_BASE_SPREAD[tier];
   const floor = family === "bridge" ? BRIDGE_FLOOR : DSCR_FLOOR;
 
@@ -728,7 +860,11 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   }
 
   breakdown.unshift({
-    label: family === "bridge" ? `Posted base (Tier ${tier})` : `5yr UST + spread (Tier ${tier})`,
+    label: isGU
+      ? "Base rate"
+      : family === "bridge"
+      ? `Posted base (Tier ${tier})`
+      : `5yr UST + spread (Tier ${tier})`,
     value: base,
   });
 
@@ -740,12 +876,30 @@ export function priceDeal(input: QuoteInput): QuoteResult {
       fix: `Raise the qualifying FICO to ${product.minFico}+, or price a program with a lower FICO floor.`,
     });
   }
-  if (isGU && tier < 3) {
+  // Ground-Up Tier 1 (no completed builds) is a decline unless the borrower
+  // holds a GC license. The license is an eligibility exception, not a tier
+  // promotion — the deal still prices at Tier 1. Luis 2026-09-01.
+  if (isGU && tier === 1 && !input.licensedAgentOrGc) {
     ok = false;
     blockers.push({
-      reason: `Ground-Up requires Tier 3+ experience — this profile is Tier ${tier}.`,
-      fix: `Add verified GC/build experience (or a licensed agent/GC co-borrower) to reach Tier 3, or choose Fix & Flip.`,
+      reason: `Ground-Up with no completed builds is a decline — this profile is Tier 1 and the borrower does not hold a GC license.`,
+      fix: `Confirm an active GC license (Tier 1 is then eligible, still priced at Tier 1), add verified ground-up experience to reach Tier 2 (1–2 builds), or price this as Fix & Flip.`,
     });
+  }
+  if (isGU && tier === 1 && input.licensedAgentOrGc) {
+    warnings.push(
+      "Tier 1 (no completed ground-up builds) — eligible only on the borrower's GC license. Priced at Tier 1; license verification required at underwriting."
+    );
+  }
+  // Ground-Up: lift the cap by the financed interest reserve (bounded by the
+  // 5% of full cost set aside for it). Done here because it needs the rate.
+  if (isGU && guIrHeadroom > 0 && ratePct !== null && maxLoan > 0) {
+    const oneMonthInterest = (input.loanAmount * ratePct) / 100 / 12;
+    const irAllowance = Math.min(guIrHeadroom, oneMonthInterest);
+    if (irAllowance > 0) {
+      maxLoan += irAllowance;
+      capMessage += `, plus the financed interest reserve of ${fmtUsd(irAllowance)}`;
+    }
   }
   if (input.loanAmount < product.minLoan) {
     ok = false;
@@ -794,7 +948,7 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   }
 
   // ---- Origination + broker comp ----
-  const originationPct = ORIGINATION[feeFamily][input.channel][tier];
+  const originationPct = isGU ? GU_ORIGINATION[input.channel][tier] : ORIGINATION[feeFamily][input.channel][tier];
   const originationDollars = ok ? Math.round(originationPct * input.loanAmount) : null;
 
   const isTpo = input.channel === "tpo";
@@ -820,7 +974,7 @@ export function priceDeal(input: QuoteInput): QuoteResult {
       ? Math.round(input.buydown * input.loanAmount)
       : 0;
 
-  const tierFees = FEES[feeFamily][tier];
+  const tierFees = isGU ? GU_FEES[tier] : FEES[feeFamily][tier];
   const fees: FeeLine[] = [
     { label: "Lender origination", amount: originationDollars },
     ...(isTpo
@@ -1063,13 +1217,19 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
   const messages: string[] = [];
   const warnings: string[] = [];
   const blockers: Blocker[] = [];
-  const tier = deriveTier(input.experienceBucket, input.licensedAgentOrGc);
+  const tier = deriveTier(input.experienceBucket, input.licensedAgentOrGc, input.product);
   const props = input.properties.slice(0, MAX_PORTFOLIO_PROPERTIES);
   const n = props.length;
 
   const initialCapPct = isDscr ? 1 : initialAdvanceCap(product.key, tier, input.fico, input.permitsApproved);
-  const arltvCapPct = isGU ? CAPS.new_construction.arltv : CAPS.fix_and_flip.arltv;
-  const ltfcCapPct = input.financedInterestReserve ? CAPS.new_construction.ltfcFinancedIR : CAPS.new_construction.ltfc;
+  const arltvCapPct = isGU ? guArltvCap(tier) : CAPS.fix_and_flip.arltv;
+  // 85% of full cost for construction dollars. A financed interest reserve may
+  // ride on top up to a further 5% of full cost — reserve only, not build
+  // budget — so the hard cap on construction dollars stays 85%. Luis 2026-09-01.
+  const ltfcCapPct = CAPS.new_construction.ltfc;
+  const ltfcIrHeadroomPct = input.financedInterestReserve
+    ? CAPS.new_construction.ltfcWithIR - CAPS.new_construction.ltfc
+    : 0;
 
   const breakdown: { label: string; value: number }[] = [];
   let sumAdj = 0;
@@ -1119,7 +1279,14 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
 
   // ---- Rate ----
   const leverageForRate = isDscr ? blendedLtv : blendedArltv;
-  addAdj(`Leverage (blended ${isDscr ? "LTV" : "ARLTV"} ${(leverageForRate * 100).toFixed(1)}%)`, leverageAdj(leverageForRate));
+  // Ground-Up prices leverage on LTFC; everything else uses the shared grid.
+  if (isGU) {
+    addAdj(`Experience Tier ${tier}`, { rate: GU_EXPERIENCE_ADJ[tier] });
+    addAdj(`Leverage (blended LTFC ${(blendedLtfc * 100).toFixed(2)}%)`, guLeverageAdj(blendedLtfc));
+    addAdj(`Construction budget ${fmtUsd(totals.budget)}`, guBudgetAdj(totals.budget));
+  } else {
+    addAdj(`Leverage (blended ${isDscr ? "LTV" : "ARLTV"} ${(leverageForRate * 100).toFixed(1)}%)`, leverageAdj(leverageForRate));
+  }
   if (isDscr) {
     if (input.loanPurpose === "cash_out_refi") addAdj("Cash-out refi", { rate: 0.00375 });
     if (input.interestOnly) addAdj("Interest-only", { rate: DSCR_IO_ADDON });
@@ -1131,12 +1298,14 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
       addAdj(`Rate buydown (${(input.buydown * 100).toFixed(2)} pt → −${(cut * 100).toFixed(3)}%)`, { rate: -cut });
     }
   } else {
-    if (input.extendedTerm) addAdj("18–24 mo term", { rate: 0.0025 });
+    if (input.extendedTerm) addAdj("18–24 mo term", { rate: isGU ? GU_EXTENDED_TERM_ADJ : 0.0025 });
     if (isGU && !input.permitsApproved) addAdj("Permits not approved (Ground-Up)", { rate: 0.005 });
   }
-  addAdj(`FICO ${input.fico}`, ficoAdj(input.fico));
-  addAdj(`Loan size ${fmtUsd(totals.loan)}`, loanSizeAdj(totals.loan));
-  if (input.multiUnit) addAdj("2–4 units", { rate: 0.0025 });
+  addAdj(`FICO ${input.fico}`, isGU ? guFicoAdj(input.fico) : ficoAdj(input.fico));
+  if (!isGU) {
+    addAdj(`Loan size ${fmtUsd(totals.loan)}`, loanSizeAdj(totals.loan));
+    if (input.multiUnit) addAdj("2–4 units", { rate: 0.0025 });
+  }
   if (input.rural) addAdj("Rural / stretch market", { rate: 0.005, maxLtv: -0.05 });
   if (input.residency && input.residency !== "us_citizen" && input.residency !== "permanent_resident") {
     const label = RESIDENCY_OPTIONS.find((r) => r.key === input.residency)!.label;
@@ -1147,7 +1316,11 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
     ? Math.max(0, (input.loanPurpose === "cash_out_refi" ? CAPS.dscr.cashOut : CAPS.dscr.purchase) + sumMaxLtvAdj)
     : 0;
 
-  const base = isDscr ? (input.ustBasis ?? DSCR_UST_BASIS_DEFAULT) + DSCR_BASE_SPREAD[tier] : BRIDGE_POSTED_BASE[tier];
+  const base = isDscr
+    ? (input.ustBasis ?? DSCR_UST_BASIS_DEFAULT) + DSCR_BASE_SPREAD[tier]
+    : isGU
+    ? GU_BASE_RATE
+    : BRIDGE_POSTED_BASE[tier];
   const floor = isDscr ? DSCR_FLOOR : BRIDGE_FLOOR;
   const escrowTotal = props.reduce((a, p) => a + (p.annualTaxes + p.annualInsurance + p.annualHoa) / 12, 0);
 
@@ -1184,7 +1357,11 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
     } else {
       const initialCapDollars = initialCapPct * costBasis + p.budget;
       const arvCap = arltvCapPct * p.arv;
-      maxTotalLoan = Math.round(isGU ? Math.min(initialCapDollars, arvCap, ltfcCapPct * fullCost) : Math.min(initialCapDollars, arvCap));
+      maxTotalLoan = Math.round(
+        isGU
+          ? Math.min(initialCapDollars, arvCap, ltfcCapPct * fullCost + ltfcIrHeadroomPct * fullCost)
+          : Math.min(initialCapDollars, arvCap)
+      );
 
       if (initialLtcVal > initialCapPct + 1e-9) {
         issues.push(
@@ -1195,8 +1372,8 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
       }
       if (arltvVal > arltvCapPct + 1e-9)
         issues.push(`ARLTV ${(arltvVal * 100).toFixed(1)}% exceeds the ${(arltvCapPct * 100).toFixed(0)}% cap. Max total loan ${fmtUsd(maxTotalLoan)}.`);
-      if (isGU && ltfcVal > ltfcCapPct + 1e-9)
-        issues.push(`LTFC ${(ltfcVal * 100).toFixed(1)}% exceeds the ${(ltfcCapPct * 100).toFixed(0)}% cap.`);
+      if (isGU && ltfcVal > ltfcCapPct + ltfcIrHeadroomPct + 1e-9)
+        issues.push(`LTFC ${(ltfcVal * 100).toFixed(1)}% exceeds the ${((ltfcCapPct + ltfcIrHeadroomPct) * 100).toFixed(0)}% cap.`);
     }
 
     const maxInitialLoan = isDscr ? maxTotalLoan : Math.max(0, maxTotalLoan - holdback);
@@ -1283,18 +1460,20 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
         fix: `Reduce loan amounts or raise ARV support so blended ARLTV is ${(arltvCapPct * 100).toFixed(0)}% or less.`,
       });
     }
-    if (isGU && blendedLtfc > ltfcCapPct + 1e-9) {
+    if (isGU && blendedLtfc > ltfcCapPct + ltfcIrHeadroomPct + 1e-9) {
       ok = false;
       blockers.push({
-        reason: `Blended LTFC ${(blendedLtfc * 100).toFixed(1)}% exceeds the ${(ltfcCapPct * 100).toFixed(0)}% cap.`,
-        fix: `Lower total financed cost to ${(ltfcCapPct * 100).toFixed(0)}% or below${isGU ? ", or finance the interest reserve to raise the cap" : ""}.`,
+        reason: `Blended LTFC ${(blendedLtfc * 100).toFixed(1)}% exceeds the ${((ltfcCapPct + ltfcIrHeadroomPct) * 100).toFixed(0)}% cap.`,
+        fix: `Lower total financed cost to ${(ltfcCapPct * 100).toFixed(0)}% or below${
+          ltfcIrHeadroomPct === 0 ? ", or finance the interest reserve to add up to 5% of cost for the reserve alone" : ""
+        }.`,
       });
     }
-    if (isGU && tier < 3) {
+    if (isGU && tier === 1 && !input.licensedAgentOrGc) {
       ok = false;
       blockers.push({
-        reason: `Ground-Up requires Tier 3+ experience — this profile is Tier ${tier}.`,
-        fix: `Add verified build experience (or a licensed GC co-borrower) to reach Tier 3, or use Fix & Flip.`,
+        reason: `Ground-Up with no completed builds is a decline — this profile is Tier 1 and the borrower does not hold a GC license.`,
+        fix: `Confirm an active GC license (Tier 1 is then eligible, still priced at Tier 1), add verified ground-up experience to reach Tier 2 (1–2 builds), or use Fix & Flip.`,
       });
     }
   }
@@ -1317,7 +1496,7 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
   }
 
   // ---- Origination + broker comp ----
-  const originationPct = ORIGINATION[family][input.channel][tier];
+  const originationPct = isGU ? GU_ORIGINATION[input.channel][tier] : ORIGINATION[family][input.channel][tier];
   const originationDollars = ok ? Math.round(originationPct * totals.loan) : null;
 
   const isTpo = input.channel === "tpo";
@@ -1351,7 +1530,7 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
   const buydownFee =
     ok && isDscr && input.buydown && input.buydown > 0 ? Math.round(input.buydown * totals.loan) : 0;
 
-  const tierFees = FEES[family][tier];
+  const tierFees = isGU ? GU_FEES[tier] : FEES[family][tier];
   const fees: FeeLine[] = [
     { label: "Lender origination", amount: originationDollars },
     ...(isTpo

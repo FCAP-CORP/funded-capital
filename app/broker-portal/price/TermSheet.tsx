@@ -6,7 +6,7 @@ import { X, Printer } from "lucide-react";
 import {
   RESIDENCY_OPTIONS,
   LOAN_PURPOSE_OPTIONS,
-  EXPERIENCE_BUCKETS,
+  experienceBucketsFor,
   CHANNEL_OPTIONS,
   PPP_OPTIONS,
   isRefiPurpose,
@@ -22,7 +22,46 @@ import {
 } from "@/components/TermSheetBranding";
 import type { DealForm, PricedOption } from "./PricingClient";
 
-const TERM_SHEET_DATE = "2026"; // static year to satisfy Cache Components
+// Rendered client-side so the printed sheet carries a real issue date rather
+// than a bare year. Kept out of the server render to satisfy Cache Components.
+/**
+ * Print only once every image inside the term sheet has decoded.
+ *
+ * The Funded Capital mark was printing as a broken-image icon even though
+ * /Original.png serves correctly — window.print() was firing before the browser
+ * finished decoding it, and the print snapshot captured the un-decoded state.
+ * Awaiting decode() closes that race. Falls back to printing anyway after 2s so
+ * a slow or failed asset can never block the user.
+ */
+async function printWhenReady(root: HTMLElement | null) {
+  try {
+    const imgs = Array.from(root?.querySelectorAll("img") ?? []);
+    await Promise.race([
+      Promise.all(
+        imgs.map((img) =>
+          img.complete && img.naturalWidth > 0
+            ? img.decode().catch(() => undefined)
+            : new Promise<void>((res) => {
+                img.addEventListener("load", () => res(), { once: true });
+                img.addEventListener("error", () => res(), { once: true });
+              })
+        )
+      ),
+      new Promise((res) => setTimeout(res, 2000)),
+    ]);
+  } catch {
+    /* never block printing on an asset */
+  }
+  window.print();
+}
+
+function useIssueDate() {
+  const [d, setD] = useState("2026");
+  useEffect(() => {
+    setD(new Date().toLocaleDateString("en-US", { month: "2-digit", day: "2-digit", year: "numeric" }));
+  }, []);
+  return d;
+}
 
 /**
  * Rows for the "Compare Pricing Options" table — one column per priced option,
@@ -111,12 +150,13 @@ export default function TermSheet({
   const { brand, setBrand, mode, setMode } = useBrokerBrand(form.channel === "tpo" ? "whitelabel" : "funded");
   const branded = mode === "funded"; // Funded Capital letterhead vs. broker white-label
   const residency = RESIDENCY_OPTIONS.find((r) => r.key === form.residency)?.label ?? "—";
-  const experience = `${EXPERIENCE_BUCKETS[form.experienceBucket]} (Tier ${quote.tier})`;
+  const experience = `${experienceBucketsFor(form.product)[form.experienceBucket]} (Tier ${quote.tier})`;
   const purpose = LOAN_PURPOSE_OPTIONS.find((p) => p.key === form.loanPurpose)?.label ?? "—";
   const channel = CHANNEL_OPTIONS.find((c) => c.key === form.channel)?.label ?? "—";
   const [ref] = useState(() => `TS-${Math.floor(100000 + Math.random() * 899999)}`);
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+  const issueDate = useIssueDate();
 
   // Accent classes swap between branded (navy/gold) and neutral (slate) white-label.
   const accentBox = branded ? "bg-navy-900 text-white" : "bg-slate-800 text-white";
@@ -134,7 +174,10 @@ export default function TermSheet({
           <button onClick={onClose} className="inline-flex items-center gap-1.5 text-white/90 hover:text-white text-sm">
             <X size={18} /> Close
           </button>
-          <button onClick={() => window.print()} className="btn-primary text-sm px-4 py-2.5">
+          <button
+            onClick={() => printWhenReady(document.getElementById("term-sheet"))}
+            className="btn-primary text-sm px-4 py-2.5"
+          >
             <Printer size={16} /> Print / Save as PDF
           </button>
         </div>
@@ -151,7 +194,7 @@ export default function TermSheet({
               </div>
               <div className="text-right text-xs text-slate-500">
                 <p className="font-semibold text-slate-700">{ref}</p>
-                <p>Issued {TERM_SHEET_DATE}</p>
+                <p>Issued {issueDate}</p>
                 <p>Lock: 30 days post-approval</p>
                 {branded && <p>{channel} channel</p>}
               </div>

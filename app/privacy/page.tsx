@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     "How Funded Capital collects, uses, and protects your information, including phone numbers used for calls and text messages. Opt out of messaging any time by replying STOP.",
 };
 
-const EFFECTIVE_DATE = "July 27, 2026";
+const EFFECTIVE_DATE = "August 30, 2026";
 
 export default function PrivacyPolicyPage() {
   return (
@@ -83,7 +83,7 @@ export default function PrivacyPolicyPage() {
                 </li>
                 <li>
                   You may also ask us to stop calling or texting you by emailing
-                  or calling us at the contact details in Section 8.
+                  or calling us at the contact details in the Contact Us section below.
                 </li>
               </ul>
               <p className="mt-4 font-semibold text-navy-900">
@@ -153,7 +153,46 @@ export default function PrivacyPolicyPage() {
 
             <section>
               <h2 className="text-xl font-bold text-navy-900 mb-3">
-                7. Your Choices &amp; Rights
+                7. Analytics &amp; Website Measurement
+              </h2>
+              <p>
+                We measure how our website is used so we can improve it. This
+                tells us which pages people visit and how far they get through
+                our forms. We use two tools:
+              </p>
+              <ul className="list-disc pl-5 mt-3 flex flex-col gap-2">
+                <li>
+                  <strong>Vercel Analytics</strong>, provided by our website
+                  host. It does not use cookies and does not identify you
+                  individually.
+                </li>
+                <li>
+                  <strong>Google Analytics</strong>, which uses cookies and
+                  similar technologies to recognize a returning browser. We have
+                  it configured to shorten (anonymize) your IP address.
+                </li>
+              </ul>
+              <p className="mt-4">
+                These tools record page visits, the pages you came from, and
+                general information about your device, browser, and approximate
+                region. We also record when a form is started and when it is
+                submitted successfully. We do{" "}
+                <strong>not</strong> send the information you type into our
+                forms &mdash; your name, email address, phone number, property
+                details, or credit information &mdash; to any analytics
+                provider.
+              </p>
+              <p className="mt-4">
+                Most browsers let you block or delete cookies in their settings,
+                and Google offers a browser add-on that opts you out of Google
+                Analytics entirely. Blocking either tool does not affect your
+                ability to use our website or submit a loan request.
+              </p>
+            </section>
+
+            <section>
+              <h2 className="text-xl font-bold text-navy-900 mb-3">
+                8. Your Choices &amp; Rights
               </h2>
               <p>
                 You may opt out of text messages at any time by replying STOP, and
@@ -166,7 +205,7 @@ export default function PrivacyPolicyPage() {
 
             <section>
               <h2 className="text-xl font-bold text-navy-900 mb-3">
-                8. Contact Us
+                9. Contact Us
               </h2>
               <p>
                 Funded Capital
@@ -190,7 +229,7 @@ export default function PrivacyPolicyPage() {
 
             <section>
               <h2 className="text-xl font-bold text-navy-900 mb-3">
-                9. Changes to This Policy
+                10. Changes to This Policy
               </h2>
               <p>
                 We may update this Privacy Policy from time to time. The

@@ -8,7 +8,7 @@ import {
   CHANNEL_OPTIONS,
   RESIDENCY_OPTIONS,
   PROPERTY_UNIT_OPTIONS,
-  EXPERIENCE_BUCKETS,
+  experienceBucketsFor,
   LOAN_PURPOSE_OPTIONS,
   DSCR_TERM_OPTIONS,
   PPP_OPTIONS,
@@ -388,7 +388,10 @@ export default function PricingClient() {
               label={`Experience — ${meta.experienceUnit}`}
               value={String(form.experienceBucket)}
               onChange={(v) => set("experienceBucket", Number(v))}
-              options={EXPERIENCE_BUCKETS.map((b, i) => ({ value: String(i), label: `${b} (Tier ${i + 1})` }))}
+              options={experienceBucketsFor(form.product).map((b, i) => ({
+                value: String(i),
+                label: `${b} (Tier ${i + 1})`,
+              }))}
             />
             <div className="grid sm:grid-cols-2 gap-4">
               <RangeField label="Estimated credit score (mid)" value={form.fico} min={600} max={800} onChange={(v) => set("fico", v)} display={String(form.fico)} unit="" step={5} />
@@ -399,7 +402,15 @@ export default function PricingClient() {
                 options={RESIDENCY_OPTIONS.map((r) => ({ value: r.key, label: r.label }))}
               />
             </div>
-            <CheckRow label="Licensed RE agent or GC? (bumps tier)" checked={form.licensedAgentOrGc} onChange={(v) => set("licensedAgentOrGc", v)} />
+            <CheckRow
+              label={
+                form.product === "new_construction"
+                  ? "Licensed GC? (required for Tier 1 — does not raise the tier)"
+                  : "Licensed RE agent or GC? (bumps tier)"
+              }
+              checked={form.licensedAgentOrGc}
+              onChange={(v) => set("licensedAgentOrGc", v)}
+            />
           </Section>
 
           <Section title="Property Details">

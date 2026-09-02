@@ -1,14 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, AlertTriangle } from "lucide-react";
 import SmsConsentField from "@/components/SmsConsentField";
+import { trackFormStart, trackLead, trackLeadError } from "@/lib/analytics";
 
 export default function ApplyForm() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(false);
+  const startedRef = useRef(false);
+
+  /**
+   * Fires once, the first time the visitor touches any field. Paired with the
+   * generate_lead event below this gives the form's completion rate — the
+   * number that shows whether the eleven required fields are costing us leads.
+   */
+  function handleFirstInteraction() {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    trackFormStart("apply");
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -16,6 +29,7 @@ export default function ApplyForm() {
     setError(false);
     const form = e.currentTarget;
     const data = new FormData(form);
+    let reported = false;
     // Routed through our own API so the server can capture the real IP,
     // a trustworthy timestamp, and the exact consent language as proof.
     data.append("formType", "apply");
@@ -32,9 +46,22 @@ export default function ApplyForm() {
         body: data,
         headers: { Accept: "application/json" },
       });
-      if (!res.ok) throw new Error(`lead submit failed: ${res.status}`);
+      if (!res.ok) {
+        // `reported` keeps the failure from being counted twice: this throw is
+        // caught below, which is also where a network error lands.
+        reported = true;
+        trackLeadError("apply", res.status);
+        throw new Error(`lead submit failed: ${res.status}`);
+      }
+      // Recorded only after the server confirms capture, so the conversion
+      // count can never be higher than the number of leads actually received.
+      trackLead("apply", {
+        loanType: String(data.get("loanType") ?? ""),
+        smsConsent: data.get("smsConsent") != null,
+      });
       router.push("/thank-you");
     } catch {
+      if (!reported) trackLeadError("apply", "network");
       setError(true);
       setSubmitting(false);
     }
@@ -42,7 +69,11 @@ export default function ApplyForm() {
 
   return (
     <div className="card">
-      <form className="flex flex-col gap-8" onSubmit={handleSubmit}>
+      <form
+        className="flex flex-col gap-8"
+        onSubmit={handleSubmit}
+        onFocusCapture={handleFirstInteraction}
+      >
         {/* Section: Your Information */}
         <fieldset className="flex flex-col gap-5">
           <legend className="font-bold text-navy-900 text-lg border-b border-slate-100 pb-3 w-full">

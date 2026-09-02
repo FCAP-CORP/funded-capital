@@ -15,11 +15,20 @@ if %errorlevel%==0 (
     goto end
 )
 
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set dt=%%I
-set stamp=%dt:~0,4%-%dt:~4,2%-%dt:~6,2%
+REM Date stamp via PowerShell. The old 'wmic' command was removed in
+REM Windows 11, which silently produced commit messages like "Site update (--)".
+set stamp=
+for /f %%I in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd"') do set stamp=%%I
+if "%stamp%"=="" set stamp=undated
 
 git commit -m "Site update (%stamp%)"
 git push origin main
+if errorlevel 1 (
+    echo.
+    echo   ^>^> PUSH FAILED - the error is printed above.
+    echo   ^>^> Nothing reached GitHub, so Vercel has nothing to deploy.
+    goto end
+)
 echo Done. Update pushed - Vercel is deploying now.
 
 :end

@@ -186,9 +186,23 @@ function Field({ label, value, onChange, placeholder }: { label: string; value: 
 /* ---------- Print header mark (logo or company name) ---------- */
 
 export function BrandHeaderMark({ mode, brand }: { mode: BrandMode; brand: BrokerBrand }) {
+  // If the mark ever fails to load, render a text wordmark instead — a term
+  // sheet must never print with a broken-image icon in the letterhead.
+  const [logoFailed, setLogoFailed] = useState(false);
+
   if (mode === "funded") {
+    if (logoFailed) {
+      return <div className="text-lg font-bold text-navy-900">FUNDED CAPITAL</div>;
+    }
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src="/Original.png" alt="Funded Capital" style={{ height: "40px", width: "auto" }} />;
+    return (
+      <img
+        src="/Original.png"
+        alt="Funded Capital"
+        style={{ height: "40px", width: "auto" }}
+        onError={() => setLogoFailed(true)}
+      />
+    );
   }
   if (brand.logoDataUrl) {
     // eslint-disable-next-line @next/next/no-img-element
