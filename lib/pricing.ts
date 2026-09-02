@@ -61,26 +61,36 @@ const BRIDGE_POSTED_BASE: Record<number, number> = { 1: 0.0999, 2: 0.0975, 3: 0.
 const GU_BASE_RATE = 0.0999;
 
 /**
- * Experience adjuster. Tier 4 anchors at −0.50% and each tier BELOW adds
- * +0.75% (Tier 3 = +0.25%) — both confirmed by Luis.
+ * Experience adjuster — all values confirmed by Luis 2026-09-01.
  *
- * Tier 5 at −1.25% extends the same 0.75% step upward and is INFERRED, not
- * confirmed. Sanity check: it lands at 8.74%, one basis point under the 8.75%
- * bridge floor, so BRIDGE_FLOOR clamps it — which suggests the step is right.
+ * Tier 4 anchors at −0.50% and each tier BELOW it adds +0.75%
+ * (T3 +0.25%, T2 +1.00%, T1 +1.75%).
+ *
+ * Tier 5 is NOT another 0.75% step — it is a flat 1.00% reduction, so the step
+ * from Tier 4 up to Tier 5 is only 0.50%. Do not "correct" this to −1.25% for
+ * symmetry; −1.00% is the confirmed value and prices Tier 5 at 8.99%, which
+ * clears the 8.75% floor rather than being clamped by it.
  */
 const GU_EXPERIENCE_ADJ: Record<number, number> = {
   1: 0.0175,
   2: 0.01,
   3: 0.0025,
   4: -0.005,
-  5: -0.0125,
+  5: -0.01,
 };
 
-/** Ground-Up FICO grid. 720 = 0% confirmed; 680–699 +0.25%; 660–679 +0.50%. */
+/**
+ * Ground-Up FICO grid (Luis 2026-09-01): 700+ = 0%, 680–699 = +0.25%.
+ *
+ * There is deliberately NO band below 680 — any score under 680 is a Ground-Up
+ * decline, blocked by PRODUCTS.new_construction.minFico before the rate is ever
+ * shown. The final return exists only to keep the function total; it is
+ * unreachable in the priced path.
+ */
 function guFicoAdj(fico: number): Adj {
   if (fico >= 700) return { rate: 0 };
   if (fico >= 680) return { rate: 0.0025 };
-  return { rate: 0.005 };
+  return { rate: 0.0025 };
 }
 
 /** Ground-Up leverage is priced on LTFC, not ARLTV. 80–85% adds 0.20%. */
@@ -167,7 +177,7 @@ const GU_FEES: Record<number, { processing: number; underwriting: number }> = {
 
 export const THIRD_PARTY_FEES = {
   legalReview: 995,
-  corelogix: 250, // CoreLogix valuation/data fee — DSCR (rental) deals
+  corelogix: 275, // CoreLogix valuation/data fee — charged on ALL loan types (Luis 2026-09-01)
   servicingSetup: 30,
   appraisalRange: "$625 – $795",
   appraisalRangePortfolio: "$350 – $550",
@@ -749,7 +759,9 @@ export function priceDeal(input: QuoteInput): QuoteResult {
       addAdj(`Leverage (LTFC ${(ltfcVal * 100).toFixed(2)}%)`, guLeverageAdj(ltfcVal));
       addAdj(`Construction budget ${fmtUsd(budgetTotal)}`, guBudgetAdj(budgetTotal));
       if (input.extendedTerm) addAdj("18–24 mo term", { rate: GU_EXTENDED_TERM_ADJ });
-      if (input.permitsInHand === false) addAdj("Permits not approved (Ground-Up)", { rate: 0.005 });
+      // No permits RATE adjuster on Ground-Up — the committee card is the
+      // complete list (Luis 2026-09-01). Permit status still governs LEVERAGE
+      // via initialAdvanceCap() (75% approved vs 60% not), which is unchanged.
     } else {
       if (arvVal > 0) addAdj(`Leverage (ARLTV ${(arltvVal * 100).toFixed(1)}%)`, leverageAdj(arltvVal));
       if (input.extendedTerm) addAdj("18–24 mo term", { rate: 0.0025 });
@@ -815,10 +827,15 @@ export function priceDeal(input: QuoteInput): QuoteResult {
     addAdj(`Loan size ${fmtUsd(input.loanAmount)}`, loanSizeAdj(input.loanAmount));
     if (input.units >= 2) addAdj("2–4 units", { rate: 0.0025 });
   }
-  if (input.rural) addAdj("Rural / stretch market", { rate: 0.005, maxLtv: -0.05 });
-  if (input.residency && input.residency !== "us_citizen" && input.residency !== "permanent_resident") {
-    const label = RESIDENCY_OPTIONS.find((r) => r.key === input.residency)!.label;
-    addAdj(label, { rate: RESIDENCY_ADJ[input.residency] });
+  // Rural and residency premiums are NOT on the Ground-Up rate card (Luis
+  // 2026-09-01 — the committee card is the complete list). They still apply to
+  // Fix & Flip and DSCR.
+  if (!isGU) {
+    if (input.rural) addAdj("Rural / stretch market", { rate: 0.005, maxLtv: -0.05 });
+    if (input.residency && input.residency !== "us_citizen" && input.residency !== "permanent_resident") {
+      const label = RESIDENCY_OPTIONS.find((r) => r.key === input.residency)!.label;
+      addAdj(label, { rate: RESIDENCY_ADJ[input.residency] });
+    }
   }
 
   if (family === "dscr") {
@@ -989,7 +1006,7 @@ export function priceDeal(input: QuoteInput): QuoteResult {
     { label: "Processing", amount: tierFees.processing },
     { label: "Underwriting", amount: tierFees.underwriting },
     { label: "Legal / doc review", amount: THIRD_PARTY_FEES.legalReview },
-    ...(family === "dscr" && !isStab ? [{ label: "Corelogix", amount: THIRD_PARTY_FEES.corelogix }] : []),
+    { label: "Corelogix", amount: THIRD_PARTY_FEES.corelogix },
     { label: "Servicing setup", amount: THIRD_PARTY_FEES.servicingSetup },
     { label: "Appraisal", amount: null, display: THIRD_PARTY_FEES.appraisalRange },
     { label: "Title / settlement", amount: null, display: THIRD_PARTY_FEES.titleSettlement },
@@ -1299,15 +1316,17 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
     }
   } else {
     if (input.extendedTerm) addAdj("18–24 mo term", { rate: isGU ? GU_EXTENDED_TERM_ADJ : 0.0025 });
-    if (isGU && !input.permitsApproved) addAdj("Permits not approved (Ground-Up)", { rate: 0.005 });
+    // No permits RATE adjuster on Ground-Up; permit status governs leverage
+    // through initialAdvanceCap() instead. Luis 2026-09-01.
   }
   addAdj(`FICO ${input.fico}`, isGU ? guFicoAdj(input.fico) : ficoAdj(input.fico));
   if (!isGU) {
     addAdj(`Loan size ${fmtUsd(totals.loan)}`, loanSizeAdj(totals.loan));
     if (input.multiUnit) addAdj("2–4 units", { rate: 0.0025 });
   }
-  if (input.rural) addAdj("Rural / stretch market", { rate: 0.005, maxLtv: -0.05 });
-  if (input.residency && input.residency !== "us_citizen" && input.residency !== "permanent_resident") {
+  // Rural and residency premiums are off the Ground-Up card. Luis 2026-09-01.
+  if (input.rural && !isGU) addAdj("Rural / stretch market", { rate: 0.005, maxLtv: -0.05 });
+  if (!isGU && input.residency && input.residency !== "us_citizen" && input.residency !== "permanent_resident") {
     const label = RESIDENCY_OPTIONS.find((r) => r.key === input.residency)!.label;
     addAdj(label, { rate: RESIDENCY_ADJ[input.residency] });
   }
@@ -1545,7 +1564,7 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
     { label: "Processing", amount: tierFees.processing },
     { label: "Underwriting", amount: tierFees.underwriting },
     { label: "Legal / doc review", amount: THIRD_PARTY_FEES.legalReview },
-    ...(isDscr ? [{ label: "Corelogix", amount: THIRD_PARTY_FEES.corelogix }] : []),
+    { label: "Corelogix", amount: THIRD_PARTY_FEES.corelogix },
     { label: "Servicing setup", amount: THIRD_PARTY_FEES.servicingSetup },
     { label: `Appraisal (${n} propert${n === 1 ? "y" : "ies"})`, amount: null, display: `${THIRD_PARTY_FEES.appraisalRangePortfolio} each` },
     { label: "Title / settlement", amount: null, display: THIRD_PARTY_FEES.titleSettlement },
