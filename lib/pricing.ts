@@ -1144,6 +1144,13 @@ export interface PortfolioInput {
   permitsApproved: boolean;
   financedInterestReserve: boolean;
   defaultInitialLtcPct: number;
+  /**
+   * Share of each property's budget that WE finance and release by draw (0–1).
+   * Portfolio previously hardcoded 100%, which made it impossible to quote the
+   * common 95%-holdback structure. Mirrors QuoteInput.holdbackPct.
+   * The LTFC denominator still uses the FULL budget — the borrower funds the rest.
+   */
+  holdbackPct: number;
   // DSCR
   dscrTerm: DscrTerm;
   ppp: Ppp;
@@ -1238,6 +1245,7 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
   const props = input.properties.slice(0, MAX_PORTFOLIO_PROPERTIES);
   const n = props.length;
 
+  const hbPct = Math.min(1, Math.max(0, input.holdbackPct ?? 1));
   const initialCapPct = isDscr ? 1 : initialAdvanceCap(product.key, tier, input.fico, input.permitsApproved);
   const arltvCapPct = isGU ? guArltvCap(tier) : CAPS.fix_and_flip.arltv;
   // 85% of full cost for construction dollars. A financed interest reserve may
@@ -1267,7 +1275,7 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
     }
     const costBasis = p.asIsValue + p.sunkCosts; // Initial LTC denominator
     const initialLoan = Math.round(p.loanOverride !== null ? p.loanOverride : input.defaultInitialLtcPct * costBasis);
-    const holdback = p.budget;
+    const holdback = Math.round(p.budget * hbPct);
     return { p, initialLoan, holdback, totalLoan: initialLoan + holdback };
   });
 
@@ -1374,7 +1382,7 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
       if (dscrVal < CAPS.dscr.minDscr - 1e-9)
         issues.push(`DSCR ${dscrVal.toFixed(2)} is below the ${CAPS.dscr.minDscr.toFixed(2)} floor.`);
     } else {
-      const initialCapDollars = initialCapPct * costBasis + p.budget;
+      const initialCapDollars = initialCapPct * costBasis + Math.round(p.budget * hbPct);
       const arvCap = arltvCapPct * p.arv;
       maxTotalLoan = Math.round(
         isGU

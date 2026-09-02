@@ -48,6 +48,7 @@ export interface PortfolioForm {
   permitsApproved: boolean;
   financedInterestReserve: boolean;
   defaultInitialLtcPct: number;
+  holdbackPct: number;
   // dscr
   dscrTerm: DscrTerm;
   ppp: Ppp;
@@ -90,6 +91,7 @@ const DEFAULTS: PortfolioForm = {
   permitsApproved: true,
   financedInterestReserve: false,
   defaultInitialLtcPct: 0.7,
+  holdbackPct: 1,
   dscrTerm: "frm_30",
   ppp: "ppp_5yr",
   interestOnly: false,
@@ -146,6 +148,7 @@ export default function PortfolioClient() {
       permitsApproved: form.permitsApproved,
       financedInterestReserve: form.financedInterestReserve,
       defaultInitialLtcPct: effInitialPct,
+      holdbackPct: form.holdbackPct,
       dscrTerm: form.dscrTerm,
       ppp: form.ppp,
       interestOnly: form.interestOnly,
@@ -264,9 +267,23 @@ export default function PortfolioClient() {
                   />
                 )}
                 <RangeField
+                  label={`${isGU ? "Construction" : "Rehab"} holdback financed (%)`}
+                  value={Math.round(form.holdbackPct * 100)}
+                  min={0}
+                  max={100}
+                  onChange={(v) => set("holdbackPct", v / 100)}
+                  display={`${Math.round(form.holdbackPct * 100)}%`}
+                />
+                <p className="text-xs text-slate-400 -mt-2">
+                  Share of each property&rsquo;s budget we hold back and fund by draw. Applies to every
+                  property in the portfolio.
+                  {form.holdbackPct < 1 && " The borrower funds the remainder."}
+                  {isGU && " LTFC is still measured against the full project cost."}
+                </p>
+                <RangeField
                   label="Default Initial LTC (% of total cost basis)"
                   value={Math.round(effInitialPct * 100)}
-                  min={10}
+                  min={0}
                   max={initSliderMaxPct}
                   onChange={(v) => set("defaultInitialLtcPct", v / 100)}
                   display={`${Math.round(effInitialPct * 100)}%`}
@@ -277,7 +294,7 @@ export default function PortfolioClient() {
                   {isGU && " On Ground-Up the LTFC cap usually binds before the permit cap."}
                 </p>
                 {isGU && (
-                  <CheckRow label="Finance interest reserve? (raises LTFC cap to 90%)" checked={form.financedInterestReserve} onChange={(v) => set("financedInterestReserve", v)} />
+                  <CheckRow label="Finance interest reserve? (adds up to 5% of cost, reserve only)" checked={form.financedInterestReserve} onChange={(v) => set("financedInterestReserve", v)} />
                 )}
               </>
             ) : (

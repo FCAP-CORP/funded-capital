@@ -252,7 +252,7 @@ export function presetAlternatives(form: DealForm): OptionOverride[] {
     const cap = (isGU ? (form.permitsInHand ? 75 : 60) : 90) / 100;
     return [
       { label: "Option 2", initialAdvancePct: cap, holdbackPct: 1 },
-      { label: "Option 3", initialAdvancePct: Math.max(0.1, form.initialAdvancePct - 0.1), holdbackPct: form.holdbackPct },
+      { label: "Option 3", initialAdvancePct: Math.max(0, form.initialAdvancePct - 0.1), holdbackPct: form.holdbackPct },
     ];
   }
   const ltvCap = isStab ? 0.7 : 0.85;
@@ -492,7 +492,7 @@ export default function PricingClient() {
                 <RangeField
                   label="Initial LTC (% of total cost basis)"
                   value={Math.round(effInitialPct * 100)}
-                  min={10}
+                  min={0}
                   max={initSliderMaxPct}
                   onChange={(v) => set("initialAdvancePct", v / 100)}
                   display={`${Math.round(effInitialPct * 100)}%`}
@@ -521,7 +521,7 @@ export default function PricingClient() {
                 <div className="grid sm:grid-cols-2 gap-4">
                   <CheckRow label="Extended term (18–24 mo)" checked={form.extendedTerm} onChange={(v) => set("extendedTerm", v)} />
                   {isGU && (
-                    <CheckRow label="Finance interest reserve? (LTFC 90%)" checked={form.financedInterestReserve} onChange={(v) => set("financedInterestReserve", v)} />
+                    <CheckRow label="Finance interest reserve? (adds up to 5% of cost, reserve only)" checked={form.financedInterestReserve} onChange={(v) => set("financedInterestReserve", v)} />
                   )}
                 </div>
               </>
@@ -773,7 +773,7 @@ export default function PricingClient() {
                     <div className="mt-3 pt-3 border-t border-slate-100 space-y-2.5">
                       {isBridge ? (
                         <>
-                          <MiniRange label="Initial LTC" value={Math.round(p.effInitialPct * 100)} min={10} max={initSliderMaxPct} onChange={(v) => setAlt(i - 1, { initialAdvancePct: v / 100 })} />
+                          <MiniRange label="Initial LTC" value={Math.round(p.effInitialPct * 100)} min={0} max={initSliderMaxPct} onChange={(v) => setAlt(i - 1, { initialAdvancePct: v / 100 })} />
                           <MiniRange label="Holdback financed" value={Math.round(p.holdbackPct * 100)} min={0} max={100} onChange={(v) => setAlt(i - 1, { holdbackPct: v / 100 })} />
                         </>
                       ) : (
