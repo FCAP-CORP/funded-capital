@@ -677,6 +677,10 @@ export interface QuoteResult {
   termLabel: string;
   estMonthlyPayment: number | null;
   interestReserve: number | null;
+  /** Portion of the reserve rolled into the loan (0 when not financed). */
+  financedReserve: number;
+  /** Loan before any financed reserve: initial advance + holdback. */
+  constructionLoan: number;
   reserveLabel: string;
   liquidityRequirement: number | null;
   knownFees: number;
@@ -727,6 +731,12 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   let dscrPitiaMonthly = 0;
   /** Ground-Up: dollars of LTFC headroom reserved for a financed interest reserve. */
   let guIrHeadroom = 0;
+  /** Bridge: the ceiling a financed interest reserve may push the TOTAL loan to. */
+  let financedReserveCeiling = 0;
+  /** Dollars of interest reserve rolled into the loan (0 unless financed). */
+  let financedReserve = 0;
+  /** Ground-Up LTFC denominator (purchase + sunk + full budget). */
+  let guFullCost = 0;
 
   const purchase = input.purchasePrice ?? 0;
   const sunk = input.sunkCosts ?? 0;
@@ -767,6 +777,10 @@ export function priceDeal(input: QuoteInput): QuoteResult {
       primaryRatioLabel = "LTFC";
       arltv = arltvVal;
       ltfc = ltfcVal;
+      // Construction dollars stop at 85% LTFC. A financed reserve may carry the
+      // TOTAL loan to 90% of cost — that upper band funds the reserve only.
+      guFullCost = fullCost;
+      financedReserveCeiling = CAPS.new_construction.ltfcWithIR * fullCost;
       maxLoan = Math.min(initCap * costBasis + build, arltvCapPct * arvVal, ltfcHardCap);
       capMessage = `exceeds the lesser of ${(arltvCapPct * 100).toFixed(0)}% ARLTV (${fmtUsd(arltvCapPct * arvVal)}) or ${(CAPS.new_construction.ltfc * 100).toFixed(0)}% LTFC (${fmtUsd(ltfcHardCap)})`;
     } else {
@@ -774,6 +788,9 @@ export function priceDeal(input: QuoteInput): QuoteResult {
       primaryRatioLabel = "ARLTV";
       arltv = null; // shown as the primary metric
       ltfc = null; // Fix & Flip has no LTC/LTFC cap
+      // Fix & Flip has no LTFC cap — ARLTV governs, so that is also the ceiling
+      // a financed reserve may carry the total loan to.
+      financedReserveCeiling = CAPS.fix_and_flip.arltv * arvVal;
       maxLoan = Math.min(initCap * costBasis + build, CAPS.fix_and_flip.arltv * arvVal);
       capMessage = `exceeds the 75% ARLTV max of ${fmtUsd(CAPS.fix_and_flip.arltv * arvVal)}`;
     }
@@ -901,6 +918,7 @@ export function priceDeal(input: QuoteInput): QuoteResult {
     const finalRate = Math.max(floor, base + sumAdj);
     ratePct = +(finalRate * 100).toFixed(3);
     estMonthlyPayment = Math.round((input.loanAmount * ratePct) / 100 / 12);
+    // note: recomputed below once a financed reserve is known
   }
 
   breakdown.unshift({
@@ -935,25 +953,43 @@ export function priceDeal(input: QuoteInput): QuoteResult {
       "Tier 1 (no completed ground-up builds) — eligible only on the borrower's GC license. Priced at Tier 1; license verification required at underwriting."
     );
   }
-  // Ground-Up: lift the cap by the financed interest reserve (bounded by the
-  // 5% of full cost set aside for it). Done here because it needs the rate.
-  if (isGU && guIrHeadroom > 0 && ratePct !== null && maxLoan > 0) {
-    const reserveDollars = ((input.loanAmount * ratePct) / 100 / 12) * reserveMonths;
-    const irAllowance = Math.min(guIrHeadroom, reserveDollars);
-    if (irAllowance > 0) {
-      maxLoan += irAllowance;
-      capMessage += `, plus the financed interest reserve of ${fmtUsd(irAllowance)}`;
-    }
-    // The financed reserve is capped at 5% of full cost. Anything beyond that
-    // is real cash the borrower brings (or nets from proceeds) at closing.
-    if (reserveDollars > guIrHeadroom + 1e-6) {
+  /* ---- Financed interest reserve (bridge) ------------------------------
+   * "Financed" means the reserve is funded BY THE LOAN rather than brought as
+   * cash: it is ADDED to the Total Loan Amount and drops OUT of cash to close.
+   * Previously this flag only lifted a cap ceiling, so ticking it changed
+   * nothing a broker could see. Luis 2026-09-01.
+   *
+   * Sized on the CONSTRUCTION loan (initial advance + holdback) so the reserve
+   * never funds interest on itself. Bounded by financedReserveCeiling — 90% of
+   * full cost on Ground-Up, the ARLTV cap on Fix & Flip.
+   */
+  const grossReserve =
+    bridgeReserve && ratePct !== null ? ((input.loanAmount * ratePct) / 100 / 12) * reserveMonths : 0;
+  if (bridgeReserve && input.financedInterestReserve && ratePct !== null) {
+    const headroom = Math.max(0, financedReserveCeiling - input.loanAmount);
+    financedReserve = Math.max(0, Math.min(grossReserve, headroom));
+    if (grossReserve > financedReserve + 1) {
       warnings.push(
-        `A ${reserveMonths}-month interest reserve is ${fmtUsd(reserveDollars)}, but only ${fmtUsd(
-          guIrHeadroom
-        )} (5% of total cost) can be financed. The remaining ${fmtUsd(
-          reserveDollars - guIrHeadroom
-        )} is due at closing — reduce the reserve months to finance all of it.`
+        `A ${reserveMonths}-month interest reserve is ${fmtUsd(grossReserve)}, but only ${fmtUsd(
+          financedReserve
+        )} fits under the ${isGU ? "90% LTFC" : "ARLTV"} ceiling. The remaining ${fmtUsd(
+          grossReserve - financedReserve
+        )} is due at closing — lower the reserve months to finance all of it.`
       );
+    }
+  }
+  const totalLoan = Math.round(input.loanAmount + financedReserve);
+  // Leverage ratios follow the money actually advanced, so a financed reserve
+  // shows up in the LTFC and ARLTV printed on the term sheet.
+  if (financedReserve > 0 && family === "bridge") {
+    const arvVal = input.arv ?? 0;
+    if (arvVal > 0) arltv = +(totalLoan / arvVal).toFixed(4);
+    if (guFullCost > 0) ltfc = +(totalLoan / guFullCost).toFixed(4);
+    if (isGU) {
+      primaryRatio = ltfc ?? primaryRatio;
+    } else {
+      primaryRatio = arltv ?? primaryRatio;
+      arltv = null; // Fix & Flip shows ARLTV as the primary metric
     }
   }
   if (input.loanAmount < product.minLoan) {
@@ -1004,12 +1040,12 @@ export function priceDeal(input: QuoteInput): QuoteResult {
 
   // ---- Origination + broker comp ----
   const originationPct = isGU ? GU_ORIGINATION[input.channel][tier] : ORIGINATION[feeFamily][input.channel][tier];
-  const originationDollars = ok ? Math.round(originationPct * input.loanAmount) : null;
+  const originationDollars = ok ? Math.round(originationPct * totalLoan) : null;
 
   const isTpo = input.channel === "tpo";
   const brokerPointsPct = isTpo ? Math.max(0, input.brokerPointsPct ?? 0) : 0;
   const brokerProcessingFee = isTpo ? Math.max(0, input.brokerProcessingFee ?? 0) : 0;
-  const brokerPointsDollars = isTpo && ok ? Math.round((brokerPointsPct / 100) * input.loanAmount) : null;
+  const brokerPointsDollars = isTpo && ok ? Math.round((brokerPointsPct / 100) * totalLoan) : null;
 
   if (isTpo) {
     const combined = originationPct * 100 + brokerPointsPct;
@@ -1053,11 +1089,13 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   const interestReserve =
     ok && ratePct !== null
       ? bridgeReserve
-        ? Math.round(((input.loanAmount * ratePct) / 100 / 12) * reserveMonths * 100) / 100
+        ? Math.round(grossReserve * 100) / 100
         : Math.round(amortizedPI(input.loanAmount, ratePct) * 3)
       : null;
   const reserveLabel = bridgeReserve
-    ? `${reserveMonths} month${reserveMonths === 1 ? "" : "s"} interest`
+    ? `${reserveMonths} month${reserveMonths === 1 ? "" : "s"} interest${
+        financedReserve > 0 ? ", financed" : ""
+      }`
     : "3 months P&I";
 
   // Foreign National DSCR: 12 months PITIA in reserves (documented liquidity, not held from proceeds).
@@ -1091,6 +1129,11 @@ export function priceDeal(input: QuoteInput): QuoteResult {
     }
   }
 
+  // Interest accrues on everything advanced, the financed reserve included.
+  if (financedReserve > 0 && ratePct !== null) {
+    estMonthlyPayment = Math.round((totalLoan * ratePct) / 100 / 12);
+  }
+
   if (ok) messages.push("Indicative — subject to underwriting, appraisal, title, and insurance. Not a commitment.");
 
   // ---- Rate/point ladder (DSCR only; buy-down side, par = 100) ----
@@ -1109,7 +1152,9 @@ export function priceDeal(input: QuoteInput): QuoteResult {
     warnings,
     product,
     tier,
-    loanAmount: input.loanAmount,
+    loanAmount: totalLoan,
+    constructionLoan: input.loanAmount,
+    financedReserve: Math.round(financedReserve),
     initialLoan: Math.round(initialLoan),
     holdback: Math.round(holdback),
     ratePct: ok ? ratePct : null,

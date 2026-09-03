@@ -274,6 +274,16 @@ export default function TermSheet({
                 {quote.dscr !== null && <Line k="DSCR" v={quote.dscr.toFixed(2)} />}
                 <Line k="Max Loan (caps)" v={quote.maxLoan ? fmtUsd(quote.maxLoan) : "—"} />
                 <Line k={`Interest Reserve (${quote.reserveLabel})`} v={quote.interestReserve !== null ? fmtUsd(quote.interestReserve) : "—"} />
+                {quote.financedReserve > 0 && (
+                  <>
+                    <Line k="  ↳ financed into the loan" v={fmtUsd(quote.financedReserve)} />
+                    <Line
+                      k="  ↳ due at closing"
+                      v={fmtUsd(Math.max(0, (quote.interestReserve ?? 0) - quote.financedReserve))}
+                    />
+                    <Line k="Construction loan (advance + holdback)" v={fmtUsd(quote.constructionLoan)} />
+                  </>
+                )}
                 {quote.liquidityRequirement !== null && <Line k="Reserves (12 mo PITIA)" v={fmtUsd(quote.liquidityRequirement)} />}
               </TermBlock>
               )}
@@ -314,7 +324,16 @@ export default function TermSheet({
                     />
                     <Line k="Est. ARV" v={fmtUsd(form.arv)} />
                     {isGU && <Line k="Permits" v={form.permitsInHand ? "Approved" : "Not approved"} />}
-                    {isGU && <Line k="Interest Reserve" v={form.financedInterestReserve ? "Financed (LTFC 90%)" : "Not financed (LTFC 85%)"} />}
+                    {isBridge && (
+                      <Line
+                        k="Interest Reserve"
+                        v={
+                          quote.financedReserve > 0
+                            ? `Financed into the loan${isGU ? " (LTFC up to 90%)" : ""}`
+                            : "Not financed — due at closing"
+                        }
+                      />
+                    )}
                   </>
                 ) : (
                   <>
@@ -353,8 +372,11 @@ export default function TermSheet({
                     {(quote.cashToBorrower ?? 0) > 0 ? "Estimated Cash to Borrower" : "Estimated Cash to Close"}
                   </p>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    {isRefi ? "Payoff" : "Purchase price"} − Initial Loan Amount + lender/broker fees + interest reserve.
-                    Excludes appraisal and title.
+                    {isRefi ? "Payoff" : "Purchase price"} − Initial Loan Amount + lender/broker fees
+                    {quote.financedReserve > 0
+                      ? " + any interest reserve not financed"
+                      : " + interest reserve"}
+                    . Excludes appraisal and title.
                   </p>
                 </div>
                 <p className="text-xl font-bold text-navy-900 shrink-0 ml-4">

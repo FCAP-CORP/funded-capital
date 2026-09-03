@@ -524,9 +524,11 @@ export default function PricingClient() {
 
                 <div className="grid sm:grid-cols-2 gap-4">
                   <CheckRow label="Extended term (18–24 mo)" checked={form.extendedTerm} onChange={(v) => set("extendedTerm", v)} />
-                  {isGU && (
-                    <CheckRow label="Finance interest reserve? (adds up to 5% of cost, reserve only)" checked={form.financedInterestReserve} onChange={(v) => set("financedInterestReserve", v)} />
-                  )}
+                  <CheckRow
+                    label="Finance interest reserve? (roll it into the loan)"
+                    checked={form.financedInterestReserve}
+                    onChange={(v) => set("financedInterestReserve", v)}
+                  />
                 </div>
 
                 <RangeField
@@ -546,7 +548,11 @@ export default function PricingClient() {
                   {isRefi
                     ? " On a cash-out it is netted from the proceeds the borrower already receives."
                     : " It is collected at closing."}
-                  {isGU && form.financedInterestReserve && " Financed up to 5% of total cost; any excess is due at closing."}
+                  {form.financedInterestReserve
+                    ? ` Financed: rolled into the loan (total ${fmtUsd(quote.loanAmount)}) instead of collected at closing, up to the ${
+                        isGU ? "90% LTFC" : "ARLTV"
+                      } ceiling.`
+                    : " Not financed: collected at closing."}
                 </p>
               </>
             ) : (
