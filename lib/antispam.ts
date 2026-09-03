@@ -1,82 +1,61 @@
 /**
  * Public-form spam defense.
  *
- * Added 2026-09-03 after a bot flooded /contact and /apply overnight
- * (2026-09-02, ~82 submissions from Tor exit nodes) and burned the entire
- * Formspree monthly quota, which then started rejecting REAL leads.
- *
- * The attack signature, for reference:
- *   - Tor exit IPs (185.220.101.x, 192.42.116.x, 171.25.193.x, 23.129.64.x …)
- *   - identical user agent on every hit
- *   - consonant-soup names ("Pvpplccf Uycdmd", "Sxivskun Ztvrimxn")
- *   - real, harvested third-party emails, often with dot-alias padding
- *     ("m.at.t.hewsha.f.fe.r@gmail.com") — i.e. we were being used to
- *     mail-bomb other people
- *   - message field containing nothing but a random 10-digit number
- *   - the SMS consent box ticked EVERY time (bots tick every checkbox)
- *
  * ---------------------------------------------------------------------------
- * REWRITTEN 2026-09-03, same night, after the first version blocked a REAL
- * submission. Two defects, both worth remembering:
+ * THIRD VERSION, 2026-09-03. The design principle changed; read this first.
+ * ---------------------------------------------------------------------------
  *
- * 1. The text honeypot was named "website". Password managers and Chrome
- *    autofill recognise that name and fill it even when the field is
- *    off-screen — so a visitor with autofill enabled tripped the trap just by
- *    letting their browser help them. Honeypot names must now be semantically
- *    meaningless, and every known autofill opt-out attribute is set on them.
+ * A bot flooded /contact and /apply on 2026-09-02 (~82 submissions from Tor
+ * exit nodes) and burned the entire Formspree monthly quota, after which real
+ * leads were rejected. The first two versions of this file answered that with
+ * content heuristics: does the name look generated, is the email dot-padded,
+ * was the form filled suspiciously fast.
  *
- * 2. The fill-timer compared a browser Date.now() against a server Date.now().
- *    Those are different clocks. A visitor whose machine clock ran a few
- *    minutes fast produced a negative elapsed time and was treated as an
- *    instant submit. The timer now measures elapsed time entirely inside the
- *    browser with performance.now(), which is monotonic and immune to clock
- *    skew and timezones.
+ * Those heuristics were measured, and they failed in both directions.
+ * Against 65 real-world surnames and the 18 the attacker actually used:
  *
- * The deeper lesson is in the verdicts. The first version silently discarded a
- * submission on any single trap, which meant a false positive was invisible to
- * everyone — no row, no alert, no error for the visitor. A blocked bot costs
- * nothing; a discarded borrower costs a deal. So now:
+ *     REAL NAMES  — false positives: Schmidt, Schwartz, McKnight, Brnjac
+ *     BOT NAMES   — caught 13/18 (72%); missed Uycdmd, Sxivskun, Ybqneie,
+ *                   Rmuubtts, Fuciaqig
  *
- *   - Only ONE condition discards outright: the checkbox honeypot. No autofill
- *     mechanism ticks a hidden checkbox — only a script that blindly fills
- *     every input does. That signal has no plausible human cause.
- *   - EVERYTHING else that looks wrong is quarantined, not dropped. A
- *     quarantined lead is written down, flagged, and kept out of the inbox —
- *     recoverable by a human who reads the flag.
+ * A rule that flags Schmidt while missing a quarter of the real bots has no
+ * business deciding whether a lead reaches a human. And structurally, any bot
+ * that skipped hidden fields and waited five seconds scored ZERO — the whole
+ * approach only ever stopped unsophisticated attackers.
  *
- * Optional extra layer: Cloudflare Turnstile. Off unless TURNSTILE_SECRET_KEY
- * and NEXT_PUBLIC_TURNSTILE_SITE_KEY are set, so it can be switched on in
- * minutes if this bot adapts, without another code change.
+ * So the guessing was demoted. Vercel BotID (see instrumentation-client.ts)
+ * now proves the submission came from a real browser via a cryptographic
+ * challenge, and this file does two much smaller jobs:
+ *
+ *   1. hardBlockReason() — ONE unambiguous trap: a hidden checkbox that only a
+ *      script blindly filling every input would tick. Autofill fills text
+ *      fields; it does not tick boxes. Zero plausible human cause.
+ *   2. advisoryFlags()   — everything else. These annotate the record for a
+ *      human to eyeball. They route NOTHING. A flag has never cost anyone a
+ *      lead and never will.
+ *
+ * The rule to preserve: a signal that cannot be proven safe does not get to
+ * make a decision. If you find yourself wanting to promote an advisory flag
+ * into a routing rule, measure it against real data first — that measurement
+ * is what demoted the last set.
  */
 
 /* Trap field names. Deliberately opaque: a name like "website", "url",
- * "company" or "address" is exactly what a password manager looks for. These
- * match nothing in any autofill heuristic. If you ever rename them, keep them
+ * "company" or "address" is exactly what a password manager looks for, and an
+ * earlier version named the text honeypot "website" and blocked a real
+ * submission because autofill filled it. If you rename these, keep them
  * meaningless — that is the whole point. */
 export const HONEYPOT_TEXT_FIELD = "fc_x1";
 export const HONEYPOT_CHECK_FIELD = "fc_x2";
 /** Milliseconds the visitor spent on the form, measured in the browser. */
 export const FORM_ELAPSED_FIELD = "fc_x3";
 
-/** A human needs at least this long to fill a lead form, in ms. */
-const MIN_FILL_MS = 3_500;
-/** Nothing legitimate sits on a form for 12h then submits; stale = replayed. */
-const MAX_FILL_MS = 12 * 60 * 60 * 1000;
+/** Below this, a fill time is worth noting on the record. Advisory only. */
+const FAST_FILL_MS = 3_500;
 
-/** Per-IP ceiling. Generous — a real person retrying a failed submit is fine. */
+/** Per-IP ceiling per hour. Volumetric, content-blind, so it is safe to act on. */
 const RATE_LIMIT_MAX = 8;
 const RATE_LIMIT_WINDOW_MS = 60 * 60 * 1000;
-
-/** Points at or above this are held back for review rather than delivered. */
-const QUARANTINE_AT = 4;
-
-export type Verdict = "allow" | "quarantine" | "block";
-
-export interface SpamAssessment {
-  verdict: Verdict;
-  score: number;
-  reasons: string[];
-}
 
 /* ------------------------------------------------------------------ */
 /* Rate limiting                                                       */
@@ -84,12 +63,14 @@ export interface SpamAssessment {
 
 /**
  * In-memory sliding window. Serverless instances are ephemeral, so this is a
- * speed bump rather than a wall — it blunts bursts from a single IP without
- * adding a database. The traps below are what actually stop a bot.
+ * speed bump rather than a wall — it blunts a burst from one IP without adding
+ * a database. Unlike the content rules this one is safe to act on, because it
+ * measures behaviour rather than guessing at identity: no real applicant
+ * submits the same form nine times in an hour.
  */
 const hits = new Map<string, number[]>();
 
-function rateLimited(ip: string): boolean {
+export function isRateLimited(ip: string): boolean {
   if (!ip || ip === "unknown") return false;
   const now = Date.now();
   const recent = (hits.get(ip) ?? []).filter((t) => now - t < RATE_LIMIT_WINDOW_MS);
@@ -106,22 +87,41 @@ function rateLimited(ip: string): boolean {
 }
 
 /* ------------------------------------------------------------------ */
-/* Content heuristics                                                  */
+/* The one hard block                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The only condition that discards a submission outright.
+ *
+ * A hidden checkbox has no reason to be ticked. Password managers and browser
+ * autofill populate text inputs; none of them tick boxes. Only a script that
+ * sets every field it finds does that — and the 2026-09-02 attacker ticked the
+ * real SMS consent box on 100% of its submissions, which is exactly this
+ * behaviour.
+ *
+ * Returns a reason string, or null when the submission is fine.
+ */
+export function hardBlockReason(honeypotCheck: string): string | null {
+  return honeypotCheck.trim() !== "" ? "honeypot_checkbox_ticked" : null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Advisory flags — these annotate, they never decide                  */
 /* ------------------------------------------------------------------ */
 
 const VOWELS = /[aeiouy]/i;
 
 /**
- * True for machine-generated names like "Pvpplccf" or "Ztvrimxn".
- * Deliberately conservative: short names and names with normal vowel spacing
- * always pass, so real names (including non-English ones) are not caught.
+ * Rough "looks machine-generated" test. Kept ONLY as an advisory note, because
+ * it is measurably unreliable: it flags Schmidt, Schwartz, McKnight and Brnjac
+ * as generated. Useful as a hint on a row a human is reading; useless as a
+ * gate. Do not promote this to a routing rule.
  */
 function looksGenerated(name: string): boolean {
   const word = name.trim();
   if (word.length < 5) return false;
   if (!/^[A-Za-z]+$/.test(word)) return false;
   if (!VOWELS.test(word)) return true;
-  // Five or more consonants in a row does not occur in real given names.
   if (/[^aeiouy\s]{5,}/i.test(word)) return true;
   const vowelCount = (word.match(/[aeiouy]/gi) ?? []).length;
   return vowelCount / word.length < 0.2;
@@ -130,8 +130,7 @@ function looksGenerated(name: string): boolean {
 /** Gmail dot-alias padding, used to mail-bomb one real inbox from many "addresses". */
 function hasDotPadding(email: string): boolean {
   const local = email.split("@")[0] ?? "";
-  const dots = (local.match(/\./g) ?? []).length;
-  return dots >= 3;
+  return (local.match(/\./g) ?? []).length >= 3;
 }
 
 function isJustDigits(value: string): boolean {
@@ -141,102 +140,37 @@ function isJustDigits(value: string): boolean {
 
 const LINK_SPAM = /(https?:\/\/|\[url=|\bviagra\b|\bcasino\b|\bcrypto airdrop\b|\bseo services\b)/i;
 
-/* ------------------------------------------------------------------ */
-/* Assessment                                                          */
-/* ------------------------------------------------------------------ */
-
-export function assessSubmission(opts: {
+/**
+ * Human-readable notes about a submission, written onto the record so whoever
+ * works the lead can see what looked odd. Never used to block, quarantine, or
+ * suppress anything.
+ */
+export function advisoryFlags(opts: {
   fields: Record<string, string>;
   honeypotText: string;
-  honeypotCheck: string;
   elapsedMs: string;
-  ip: string;
   userAgent: string;
-}): SpamAssessment {
-  const { fields, honeypotText, honeypotCheck, elapsedMs, ip, userAgent } = opts;
+}): string[] {
+  const { fields, honeypotText, elapsedMs, userAgent } = opts;
+  const flags: string[] = [];
 
-  /* --- The one hard block. --- */
+  // Autofill can fill this, so it is a note and nothing more.
+  if (honeypotText.trim() !== "") flags.push("hidden text field was filled");
 
-  // A hidden checkbox has no reason to be ticked. Autofill fills text inputs;
-  // it does not tick boxes. Only a script that sets every field does that, and
-  // our attacker ticked the real consent box on 100% of its submissions.
-  if (honeypotCheck.trim() !== "") {
-    return { verdict: "block", score: 100, reasons: ["honeypot_checkbox_ticked"] };
-  }
-
-  /* --- Everything else is scored. Nothing here can discard a lead. --- */
-
-  let score = 0;
-  const reasons: string[] = [];
-  const bump = (points: number, why: string) => {
-    score += points;
-    reasons.push(why);
-  };
-
-  // Still a strong signal, but autofill can trip it, so it quarantines on its
-  // own rather than dropping the submission.
-  if (honeypotText.trim() !== "") bump(QUARANTINE_AT, "honeypot_text_filled");
-
-  // Elapsed time is measured in the browser with performance.now(), so it is
-  // monotonic: no clock skew, no timezone, never negative.
   const elapsed = Number(elapsedMs);
-  if (!elapsedMs || Number.isNaN(elapsed) || elapsed < 0) {
-    // Our forms always send this. Missing usually means a POST that did not
-    // come from a rendered page — but it also happens for a few minutes after
-    // a deploy, while the edge still serves pre-shield HTML, so it is scored.
-    bump(3, "no_timing_signal");
-  } else if (elapsed < MIN_FILL_MS) {
-    bump(QUARANTINE_AT, `filled_in_${elapsed}ms`);
-  } else if (elapsed > MAX_FILL_MS) {
-    bump(3, "stale_form");
+  if (!elapsedMs || Number.isNaN(elapsed)) {
+    flags.push("no timing signal");
+  } else if (elapsed < FAST_FILL_MS) {
+    flags.push(`form filled in ${elapsed}ms`);
   }
 
-  if (rateLimited(ip)) bump(QUARANTINE_AT, "rate_limited");
-
-  const firstName = fields.firstName ?? "";
-  const lastName = fields.lastName ?? "";
-  const email = fields.email ?? "";
   const message = fields.message ?? fields.additionalInfo ?? "";
+  if (looksGenerated(fields.firstName ?? "")) flags.push("first name looks generated");
+  if (looksGenerated(fields.lastName ?? "")) flags.push("last name looks generated");
+  if (hasDotPadding(fields.email ?? "")) flags.push("email has dot-alias padding");
+  if (message && isJustDigits(message)) flags.push("message is only digits");
+  if (LINK_SPAM.test(message)) flags.push("message contains link spam");
+  if (!userAgent || userAgent === "unknown") flags.push("no user agent");
 
-  if (looksGenerated(firstName)) bump(2, "generated_first_name");
-  if (looksGenerated(lastName)) bump(2, "generated_last_name");
-  if (hasDotPadding(email)) bump(2, "email_dot_padding");
-  // A real inquiry never consists solely of a phone-number-shaped string.
-  if (message && isJustDigits(message)) bump(3, "numeric_only_message");
-  if (LINK_SPAM.test(message)) bump(3, "link_spam_in_message");
-  if (!userAgent || userAgent === "unknown") bump(1, "no_user_agent");
-
-  if (score >= QUARANTINE_AT) return { verdict: "quarantine", score, reasons };
-  return { verdict: "allow", score, reasons };
-}
-
-/* ------------------------------------------------------------------ */
-/* Optional: Cloudflare Turnstile                                      */
-/* ------------------------------------------------------------------ */
-
-/**
- * Verifies a Turnstile token when the feature is configured. Returns true when
- * Turnstile is not configured, so the site keeps working until keys are added.
- */
-export async function verifyTurnstile(token: string, ip: string): Promise<boolean> {
-  const secret = process.env.TURNSTILE_SECRET_KEY;
-  if (!secret) return true;
-  if (!token) return false;
-  try {
-    const res = await fetch(
-      "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ secret, response: token, remoteip: ip }),
-      }
-    );
-    const data = (await res.json()) as { success?: boolean };
-    return data.success === true;
-  } catch (err) {
-    console.error("[antispam] Turnstile verification failed:", err);
-    // Fail open: a Cloudflare outage must never block real leads. The traps
-    // and scoring above are still doing their job.
-    return true;
-  }
+  return flags;
 }

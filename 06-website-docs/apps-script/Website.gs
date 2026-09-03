@@ -544,9 +544,18 @@ function webIsNotALead_(subject) {
   return false;
 }
 
-/** Luis testing his own form is not a lead. */
+/**
+ * Luis testing his own form is not a lead.
+ *
+ * NARROWED 2026-09-03. This used to scan `additionalInfo` — the free-text
+ * message box — for the marker words. That put a real borrower one sentence
+ * away from being silently discarded: "just testing the waters on a duplex"
+ * contains no marker, but "we ran a diagnostic on the roof" does, and so would
+ * any number of ordinary sentences. Markers are now matched against the NAME
+ * fields only, where a real person has no reason to type them.
+ */
 function webIsTestSubmission_(lead) {
-  var blob = [lead.firstName, lead.lastName, lead.additionalInfo].join(' ').toLowerCase();
+  var blob = [lead.firstName, lead.lastName].join(' ').toLowerCase();
   for (var i = 0; i < WEB_TEST_MARKERS.length; i++) {
     if (blob.indexOf(WEB_TEST_MARKERS[i]) > -1) return true;
   }
@@ -804,12 +813,6 @@ function webHtmlToText_(h) {
 function handleDirectWebLead_(body) {
   var lead = webLeadFromPayload_(body.lead || {}, body.formType);
 
-  // Luis testing his own form never reaches a human — same rule the poller uses.
-  if (webIsTestSubmission_(lead)) {
-    Logger.log('Direct lead skipped as a test submission: ' + lead.name + ' / ' + lead.email);
-    return { ok: true, skipped: 'test submission' };
-  }
-
   var progress = {
     parsed: 'yes', ack: 'not reached', quo: 'not reached',
     alertEmail: 'not reached', alertSms: 'not reached', sheetRow: 'NOT WRITTEN'
@@ -818,6 +821,22 @@ function handleDirectWebLead_(body) {
   // notify:false is how /api/lead marks a submission its spam filter flagged
   // as suspected — record it, contact nobody.
   var quiet = body.notify === false;
+
+  /* An internal test is held back, NOT thrown away.
+   *
+   * This used to `return` here with no row, no email and no log line — and on
+   * 2026-09-03 that produced a submission that vanished completely while still
+   * showing the visitor a thank-you page. Four separate checks came back empty
+   * with nothing to debug from. Now a test is just another quiet submission:
+   * the row is always written, flagged with the reason, and nothing is sent.
+   * If the classifier is ever wrong, the lead is sitting in the Sheet. */
+  var testReason = webDirectTestReason_(lead);
+  if (testReason) {
+    quiet = true;
+    lead.spamFlag = 'INTERNAL TEST — ' + testReason + ' — nothing was sent';
+    Logger.log('Direct lead held as internal test (' + testReason + '): ' +
+               lead.name + ' / ' + lead.email);
+  }
 
   try {
     var result = handleWebLead_(lead, progress, { quiet: quiet });
@@ -930,4 +949,39 @@ function webReportDirectFailure_(lead, progress, err) {
   } catch (e) {
     Logger.log('Could not send the direct-lead failure alert: ' + e);
   }
+}
+
+/**
+ * Why a directly-posted lead should be held back as an internal test, or ''
+ * if it is a real lead. The reason string is written into the Sheet row, so
+ * every held submission explains itself without anyone reading code.
+ *
+ * Deliberately narrower than the Gmail poller's webIsTestSubmission_. That one
+ * has to identify Luis's own submissions from a Formspree email with no other
+ * signal, so it leans on marker words. Here the website tells us who submitted
+ * and from where, so we can rely on facts instead of guesswork:
+ *
+ *   - a fundedcapital.com address is unambiguously our own
+ *   - "test-ignore" in a NAME is a deliberate sentinel, not something a real
+ *     person types
+ *   - an unusable email means there is nobody to acknowledge, whether or not
+ *     the submission is genuine — so record it and flag it for a human rather
+ *     than firing an ack into the void
+ *
+ * Everything else is treated as a real lead. A borrower who writes "just
+ * testing the waters" or "we ran diagnostics on the HVAC" gets the full
+ * treatment, which is the whole point of this function existing separately.
+ */
+function webDirectTestReason_(lead) {
+  if (/@fundedcapital\.com$/i.test(lead.email)) {
+    return 'submitted from a fundedcapital.com address';
+  }
+  var name = (lead.firstName + ' ' + lead.lastName).toLowerCase();
+  if (name.indexOf('test-ignore') > -1) {
+    return 'the name carries the test-ignore marker';
+  }
+  if (!webIsEmail_(lead.email)) {
+    return 'no valid email address to reply to — REVIEW THIS ONE BY HAND';
+  }
+  return '';
 }

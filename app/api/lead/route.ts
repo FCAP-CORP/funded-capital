@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
+import { checkBotId } from "botid/server";
 import { SMS_CONSENT_TEXT, CONSENT_VERSION } from "@/lib/consent";
 import {
-  assessSubmission,
-  verifyTurnstile,
+  hardBlockReason,
+  advisoryFlags,
+  isRateLimited,
   HONEYPOT_TEXT_FIELD,
   HONEYPOT_CHECK_FIELD,
   FORM_ELAPSED_FIELD,
@@ -51,12 +53,26 @@ import {
  *     Script before we fall through to the backstop. Previously a slow Drive
  *     call had no ceiling at all.
  *
- * SPAM DEFENSE (added 2026-09-03, see lib/antispam.ts):
- *   Screening runs before any forwarding. Blocked submissions get a 200 with a
- *   normal-looking body — telling a bot it was blocked only teaches its author
- *   what to change. Quarantined (suspicious, not certain) submissions are still
- *   written down, flagged, with the notification suppressed, so a false
- *   positive is recoverable rather than lost.
+ * SPAM DEFENSE — rebuilt 2026-09-03 around Vercel BotID.
+ *
+ * Screening runs before any forwarding, and there are now exactly three things
+ * that can change a submission's fate. Everything else is a note on the record:
+ *
+ *   BLOCK      the hidden checkbox honeypot was ticked. No autofill mechanism
+ *              ticks a box; only a script setting every field does. Discarded,
+ *              logged, and answered with a normal-looking 200 — telling a bot
+ *              it was blocked just teaches its author what to change.
+ *   QUARANTINE BotID says the request did not come from a real browser, or one
+ *              IP has posted more than eight times in an hour. Recorded and
+ *              flagged, notification suppressed, nobody contacted. Quarantine
+ *              rather than discard because BotID's false-positive rate is low
+ *              but not zero, and a row costs nothing while a lost borrower
+ *              costs a deal.
+ *   ALLOW      everything else, carrying any advisory flags for a human to read.
+ *
+ * The content heuristics that used to decide this were measured against real
+ * names and flagged Schmidt and Schwartz while missing 28% of the actual bot
+ * names. They are now advisory only. Do not promote them back without data.
  */
 
 /** Formspree endpoints, kept server-side. Backstop only — see the note above. */
@@ -220,7 +236,6 @@ export async function POST(request: Request) {
     HONEYPOT_TEXT_FIELD,
     HONEYPOT_CHECK_FIELD,
     FORM_ELAPSED_FIELD,
-    "cf-turnstile-response",
   ]);
   const payload: Record<string, string> = {};
   for (const [key, value] of form.entries()) {
@@ -229,40 +244,43 @@ export async function POST(request: Request) {
   }
 
   /* ---------------------------------------------------------------- */
-  /* Spam screening — before anything is forwarded or emailed.         */
+  /* Screening — before anything is forwarded or emailed.              */
   /* ---------------------------------------------------------------- */
 
-  const assessment = assessSubmission({
+  // 1. The one hard block. Free, and checked first so an obvious bot never
+  //    costs us a BotID verification.
+  const blocked = hardBlockReason(String(form.get(HONEYPOT_CHECK_FIELD) ?? ""));
+  if (blocked) {
+    console.warn(
+      "[api/lead] SPAM BLOCKED —",
+      JSON.stringify({ formType, ip: consentIp, reason: blocked })
+    );
+    return NextResponse.json({ ok: true });
+  }
+
+  // 2. Proof, not inference: BotID verifies a cryptographic challenge the
+  //    browser solved. Fails OPEN — a BotID outage must never cost a lead, and
+  //    the honeypot above is still standing either way.
+  let botVerdict = false;
+  try {
+    const verification = await checkBotId();
+    botVerdict = verification.isBot === true;
+  } catch (err) {
+    console.error("[api/lead] BotID check failed; allowing through:", err);
+  }
+
+  // 3. Volumetric, content-blind, and therefore safe to act on.
+  const rateLimited = isRateLimited(consentIp);
+
+  // 4. Notes for whoever reads the row. These decide nothing.
+  const flags = advisoryFlags({
     fields: payload,
     honeypotText: String(form.get(HONEYPOT_TEXT_FIELD) ?? ""),
-    honeypotCheck: String(form.get(HONEYPOT_CHECK_FIELD) ?? ""),
     elapsedMs: String(form.get(FORM_ELAPSED_FIELD) ?? ""),
-    ip: consentIp,
     userAgent,
   });
 
-  const turnstileOk = await verifyTurnstile(
-    String(form.get("cf-turnstile-response") ?? ""),
-    consentIp
-  );
-
-  if (assessment.verdict === "block" || !turnstileOk) {
-    // One compact line per blocked hit: enough to watch an attack and confirm
-    // no real lead is being caught, without dumping harvested third-party PII
-    // into the logs.
-    console.warn(
-      "[api/lead] SPAM BLOCKED —",
-      JSON.stringify({
-        formType,
-        ip: consentIp,
-        reasons: turnstileOk ? assessment.reasons : ["turnstile_failed"],
-        email: (payload.email ?? "").slice(0, 60),
-      })
-    );
-    // Look successful. A bot that sees a rejection gets tuned; one that thinks
-    // it is winning keeps hammering a wall for free.
-    return NextResponse.json({ ok: true });
-  }
+  const quarantine = botVerdict || rateLimited;
 
   // --- Proof-of-consent record (server-authoritative) ---
   payload.sms_consent = smsConsent ? "YES — opted in to calls/texts" : "NO — not opted in";
@@ -275,20 +293,29 @@ export async function POST(request: Request) {
   payload.consent_user_agent = userAgent;
   payload.consent_page_url = pageUrl;
 
-  if (assessment.verdict === "quarantine") {
-    // Suspicious, not certain. Keep it out of the team's inbox, but write it
-    // down so a false positive can be recovered. The flags travel with the
-    // record so the row explains itself in the Sheet.
-    payload.spam_flag = "SUSPECTED SPAM — review before contacting";
-    payload.spam_score = String(assessment.score);
-    payload.spam_reasons = assessment.reasons.join(", ");
-    payload._subject = `[SUSPECTED SPAM] ${formType} submission — not contacted`;
+  if (quarantine) {
+    // Held back, never dropped: the row is written so a false positive can be
+    // found and worked by hand, but nothing is sent to the lead or the team.
+    const why = botVerdict ? "BotID: not a verified browser" : "too many submissions from one IP";
+    payload.spam_flag = `HELD FOR REVIEW — ${why}`;
+    payload.spam_reasons = flags.length ? flags.join(", ") : "(no other flags)";
+    payload._subject = `[HELD FOR REVIEW] ${formType} submission — nobody contacted`;
     console.warn(
-      "[api/lead] SPAM QUARANTINED —",
-      JSON.stringify({ formType, ip: consentIp, ...assessment })
+      "[api/lead] QUARANTINED —",
+      JSON.stringify({ formType, ip: consentIp, botVerdict, rateLimited, flags })
     );
     await sendToDriveIntake(formType, payload, false);
     return NextResponse.json({ ok: true });
+  }
+
+  // A clean lead still carries its notes, so anything odd is visible on the
+  // row rather than silently influencing whether the lead was delivered.
+  if (flags.length) {
+    payload.review_flags = flags.join(", ");
+    console.info(
+      "[api/lead] delivered with advisory flags —",
+      JSON.stringify({ formType, flags })
+    );
   }
 
   // Flag SMS opt-in leads right in the subject so the team can spot them.
