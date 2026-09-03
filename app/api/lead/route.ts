@@ -5,7 +5,7 @@ import {
   verifyTurnstile,
   HONEYPOT_TEXT_FIELD,
   HONEYPOT_CHECK_FIELD,
-  FORM_RENDERED_FIELD,
+  FORM_ELAPSED_FIELD,
 } from "@/lib/antispam";
 
 /**
@@ -219,7 +219,7 @@ export async function POST(request: Request) {
     "consent_page_url",
     HONEYPOT_TEXT_FIELD,
     HONEYPOT_CHECK_FIELD,
-    FORM_RENDERED_FIELD,
+    FORM_ELAPSED_FIELD,
     "cf-turnstile-response",
   ]);
   const payload: Record<string, string> = {};
@@ -236,7 +236,7 @@ export async function POST(request: Request) {
     fields: payload,
     honeypotText: String(form.get(HONEYPOT_TEXT_FIELD) ?? ""),
     honeypotCheck: String(form.get(HONEYPOT_CHECK_FIELD) ?? ""),
-    renderedAt: String(form.get(FORM_RENDERED_FIELD) ?? ""),
+    elapsedMs: String(form.get(FORM_ELAPSED_FIELD) ?? ""),
     ip: consentIp,
     userAgent,
   });
