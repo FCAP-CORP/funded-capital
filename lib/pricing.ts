@@ -592,6 +592,19 @@ export interface FeeLine {
 
 const sumKnownFees = (fees: FeeLine[]) => fees.reduce((a, f) => a + (f.amount ?? 0), 0);
 
+/**
+ * Name the cap that actually binds. The blocker used to hardcode the ARLTV/LTFC
+ * leg even when the initial-advance cap was the real constraint, so it could
+ * tell a broker a loan "exceeds the 75% ARLTV max of $675,000" when the loan was
+ * $460,000. Picks the smallest positive leg and reports that one.
+ */
+function describeCap(legs: { label: string; value: number }[]): string {
+  const live = legs.filter((l) => isFinite(l.value) && l.value > 0);
+  if (live.length === 0) return "exceeds the program caps";
+  const binding = live.reduce((a, b) => (b.value < a.value ? b : a));
+  return `exceeds the ${binding.label} of ${fmtUsd(binding.value)}`;
+}
+
 /* ==========================================================================
  * SINGLE-PROPERTY PRICING
  * ========================================================================== */
@@ -681,6 +694,13 @@ export interface QuoteResult {
   financedReserve: number;
   /** Loan before any financed reserve: initial advance + holdback. */
   constructionLoan: number;
+  /**
+   * Bridge only: interest-only payment on the DAY-ONE balance (the initial
+   * advance). Bridge interest is billed AS DISBURSED, so this is what the
+   * borrower actually starts paying; `estMonthlyPayment` is the fully-drawn
+   * figure they reach only after the last draw.
+   */
+  estMonthlyAtInitial: number | null;
   reserveLabel: string;
   liquidityRequirement: number | null;
   knownFees: number;
@@ -729,6 +749,11 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   let initialLoan = input.loanAmount;
   let holdback = 0;
   let dscrPitiaMonthly = 0;
+  // Per-call locals. These used to be stashed on the exported PRODUCTS
+  // singleton, so pricing a second deal retroactively mutated the first
+  // result's product object.
+  let dscrBaseCap = 0.8;
+  let dscrBasisValue = 0;
   /** Ground-Up: dollars of LTFC headroom reserved for a financed interest reserve. */
   let guIrHeadroom = 0;
   /** Bridge: the ceiling a financed interest reserve may push the TOTAL loan to. */
@@ -780,19 +805,34 @@ export function priceDeal(input: QuoteInput): QuoteResult {
       // Construction dollars stop at 85% LTFC. A financed reserve may carry the
       // TOTAL loan to 90% of cost — that upper band funds the reserve only.
       guFullCost = fullCost;
-      financedReserveCeiling = CAPS.new_construction.ltfcWithIR * fullCost;
       maxLoan = Math.min(initCap * costBasis + build, arltvCapPct * arvVal, ltfcHardCap);
-      capMessage = `exceeds the lesser of ${(arltvCapPct * 100).toFixed(0)}% ARLTV (${fmtUsd(arltvCapPct * arvVal)}) or ${(CAPS.new_construction.ltfc * 100).toFixed(0)}% LTFC (${fmtUsd(ltfcHardCap)})`;
+      // A financed reserve may carry the TOTAL loan to 90% of cost — but it can
+      // never breach the OTHER binding legs, so the ceiling is the lesser of the
+      // 90% band and the ARLTV cap. Previously only the 90% leg was checked,
+      // which let a financed reserve push ARLTV past its cap with ok:true.
+      financedReserveCeiling = arvVal > 0
+        ? Math.min(CAPS.new_construction.ltfcWithIR * fullCost, arltvCapPct * arvVal)
+        : CAPS.new_construction.ltfcWithIR * fullCost;
+      capMessage = describeCap([
+        { label: `${(initCap * 100).toFixed(0)}% initial-advance cap`, value: initCap * costBasis + build },
+        { label: `${(arltvCapPct * 100).toFixed(0)}% ARLTV`, value: arltvCapPct * arvVal },
+        { label: `${(CAPS.new_construction.ltfc * 100).toFixed(0)}% LTFC`, value: ltfcHardCap },
+      ]);
     } else {
       primaryRatio = arltvVal;
       primaryRatioLabel = "ARLTV";
       arltv = null; // shown as the primary metric
       ltfc = null; // Fix & Flip has no LTC/LTFC cap
       // Fix & Flip has no LTFC cap — ARLTV governs, so that is also the ceiling
-      // a financed reserve may carry the total loan to.
-      financedReserveCeiling = CAPS.fix_and_flip.arltv * arvVal;
+      // a financed reserve may carry the total loan to. With no ARV entered
+      // there is no ceiling to measure against, so financing is unavailable
+      // rather than silently zero (see the guard on financedReserve below).
+      financedReserveCeiling = arvVal > 0 ? CAPS.fix_and_flip.arltv * arvVal : 0;
       maxLoan = Math.min(initCap * costBasis + build, CAPS.fix_and_flip.arltv * arvVal);
-      capMessage = `exceeds the 75% ARLTV max of ${fmtUsd(CAPS.fix_and_flip.arltv * arvVal)}`;
+      capMessage = describeCap([
+        { label: `${(initCap * 100).toFixed(0)}% initial-advance cap`, value: initCap * costBasis + build },
+        { label: `${(CAPS.fix_and_flip.arltv * 100).toFixed(0)}% ARLTV`, value: CAPS.fix_and_flip.arltv * arvVal },
+      ]);
     }
 
     if (isGU) {
@@ -830,7 +870,9 @@ export function priceDeal(input: QuoteInput): QuoteResult {
       baseCap = Math.min(baseCap, input.loanPurpose === "cash_out_refi" ? 0.6 : 0.65);
     }
 
-    addAdj(`Leverage (LTV ${(primaryRatio * 100).toFixed(1)}%)`, leverageAdj(primaryRatio));
+    // Guard a zero denominator — see the portfolio note; no as-is value must
+    // not earn the <=60% leverage discount.
+    if (primaryRatio > 0) addAdj(`Leverage (LTV ${(primaryRatio * 100).toFixed(1)}%)`, leverageAdj(primaryRatio));
     if (input.loanPurpose === "cash_out_refi") addAdj("Cash-out refi", { rate: 0.00375 });
     if (isStab) {
       addAdj("Stabilized bridge premium", { rate: STABILIZED_BRIDGE_PREMIUM });
@@ -860,8 +902,8 @@ export function priceDeal(input: QuoteInput): QuoteResult {
       }
     }
 
-    (product as ProductMeta & { _baseCap?: number })._baseCap = baseCap;
-    (product as ProductMeta & { _basisValue?: number })._basisValue = value;
+    dscrBaseCap = baseCap;
+    dscrBasisValue = value;
   }
 
   addAdj(`FICO ${input.fico}`, isGU ? guFicoAdj(input.fico) : ficoAdj(input.fico));
@@ -883,8 +925,8 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   }
 
   if (family === "dscr") {
-    const baseCap = (product as ProductMeta & { _baseCap?: number })._baseCap ?? 0.8;
-    const value = (product as ProductMeta & { _basisValue?: number })._basisValue ?? 0;
+    const baseCap = dscrBaseCap;
+    const value = dscrBasisValue;
     const effCap = Math.max(0, baseCap + sumMaxLtvAdj);
     maxLoan = effCap * value;
     capMessage = `exceeds the max LTV of ${(effCap * 100).toFixed(1)}% (${fmtUsd(maxLoan)})`;
@@ -892,6 +934,8 @@ export function priceDeal(input: QuoteInput): QuoteResult {
 
   let ratePct: number | null = null;
   let dscr: number | null = null;
+  /** Unrounded DSCR. The gate uses this; `dscr` is the rounded display value. */
+  let dscrRaw: number | null = null;
   let estMonthlyPayment: number | null = null;
   let ok = true;
 
@@ -912,7 +956,10 @@ export function priceDeal(input: QuoteInput): QuoteResult {
     const finalPay = dscrQualifyingPayment(input.loanAmount, ratePct, io);
     const finalPitia = finalPay + escrow;
     dscrPitiaMonthly = finalPitia;
-    dscr = input.monthlyRent && finalPitia > 0 ? +(input.monthlyRent / finalPitia).toFixed(2) : null;
+    // Gate on the raw ratio, round only for display: testing the rounded value
+    // let a true 1.0476 clear the 1.05 floor because it displayed as "1.05".
+    dscrRaw = input.monthlyRent && finalPitia > 0 ? input.monthlyRent / finalPitia : null;
+    dscr = dscrRaw !== null ? +dscrRaw.toFixed(2) : null;
     estMonthlyPayment = Math.round(finalPay);
   } else {
     const finalRate = Math.max(floor, base + sumAdj);
@@ -966,16 +1013,26 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   const grossReserve =
     bridgeReserve && ratePct !== null ? ((input.loanAmount * ratePct) / 100 / 12) * reserveMonths : 0;
   if (bridgeReserve && input.financedInterestReserve && ratePct !== null) {
-    const headroom = Math.max(0, financedReserveCeiling - input.loanAmount);
-    financedReserve = Math.max(0, Math.min(grossReserve, headroom));
-    if (grossReserve > financedReserve + 1) {
+    if (financedReserveCeiling <= 0) {
+      // No ceiling to measure against (no ARV entered, or a product with no
+      // value basis). Say so plainly instead of reporting that $0 fits.
       warnings.push(
-        `A ${reserveMonths}-month interest reserve is ${fmtUsd(grossReserve)}, but only ${fmtUsd(
-          financedReserve
-        )} fits under the ${isGU ? "90% LTFC" : "ARLTV"} ceiling. The remaining ${fmtUsd(
-          grossReserve - financedReserve
-        )} is due at closing — lower the reserve months to finance all of it.`
+        isStab
+          ? "Financing the interest reserve is not available on Stabilized Bridge — it is collected at closing."
+          : "Enter an After-Repair Value to finance the interest reserve. Until then it is collected at closing."
       );
+    } else {
+      const headroom = Math.max(0, financedReserveCeiling - input.loanAmount);
+      financedReserve = Math.max(0, Math.min(grossReserve, headroom));
+      if (grossReserve > financedReserve + 1) {
+        warnings.push(
+          `A ${reserveMonths}-month interest reserve is ${fmtUsd(grossReserve)}, but only ${fmtUsd(
+            financedReserve
+          )} fits under the ${isGU ? "90% LTFC / ARLTV" : "ARLTV"} ceiling. The remaining ${fmtUsd(
+            grossReserve - financedReserve
+          )} is due at closing — lower the reserve months to finance all of it.`
+        );
+      }
     }
   }
   const totalLoan = Math.round(input.loanAmount + financedReserve);
@@ -1009,10 +1066,10 @@ export function priceDeal(input: QuoteInput): QuoteResult {
       fix: `Lower the loan to about ${fmtUsd(Math.floor(maxLoan / 1000) * 1000)} or below, reduce leverage, or add borrower equity.`,
     });
   }
-  if (family === "dscr" && !isStab && dscr !== null && dscr < CAPS.dscr.minDscr) {
+  if (family === "dscr" && !isStab && dscrRaw !== null && dscrRaw < CAPS.dscr.minDscr - 1e-9) {
     ok = false;
     blockers.push({
-      reason: `DSCR ${dscr.toFixed(2)} is below the ${CAPS.dscr.minDscr.toFixed(2)} floor (rent doesn't cover PITIA at this leverage).`,
+      reason: `DSCR ${dscrRaw.toFixed(2)} is below the ${CAPS.dscr.minDscr.toFixed(2)} floor (rent doesn't cover PITIA at this leverage).`,
       fix: `Lower the loan amount/LTV, switch to interest-only to reduce the payment, or use a higher monthly rent if supportable.`,
     });
   }
@@ -1114,12 +1171,18 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   let cashToClose: number | null = null;
   let cashToBorrower: number | null = null;
   if (ok) {
-    const valueBasis =
-      family === "dscr"
-        ? (product as ProductMeta & { _basisValue?: number })._basisValue ?? 0
-        : purchase;
+    // Cash to close on a purchase is measured against the CONTRACT price. The
+    // LTV basis is min(price, appraisal); using that here understated cash to
+    // close by the entire appraisal gap, which is exactly the extra money the
+    // borrower must bring.
+    const valueBasis = family === "dscr" ? (isRefi ? dscrBasisValue : purchase) : purchase;
     const base0 = isRefi ? payoff : valueBasis;
-    const raw = base0 - initialLoan + knownFees + (interestReserve ?? 0);
+    // Only the UNFINANCED part of the reserve is cash at the table — the
+    // financed part is funded by the loan itself. Omitting this made ticking
+    // "finance the reserve" charge the reserve twice and leave the borrower
+    // WORSE off (bigger loan, same cash). Fixed 2026-09-03.
+    const reserveDueAtClosing = Math.max(0, (interestReserve ?? 0) - financedReserve);
+    const raw = base0 - initialLoan + knownFees + reserveDueAtClosing;
     if (raw >= 0) {
       cashToClose = Math.round(raw);
       cashToBorrower = 0;
@@ -1133,6 +1196,12 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   if (financedReserve > 0 && ratePct !== null) {
     estMonthlyPayment = Math.round((totalLoan * ratePct) / 100 / 12);
   }
+  // Bridge interest is billed AS DISBURSED, so the fully-drawn payment above is
+  // not what the borrower pays on day one — that is interest on the initial
+  // advance alone. Both are reported so the term sheet can show the range
+  // instead of a single misleading number.
+  const estMonthlyAtInitial =
+    ok && bridgeReserve && ratePct !== null ? Math.round((initialLoan * ratePct) / 100 / 12) : null;
 
   if (ok) messages.push("Indicative — subject to underwriting, appraisal, title, and insurance. Not a commitment.");
 
@@ -1141,7 +1210,10 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   if (ok && family === "dscr" && !isStab && ratePct !== null) {
     const io = !!input.interestOnly;
     const cut = dscrBuydownReduction(input.buydown ?? 0);
-    const parRatePct = +(ratePct + cut * 100).toFixed(3);
+    // Reconstruct par from the UNCLAMPED rate. Adding the buydown back onto a
+    // floor-clamped rate overstated par (5.65 clamped + 0.25 = 5.90 when true
+    // par was 5.75), so every ladder row printed high.
+    const parRatePct = +(Math.max(floor, base + sumAdj + cut) * 100).toFixed(3);
     rateLadder = buildRateLadder(parRatePct, floor * 100, input.loanAmount, io, (input.buydown ?? 0) * 100);
   }
 
@@ -1176,6 +1248,7 @@ export function priceDeal(input: QuoteInput): QuoteResult {
     termLabel: product.termLabel,
     estMonthlyPayment: ok ? estMonthlyPayment : null,
     interestReserve,
+    estMonthlyAtInitial,
     reserveLabel,
     liquidityRequirement,
     knownFees,
@@ -1332,6 +1405,17 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
   const props = input.properties.slice(0, MAX_PORTFOLIO_PROPERTIES);
   const n = props.length;
 
+  // Stabilized Bridge has family "dscr", so pricePortfolio would treat it as a
+  // plain rental loan: no +3.00% bridge premium, DSCR origination/fee card
+  // instead of bridge, an 80% LTV cap instead of 70%, and a DSCR floor that
+  // should not apply. Roughly 296bp under-priced. Portfolio does not support it.
+  if (product.key === "stabilized_bridge") {
+    blockers.push({
+      reason: "Stabilized Bridge is not available in portfolio pricing.",
+      fix: "Price each Stabilized Bridge property individually on the single-property tab.",
+    });
+  }
+
   const hbPct = Math.min(1, Math.max(0, input.holdbackPct ?? 1));
   const initialCapPct = isDscr ? 1 : initialAdvanceCap(product.key, tier, input.fico, input.permitsApproved);
   const arltvCapPct = isGU ? guArltvCap(tier) : CAPS.fix_and_flip.arltv;
@@ -1339,9 +1423,10 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
   // ride on top up to a further 5% of full cost — reserve only, not build
   // budget — so the hard cap on construction dollars stays 85%. Luis 2026-09-01.
   const ltfcCapPct = CAPS.new_construction.ltfc;
-  const ltfcIrHeadroomPct = input.financedInterestReserve
-    ? CAPS.new_construction.ltfcWithIR - CAPS.new_construction.ltfc
-    : 0;
+  // NOTE: deliberately no ltfcIrHeadroom here. The 85->90% band funds a financed
+  // interest reserve ONLY, and portfolio does not implement one, so the
+  // construction-dollar cap is a flat 85%. Adding the band back into the cap
+  // would let a portfolio advance 90% of cost in build money.
 
   const breakdown: { label: string; value: number }[] = [];
   let sumAdj = 0;
@@ -1397,7 +1482,10 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
     addAdj(`Leverage (blended LTFC ${(blendedLtfc * 100).toFixed(2)}%)`, guLeverageAdj(blendedLtfc));
     addAdj(`Construction budget ${fmtUsd(totals.budget)}`, guBudgetAdj(totals.budget));
   } else {
-    addAdj(`Leverage (blended ${isDscr ? "LTV" : "ARLTV"} ${(leverageForRate * 100).toFixed(1)}%)`, leverageAdj(leverageForRate));
+    // Guard a zero denominator: leverageAdj(0) lands in the <=60% band and
+    // hands out a 25bp DISCOUNT for having no value support at all.
+    if (leverageForRate > 0)
+      addAdj(`Leverage (blended ${isDscr ? "LTV" : "ARLTV"} ${(leverageForRate * 100).toFixed(1)}%)`, leverageAdj(leverageForRate));
   }
   if (isDscr) {
     if (input.loanPurpose === "cash_out_refi") addAdj("Cash-out refi", { rate: 0.00375 });
@@ -1426,9 +1514,14 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
     addAdj(label, { rate: RESIDENCY_ADJ[input.residency] });
   }
 
-  const ltvCapPct = isDscr
-    ? Math.max(0, (input.loanPurpose === "cash_out_refi" ? CAPS.dscr.cashOut : CAPS.dscr.purchase) + sumMaxLtvAdj)
-    : 0;
+  // Foreign National tightens to 65% purchase/RT, 60% cash-out — matching
+  // priceDeal. Portfolio applied the FN rate premium but not the LTV haircut,
+  // so an FN portfolio could over-advance by the full difference.
+  let portfolioBaseCap = input.loanPurpose === "cash_out_refi" ? CAPS.dscr.cashOut : CAPS.dscr.purchase;
+  if (input.residency === "foreign_national") {
+    portfolioBaseCap = Math.min(portfolioBaseCap, input.loanPurpose === "cash_out_refi" ? 0.6 : 0.65);
+  }
+  const ltvCapPct = isDscr ? Math.max(0, portfolioBaseCap + sumMaxLtvAdj) : 0;
 
   const base = isDscr
     ? (input.ustBasis ?? DSCR_UST_BASIS_DEFAULT) + DSCR_BASE_SPREAD[tier]
@@ -1471,10 +1564,12 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
     } else {
       const initialCapDollars = initialCapPct * costBasis + Math.round(p.budget * hbPct);
       const arvCap = arltvCapPct * p.arv;
+      // Construction dollars stop at the 85% LTFC cap. The 85->90% band is for
+      // a financed interest reserve ONLY — adding it here let the portfolio
+      // advance 90% of cost in build money, the exact rule priceDeal enforces
+      // and the comment above claims. Fixed 2026-09-03.
       maxTotalLoan = Math.round(
-        isGU
-          ? Math.min(initialCapDollars, arvCap, ltfcCapPct * fullCost + ltfcIrHeadroomPct * fullCost)
-          : Math.min(initialCapDollars, arvCap)
+        isGU ? Math.min(initialCapDollars, arvCap, ltfcCapPct * fullCost) : Math.min(initialCapDollars, arvCap)
       );
 
       if (initialLtcVal > initialCapPct + 1e-9) {
@@ -1486,8 +1581,8 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
       }
       if (arltvVal > arltvCapPct + 1e-9)
         issues.push(`ARLTV ${(arltvVal * 100).toFixed(1)}% exceeds the ${(arltvCapPct * 100).toFixed(0)}% cap. Max total loan ${fmtUsd(maxTotalLoan)}.`);
-      if (isGU && ltfcVal > ltfcCapPct + ltfcIrHeadroomPct + 1e-9)
-        issues.push(`LTFC ${(ltfcVal * 100).toFixed(1)}% exceeds the ${((ltfcCapPct + ltfcIrHeadroomPct) * 100).toFixed(0)}% cap.`);
+      if (isGU && ltfcVal > ltfcCapPct + 1e-9)
+        issues.push(`LTFC ${(ltfcVal * 100).toFixed(1)}% exceeds the ${(ltfcCapPct * 100).toFixed(0)}% cap.`);
     }
 
     const maxInitialLoan = isDscr ? maxTotalLoan : Math.max(0, maxTotalLoan - holdback);
@@ -1519,11 +1614,12 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
 
   const blendedPI = isDscr ? dscrQualifyingPayment(totals.loan, ratePct, input.interestOnly) : 0;
   const blendedPitia = blendedPI + escrowTotal;
-  const blendedDscr = isDscr && blendedPitia > 0 ? +(totals.monthlyRent / blendedPitia).toFixed(2) : 0;
+  const blendedDscrRaw = isDscr && blendedPitia > 0 ? totals.monthlyRent / blendedPitia : 0;
+  const blendedDscr = +blendedDscrRaw.toFixed(2);
   totals.monthlyPitia = Math.round(blendedPitia);
 
   // ---- Validation ----
-  let ok = true;
+  let ok = blockers.length === 0; // a pre-flight blocker (Stabilized Bridge) already failed it
 
   if (n === 0) {
     ok = false;
@@ -1531,6 +1627,21 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
       reason: "No properties added to the portfolio.",
       fix: "Add at least one property to the schedule.",
     });
+  }
+  if (input.residency === "foreign_national" && isDscr) {
+    warnings.push(
+      "Foreign National: requires valid passport + valid U.S. visa (VWP; travel/student visas not permitted), U.S. FICO if personal-guaranty only, and 12 months PITIA in reserves. Max LTV 65% purchase/RT, 60% cash-out."
+    );
+  }
+  if (isGU && tier === 1 && input.licensedAgentOrGc) {
+    warnings.push(
+      "Tier 1 (no completed ground-up builds) — eligible only on the borrower's GC license. Priced at Tier 1; license verification required at underwriting."
+    );
+  }
+  if (input.financedInterestReserve && !isDscr) {
+    warnings.push(
+      "Financing the interest reserve is not supported in portfolio pricing — it is shown as collected at closing. Price the property individually to finance it."
+    );
   }
   if (input.properties.length > MAX_PORTFOLIO_PROPERTIES)
     warnings.push(`Only the first ${MAX_PORTFOLIO_PROPERTIES} properties are priced (max per loan).`);
@@ -1552,7 +1663,7 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
         fix: `Lower the target LTV to ${(ltvCapPct * 100).toFixed(0)}% or add equity on the higher-leverage properties.`,
       });
     }
-    if (blendedDscr < CAPS.dscr.minDscr - 1e-9) {
+    if (blendedDscrRaw < CAPS.dscr.minDscr - 1e-9) {
       ok = false;
       blockers.push({
         reason: `Blended DSCR ${blendedDscr.toFixed(2)} is below the ${CAPS.dscr.minDscr.toFixed(2)} floor.`,
@@ -1574,13 +1685,11 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
         fix: `Reduce loan amounts or raise ARV support so blended ARLTV is ${(arltvCapPct * 100).toFixed(0)}% or less.`,
       });
     }
-    if (isGU && blendedLtfc > ltfcCapPct + ltfcIrHeadroomPct + 1e-9) {
+    if (isGU && blendedLtfc > ltfcCapPct + 1e-9) {
       ok = false;
       blockers.push({
-        reason: `Blended LTFC ${(blendedLtfc * 100).toFixed(1)}% exceeds the ${((ltfcCapPct + ltfcIrHeadroomPct) * 100).toFixed(0)}% cap.`,
-        fix: `Lower total financed cost to ${(ltfcCapPct * 100).toFixed(0)}% or below${
-          ltfcIrHeadroomPct === 0 ? ", or finance the interest reserve to add up to 5% of cost for the reserve alone" : ""
-        }.`,
+        reason: `Blended LTFC ${(blendedLtfc * 100).toFixed(1)}% exceeds the ${(ltfcCapPct * 100).toFixed(0)}% cap on construction dollars.`,
+        fix: `Lower total financed cost to ${(ltfcCapPct * 100).toFixed(0)}% or below. Financing the interest reserve does not raise this cap — the 85-90% band funds the reserve only.`,
       });
     }
     if (isGU && tier === 1 && !input.licensedAgentOrGc) {
@@ -1691,7 +1800,10 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
   let rateLadder: RateLadderRow[] | undefined;
   if (ok && isDscr) {
     const cut = dscrBuydownReduction(input.buydown ?? 0);
-    const parRatePct = +(ratePct + cut * 100).toFixed(3);
+    // Reconstruct par from the UNCLAMPED rate. Adding the buydown back onto a
+    // floor-clamped rate overstated par (5.65 clamped + 0.25 = 5.90 when true
+    // par was 5.75), so every ladder row printed high.
+    const parRatePct = +(Math.max(floor, base + sumAdj + cut) * 100).toFixed(3);
     rateLadder = buildRateLadder(parRatePct, DSCR_FLOOR * 100, totals.loan, !!input.interestOnly, (input.buydown ?? 0) * 100);
   }
 
@@ -1705,8 +1817,10 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
     count: n,
     rateLadder,
     initialCapPct,
-    arltvCapPct,
-    ltfcCapPct,
+    // Bridge-only caps. Reporting 75%/85% on a DSCR portfolio made the UI label
+    // a rental deal with an ARLTV/LTFC limit that does not apply to it.
+    arltvCapPct: isDscr ? 0 : arltvCapPct,
+    ltfcCapPct: isGU ? ltfcCapPct : 0,
     ltvCapPct,
     properties: results,
     totals,

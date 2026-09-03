@@ -211,7 +211,16 @@ export default function TermSheet({
                 <Headline label="Interest Rate" value={`${quote.ratePct?.toFixed(3)}%`} boxCls={accentBox} accentText={accentText} accent />
                 <Headline label="Loan Amount" value={fmtUsd(quote.loanAmount)} />
                 <Headline label={branded ? "Lender Origination" : "Origination"} value={`${quote.points.toFixed(2)}%`} />
-                <Headline label={quote.interestOnly ? "Payment (IO)" : "Payment (P&I)"} value={quote.estMonthlyPayment ? fmtUsd(quote.estMonthlyPayment) : "—"} />
+                <Headline
+                  label={
+                    isBridge
+                      ? "Payment (IO, full draw)"
+                      : quote.interestOnly
+                      ? "Payment (IO)"
+                      : "Payment (P&I)"
+                  }
+                  value={quote.estMonthlyPayment ? fmtUsd(quote.estMonthlyPayment) : "—"}
+                />
               </div>
             )}
 
@@ -273,6 +282,12 @@ export default function TermSheet({
                 {quote.arltv !== null && <Line k="ARLTV" v={`${(quote.arltv * 100).toFixed(1)}%`} />}
                 {quote.dscr !== null && <Line k="DSCR" v={quote.dscr.toFixed(2)} />}
                 <Line k="Max Loan (caps)" v={quote.maxLoan ? fmtUsd(quote.maxLoan) : "—"} />
+                {isBridge && quote.estMonthlyAtInitial !== null && (
+                  <Line
+                    k="Payment at initial advance"
+                    v={`${fmtUsd(quote.estMonthlyAtInitial)} / mo`}
+                  />
+                )}
                 <Line k={`Interest Reserve (${quote.reserveLabel})`} v={quote.interestReserve !== null ? fmtUsd(quote.interestReserve) : "—"} />
                 {quote.financedReserve > 0 && (
                   <>
