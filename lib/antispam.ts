@@ -136,18 +136,25 @@ export function assessSubmission(opts: {
     return { verdict: "block", score: 100, reasons: ["honeypot_checkbox_ticked"] };
   }
 
+  // A missing token is suspicious but NOT a hard block, deliberately.
+  // /apply and /contact are ISR-prerendered with a 300s stale window, so for a
+  // few minutes after any deploy the edge can still serve HTML from before the
+  // shield existed. Hard-blocking here would silently swallow real leads in
+  // that window — exactly the failure this whole file exists to prevent.
+  // Scored instead: it quarantines on its own, so the lead is still written
+  // down, just held back from Formspree and the team's inbox.
   const rendered = Number(renderedAt);
-  if (!renderedAt || Number.isNaN(rendered)) {
-    // Our own forms always send this. Missing means the POST did not come
-    // from a rendered page — which is exactly how a scripted flood works.
-    return { verdict: "block", score: 100, reasons: ["no_render_token"] };
-  }
-  const elapsed = Date.now() - rendered;
-  if (elapsed < MIN_FILL_MS) {
-    return { verdict: "block", score: 100, reasons: [`filled_in_${elapsed}ms`] };
-  }
-  if (elapsed > MAX_FILL_MS) {
-    return { verdict: "block", score: 100, reasons: ["stale_render_token"] };
+  const noToken = !renderedAt || Number.isNaN(rendered);
+
+  if (!noToken) {
+    const elapsed = Date.now() - rendered;
+    if (elapsed < MIN_FILL_MS) {
+      // Nobody types eleven fields in under three and a half seconds.
+      return { verdict: "block", score: 100, reasons: [`filled_in_${elapsed}ms`] };
+    }
+    if (elapsed > MAX_FILL_MS) {
+      return { verdict: "block", score: 100, reasons: ["stale_render_token"] };
+    }
   }
 
   /* --- Layer 2: rate limit. --- */
@@ -169,6 +176,7 @@ export function assessSubmission(opts: {
   const email = fields.email ?? "";
   const message = fields.message ?? fields.additionalInfo ?? "";
 
+  if (noToken) bump(3, "no_render_token");
   if (looksGenerated(firstName)) bump(2, "generated_first_name");
   if (looksGenerated(lastName)) bump(2, "generated_last_name");
   if (hasDotPadding(email)) bump(2, "email_dot_padding");
