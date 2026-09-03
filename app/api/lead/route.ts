@@ -12,56 +12,65 @@ import {
  * Public lead intake with TCPA / A2P 10DLC consent capture.
  *
  * The public marketing forms (Apply, Contact) POST here instead of going
- * straight to Formspree. This server hop is what makes the consent record
+ * straight to a form service. This server hop is what makes the consent record
  * legally defensible: only the server can see the visitor's real IP and stamp
  * a trustworthy server-side timestamp. For every submission we record:
  *   - whether the visitor checked the SMS/call consent box,
  *   - the exact consent language that was displayed (server-owned, untamperable),
  *   - a UTC timestamp, the submitter IP, user agent, and the page URL.
- * Then we forward the lead + this consent proof to Formspree, where it is
- * stored with the lead record and emailed to the team.
  *
- * A lead STILL submits if the box is left unchecked — we simply record
- * sms_consent = NO so the team knows they do not have texting/auto-call consent
- * for that lead.
+ * ---------------------------------------------------------------------------
+ * PIPELINE ORDER — reversed 2026-09-03. Read this before changing anything.
+ * ---------------------------------------------------------------------------
+ * Formspree used to be primary and the Google Drive intake the backup. On
+ * 2026-09-02 a bot flood spent the entire Formspree monthly allowance (50 on
+ * the free tier) in one day, after which Formspree began rejecting REAL leads.
+ * The Drive backup caught them, which is the only reason nothing was lost.
  *
- * RELIABILITY (added 2026-08-21 after a lead was lost to a silent failure):
- * Formspree is no longer a single point of failure.
- *   1. Every lead is ALSO written to the Google Drive intake via the same
- *      Apps Script web app the broker portal uses (action: "lead"). That
- *      Sheet is the durable record; Formspree is the notifier.
- *   2. The Formspree forward retries once on transient (network / 5xx) failure.
- *   3. The request only fails (502) when BOTH Formspree and the Drive backup
- *      fail — and in that case the full payload is logged under the marker
- *      "[api/lead] LEAD BACKUP" as a last resort. The forms check res.ok and
- *      show the visitor a phone/email fallback instead of a false thank-you.
- *   4. When Formspree fails but the Drive backup succeeds, the Apps Script
- *      sends the notification email itself (notify: true), so the team still
- *      hears about the lead immediately.
+ * The lesson was not "buy more Formspree quota" — it was that a metered
+ * third-party service should never sit in the primary path of a lead. So:
  *
- * SPAM DEFENSE (added 2026-09-03 after the 2026-09-02 Tor bot flood):
- *   5. Every submission is screened by lib/antispam BEFORE anything is
- *      forwarded. This is deliberately the first thing that happens, because
- *      the damage from that attack was not the junk itself — it was 26 bot
- *      submissions eating the whole Formspree monthly quota, after which
- *      Formspree started rejecting real leads.
- *   6. Blocked submissions get a 200 with a normal-looking body. Telling a bot
- *      it was blocked just teaches its author what to change; a silent accept
- *      keeps this one running against a wall.
- *   7. Quarantined (suspicious but not certain) submissions still reach the
- *      Drive sheet, flagged and with the notification suppressed, so a false
- *      positive is recoverable rather than lost.
- *   8. Formspree quota rejections (402/429) are now recognised explicitly and
- *      never retried — retrying a quota error just wastes time on a request
- *      that cannot succeed.
+ *   1. PRIMARY  — the Google Drive intake (Apps Script). Unmetered, already
+ *      the durable record of record, and it sends the team notification
+ *      itself. One retry on a transient failure.
+ *   2. BACKSTOP — Formspree, called ONLY when Drive fails. At normal volume
+ *      that is a handful of submissions a year, so the monthly allowance is
+ *      no longer something an attacker (or a good month) can exhaust.
+ *   3. LAST RESORT — if both fail, the full payload is logged under the marker
+ *      "[api/lead] LEAD BACKUP" and the response is a 502, so the form keeps
+ *      the visitor's answers on screen and shows the phone/email fallback
+ *      instead of a false thank-you.
+ *
+ * CONVERSION IMPACT of the reversal — all three point the same way:
+ *   - Nothing the visitor sees changed. Same fields, same copy, same button,
+ *     no CAPTCHA. There is no mechanism by which form completion can move.
+ *   - The happy path is now ONE network hop instead of two (it used to await
+ *     Formspree and then Drive), so the thank-you page arrives sooner. Faster
+ *     submits convert better, so if anything moves, it moves up.
+ *   - DRIVE_TIMEOUT_MS caps how long a visitor can ever wait on a hung Apps
+ *     Script before we fall through to the backstop. Previously a slow Drive
+ *     call had no ceiling at all.
+ *
+ * SPAM DEFENSE (added 2026-09-03, see lib/antispam.ts):
+ *   Screening runs before any forwarding. Blocked submissions get a 200 with a
+ *   normal-looking body — telling a bot it was blocked only teaches its author
+ *   what to change. Quarantined (suspicious, not certain) submissions are still
+ *   written down, flagged, with the notification suppressed, so a false
+ *   positive is recoverable rather than lost.
  */
 
-// Formspree endpoints, kept server-side. (These IDs were already public in the
-// old client code; centralizing them here just keeps the mapping in one place.)
+/** Formspree endpoints, kept server-side. Backstop only — see the note above. */
 const FORMSPREE_ENDPOINTS: Record<string, string> = {
   apply: "https://formspree.io/f/mojbjdqv",
   contact: "https://formspree.io/f/xwvzvokq",
 };
+
+/**
+ * How long a visitor may wait on the Drive intake before we give up and use
+ * the backstop. Generous enough for a normal Apps Script round trip (~1-2s),
+ * short enough that a hung script never costs us the submission.
+ */
+const DRIVE_TIMEOUT_MS = 8_000;
 
 /** Best-effort real client IP from the platform's proxy headers. */
 function clientIp(request: Request): string {
@@ -74,54 +83,14 @@ function clientIp(request: Request): string {
   );
 }
 
-/** Forward the lead to Formspree, retrying once on a transient failure. */
-async function sendToFormspree(
-  endpoint: string,
-  payload: Record<string, string>
-): Promise<boolean> {
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) return true;
-      const text = await res.text().catch(() => "");
-      // Quota exhaustion is not a transient error and not a code bug — it is
-      // an account limit. Call it out by name so it is obvious in the logs.
-      if (res.status === 402 || res.status === 429) {
-        console.error(
-          "[api/lead] FORMSPREE QUOTA EXHAUSTED — the monthly submission limit " +
-            "is spent, so Formspree is rejecting real leads. The Drive intake " +
-            "is carrying them. Raise the plan limit or move off Formspree."
-        );
-        return false;
-      }
-      console.error(
-        "[api/lead] Formspree rejected submission. HTTP",
-        res.status,
-        text.slice(0, 400)
-      );
-      // A 4xx is a hard rejection — retrying won't change the answer.
-      if (res.status < 500) return false;
-    } catch (err) {
-      console.error("[api/lead] Fetch to Formspree failed:", err);
-    }
-    if (attempt === 1) await new Promise((r) => setTimeout(r, 1500));
-  }
-  return false;
-}
-
 /**
- * Write the lead to the Google Sheet via the Drive intake Apps Script.
- * `notify` asks the script to email the team too (used when Formspree failed,
- * so the notification email is never lost — and never duplicated).
+ * PRIMARY: write the lead to the Google Sheet via the Drive intake Apps Script.
+ * `notify` asks the script to email the team as well.
+ *
+ * Retries once on a transient failure. It carries the whole pipeline now, so
+ * it gets the retry that used to belong to Formspree.
  */
-async function sendToDriveBackup(
+async function sendToDriveIntake(
   formType: string,
   payload: Record<string, string>,
   notify: boolean
@@ -129,36 +98,92 @@ async function sendToDriveBackup(
   const url = process.env.DRIVE_WEBAPP_URL;
   const secret = process.env.DRIVE_WEBAPP_SECRET;
   if (!url || !secret) {
-    console.error("[api/lead] Drive backup not configured (missing env vars).");
+    console.error("[api/lead] Drive intake not configured (missing env vars).");
     return false;
   }
-  try {
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ secret, action: "lead", formType, notify, lead: payload }),
-      // Apps Script responds via a redirect to googleusercontent.com; follow it.
-      redirect: "follow",
-    });
-    const text = await res.text();
-    let data: { ok?: boolean; error?: string };
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      data = JSON.parse(text);
-    } catch {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secret, action: "lead", formType, notify, lead: payload }),
+        // Apps Script responds via a redirect to googleusercontent.com; follow it.
+        redirect: "follow",
+        // Hard ceiling on how long the visitor waits. Without this, a hung
+        // Apps Script leaves the button spinning until the platform gives up.
+        signal: AbortSignal.timeout(DRIVE_TIMEOUT_MS),
+      });
+      const text = await res.text();
+      let data: { ok?: boolean; error?: string };
+      try {
+        data = JSON.parse(text);
+      } catch {
+        // Apps Script returned HTML (usually a Google login page) instead of
+        // JSON — almost always means the Web App "Who has access" is not
+        // set to "Anyone". Not transient; do not retry.
+        console.error(
+          "[api/lead] Drive intake returned non-JSON. HTTP",
+          res.status,
+          text.slice(0, 300)
+        );
+        return false;
+      }
+      if (data.ok) return true;
+      console.error("[api/lead] Drive intake returned error:", data.error);
+      return false;
+    } catch (err) {
+      // Network error or timeout — this is the case worth retrying.
       console.error(
-        "[api/lead] Drive backup returned non-JSON. HTTP",
-        res.status,
-        text.slice(0, 300)
+        `[api/lead] Drive intake unreachable (attempt ${attempt}/2):`,
+        err
+      );
+    }
+    if (attempt === 1) await new Promise((r) => setTimeout(r, 800));
+  }
+  return false;
+}
+
+/**
+ * BACKSTOP: forward the lead to Formspree. Reached only when the Drive intake
+ * has already failed, so this is a rescue path, not the normal one.
+ */
+async function sendToFormspreeBackstop(
+  endpoint: string,
+  payload: Record<string, string>
+): Promise<boolean> {
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(DRIVE_TIMEOUT_MS),
+    });
+    if (res.ok) {
+      console.error(
+        "[api/lead] Drive intake failed; Formspree backstop caught this lead."
+      );
+      return true;
+    }
+    if (res.status === 402 || res.status === 429) {
+      console.error(
+        "[api/lead] BACKSTOP UNAVAILABLE — Drive intake failed AND the " +
+          "Formspree allowance is spent. Both lead channels are down."
       );
       return false;
     }
-    if (!data.ok) {
-      console.error("[api/lead] Drive backup returned error:", data.error);
-      return false;
-    }
-    return true;
+    const text = await res.text().catch(() => "");
+    console.error(
+      "[api/lead] Formspree backstop rejected submission. HTTP",
+      res.status,
+      text.slice(0, 400)
+    );
+    return false;
   } catch (err) {
-    console.error("[api/lead] Drive backup unreachable:", err);
+    console.error("[api/lead] Formspree backstop unreachable:", err);
     return false;
   }
 }
@@ -204,7 +229,7 @@ export async function POST(request: Request) {
   }
 
   /* ---------------------------------------------------------------- */
-  /* Spam screening — before any quota is spent or any email is sent.  */
+  /* Spam screening — before anything is forwarded or emailed.         */
   /* ---------------------------------------------------------------- */
 
   const assessment = assessSubmission({
@@ -222,7 +247,7 @@ export async function POST(request: Request) {
   );
 
   if (assessment.verdict === "block" || !turnstileOk) {
-    // One compact line per blocked hit: enough to watch the attack and confirm
+    // One compact line per blocked hit: enough to watch an attack and confirm
     // no real lead is being caught, without dumping harvested third-party PII
     // into the logs.
     console.warn(
@@ -251,9 +276,9 @@ export async function POST(request: Request) {
   payload.consent_page_url = pageUrl;
 
   if (assessment.verdict === "quarantine") {
-    // Suspicious, not certain. Keep it out of Formspree (quota) and out of the
-    // team's inbox, but write it down so a false positive can be recovered.
-    // The flags travel with the record so the row is self-explaining in the Sheet.
+    // Suspicious, not certain. Keep it out of the team's inbox, but write it
+    // down so a false positive can be recovered. The flags travel with the
+    // record so the row explains itself in the Sheet.
     payload.spam_flag = "SUSPECTED SPAM — review before contacting";
     payload.spam_score = String(assessment.score);
     payload.spam_reasons = assessment.reasons.join(", ");
@@ -262,35 +287,23 @@ export async function POST(request: Request) {
       "[api/lead] SPAM QUARANTINED —",
       JSON.stringify({ formType, ip: consentIp, ...assessment })
     );
-    await sendToDriveBackup(formType, payload, false);
+    await sendToDriveIntake(formType, payload, false);
     return NextResponse.json({ ok: true });
   }
 
-  // Flag SMS opt-in leads right in the email subject so the team can spot them.
+  // Flag SMS opt-in leads right in the subject so the team can spot them.
   payload._subject = `New ${formType} lead${smsConsent ? " — SMS/Call opt-in ✓" : ""}`;
 
-  // 1) Primary: Formspree (stores the lead + emails the team).
-  const formspreeOk = await sendToFormspree(endpoint, payload);
+  // 1) PRIMARY: the Drive intake stores the lead and notifies the team.
+  const driveOk = await sendToDriveIntake(formType, payload, true);
+  if (driveOk) return NextResponse.json({ ok: true });
 
-  // 2) Backup: always write the lead to the Drive intake Sheet. If Formspree
-  //    failed, ask the script to send the notification email too.
-  const driveOk = await sendToDriveBackup(formType, payload, !formspreeOk);
+  // 2) BACKSTOP: only reached when Drive is down.
+  const formspreeOk = await sendToFormspreeBackstop(endpoint, payload);
+  if (formspreeOk) return NextResponse.json({ ok: true });
 
-  if (formspreeOk || driveOk) {
-    if (!formspreeOk) {
-      console.error(
-        "[api/lead] Formspree failed but lead was captured by the Drive backup."
-      );
-    }
-    if (!driveOk) {
-      // Non-fatal: Formspree has the lead. Logged by sendToDriveBackup already.
-      console.error("[api/lead] Drive backup missed a lead that Formspree captured.");
-    }
-    return NextResponse.json({ ok: true });
-  }
-
-  // Both channels failed — make the lead recoverable, then surface the error
-  // so the form shows the visitor the phone/email fallback.
+  // 3) Both channels failed — make the lead recoverable, then surface the
+  //    error so the form shows the visitor the phone/email fallback.
   console.error(
     "[api/lead] LEAD BACKUP (both channels failed — recover this lead from the log):",
     JSON.stringify(payload)
