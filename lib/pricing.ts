@@ -126,6 +126,25 @@ const DSCR_FLOOR = 0.0565;
 
 export const MAX_COMBINED_POINTS = 5.0;
 
+/**
+ * Interest reserve on bridge products (Fix & Flip, Ground-Up).
+ *
+ * Default is 1 month — the minimum prepaid. Borrowers may elect MORE, which
+ * prepays that many months of interest so they make no out-of-pocket payments
+ * during the build/rehab. On a cash-out this is a real benefit: the reserve is
+ * netted from proceeds the borrower is already receiving rather than brought
+ * as cash. Luis 2026-09-01.
+ *
+ * Capped at the loan term so a borrower can't prepay past maturity.
+ */
+export const DEFAULT_RESERVE_MONTHS = 1;
+export const reserveMonthsMax = (extendedTerm: boolean) => (extendedTerm ? 24 : 12);
+export function clampReserveMonths(months: number | undefined, extendedTerm: boolean): number {
+  const max = reserveMonthsMax(extendedTerm);
+  if (!months || !isFinite(months)) return DEFAULT_RESERVE_MONTHS;
+  return Math.max(DEFAULT_RESERVE_MONTHS, Math.min(max, Math.round(months)));
+}
+
 const ORIGINATION: Record<"bridge" | "dscr", Record<Channel, Record<number, number>>> = {
   bridge: {
     retail: { 1: 0.0275, 2: 0.025, 3: 0.0225, 4: 0.02, 5: 0.0175 },
@@ -604,6 +623,11 @@ export interface QuoteInput {
   extendedTerm?: boolean;
   permitsInHand?: boolean;
   financedInterestReserve?: boolean;
+  /**
+   * Months of interest to prepay into the reserve — bridge products only.
+   * Defaults to 1 (the minimum). Clamped to the loan term.
+   */
+  interestReserveMonths?: number;
   initialAdvancePct?: number; // Initial LTC (of purchase + sunk)
 
   // DSCR
@@ -671,6 +695,9 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   // Stabilized Bridge prices like DSCR but bills like a bridge (origination/fees/reserve).
   const feeFamily: "bridge" | "dscr" = isStab ? "bridge" : family;
   const bridgeReserve = family === "bridge" || isStab;
+  const reserveMonths = bridgeReserve
+    ? clampReserveMonths(input.interestReserveMonths, !!input.extendedTerm)
+    : DEFAULT_RESERVE_MONTHS;
   const isRefi = isRefiPurpose(input.loanPurpose);
   const messages: string[] = [];
   const warnings: string[] = [];
@@ -911,11 +938,22 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   // Ground-Up: lift the cap by the financed interest reserve (bounded by the
   // 5% of full cost set aside for it). Done here because it needs the rate.
   if (isGU && guIrHeadroom > 0 && ratePct !== null && maxLoan > 0) {
-    const oneMonthInterest = (input.loanAmount * ratePct) / 100 / 12;
-    const irAllowance = Math.min(guIrHeadroom, oneMonthInterest);
+    const reserveDollars = ((input.loanAmount * ratePct) / 100 / 12) * reserveMonths;
+    const irAllowance = Math.min(guIrHeadroom, reserveDollars);
     if (irAllowance > 0) {
       maxLoan += irAllowance;
       capMessage += `, plus the financed interest reserve of ${fmtUsd(irAllowance)}`;
+    }
+    // The financed reserve is capped at 5% of full cost. Anything beyond that
+    // is real cash the borrower brings (or nets from proceeds) at closing.
+    if (reserveDollars > guIrHeadroom + 1e-6) {
+      warnings.push(
+        `A ${reserveMonths}-month interest reserve is ${fmtUsd(reserveDollars)}, but only ${fmtUsd(
+          guIrHeadroom
+        )} (5% of total cost) can be financed. The remaining ${fmtUsd(
+          reserveDollars - guIrHeadroom
+        )} is due at closing — reduce the reserve months to finance all of it.`
+      );
     }
   }
   if (input.loanAmount < product.minLoan) {
@@ -1015,10 +1053,12 @@ export function priceDeal(input: QuoteInput): QuoteResult {
   const interestReserve =
     ok && ratePct !== null
       ? bridgeReserve
-        ? Math.round(((input.loanAmount * ratePct) / 100 / 12) * 100) / 100
+        ? Math.round(((input.loanAmount * ratePct) / 100 / 12) * reserveMonths * 100) / 100
         : Math.round(amortizedPI(input.loanAmount, ratePct) * 3)
       : null;
-  const reserveLabel = bridgeReserve ? "1 month interest" : "3 months P&I";
+  const reserveLabel = bridgeReserve
+    ? `${reserveMonths} month${reserveMonths === 1 ? "" : "s"} interest`
+    : "3 months P&I";
 
   // Foreign National DSCR: 12 months PITIA in reserves (documented liquidity, not held from proceeds).
   const isFN = input.residency === "foreign_national";
@@ -1143,6 +1183,8 @@ export interface PortfolioInput {
   extendedTerm: boolean;
   permitsApproved: boolean;
   financedInterestReserve: boolean;
+  /** Months of interest prepaid into the reserve — bridge only. Defaults to 1. */
+  interestReserveMonths?: number;
   defaultInitialLtcPct: number;
   /**
    * Share of each property's budget that WE finance and release by draw (0–1).
@@ -1548,10 +1590,15 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
     ? Math.round(interestOnly ? (totals.loan * ratePct) / 100 / 12 : blendedPI)
     : Math.round((totals.loan * ratePct) / 100 / 12);
   const estMonthlyInitial = isDscr ? null : Math.round((totals.initialLoan * ratePct) / 100 / 12);
+  const portfolioReserveMonths = isDscr
+    ? DEFAULT_RESERVE_MONTHS
+    : clampReserveMonths(input.interestReserveMonths, input.extendedTerm);
   const interestReserve = isDscr
     ? Math.round(amortizedPI(totals.loan, ratePct) * 3)
-    : Math.round(((totals.loan * ratePct) / 100 / 12) * 100) / 100;
-  const reserveLabel = isDscr ? "3 months P&I" : "1 month interest";
+    : Math.round(((totals.loan * ratePct) / 100 / 12) * portfolioReserveMonths * 100) / 100;
+  const reserveLabel = isDscr
+    ? "3 months P&I"
+    : `${portfolioReserveMonths} month${portfolioReserveMonths === 1 ? "" : "s"} interest`;
 
   // Rate buydown fee (discount points) — DSCR portfolio only, paid at closing.
   const buydownFee =

@@ -16,6 +16,7 @@ import {
   US_STATES,
   priceDeal,
   initialAdvanceCap,
+  reserveMonthsMax,
   isRefiPurpose,
   fmtUsd,
   type ProductKey,
@@ -53,6 +54,7 @@ export interface DealForm {
   rehabBudget: number; // total remaining budget
   constructionBudget: number; // total remaining budget
   holdbackPct: number; // share of budget financed (0–1)
+  interestReserveMonths: number; // months of interest prepaid (bridge only)
   sunkCosts: number;
   estimatedPayoff: number;
   arv: number;
@@ -94,6 +96,7 @@ const DEFAULTS: DealForm = {
   rehabBudget: 75_000,
   constructionBudget: 300_000,
   holdbackPct: 1,
+  interestReserveMonths: 1,
   sunkCosts: 0,
   estimatedPayoff: 0,
   arv: 550_000,
@@ -200,6 +203,7 @@ export function priceOption(form: DealForm, ov: OptionOverride, ustBasis?: numbe
           rehabBudget: form.rehabBudget,
           constructionBudget: form.constructionBudget,
           holdbackPct,
+          interestReserveMonths: form.interestReserveMonths,
           sunkCosts: sunk,
           arv: form.arv,
           extendedTerm: form.extendedTerm,
@@ -524,6 +528,26 @@ export default function PricingClient() {
                     <CheckRow label="Finance interest reserve? (adds up to 5% of cost, reserve only)" checked={form.financedInterestReserve} onChange={(v) => set("financedInterestReserve", v)} />
                   )}
                 </div>
+
+                <RangeField
+                  label="Interest reserve (months prepaid)"
+                  value={form.interestReserveMonths}
+                  min={1}
+                  max={reserveMonthsMax(form.extendedTerm)}
+                  step={1}
+                  unit=""
+                  onChange={(v) => set("interestReserveMonths", v)}
+                  display={`${form.interestReserveMonths} mo${quote.interestReserve ? ` · ${fmtUsd(quote.interestReserve)}` : ""}`}
+                />
+                <p className="text-xs text-slate-400 -mt-2">
+                  Default is 1 month (the minimum prepaid). Electing more prepays that many months of
+                  interest, so the borrower makes no out-of-pocket payments during the{" "}
+                  {isGU ? "build" : "rehab"}.
+                  {isRefi
+                    ? " On a cash-out it is netted from the proceeds the borrower already receives."
+                    : " It is collected at closing."}
+                  {isGU && form.financedInterestReserve && " Financed up to 5% of total cost; any excess is due at closing."}
+                </p>
               </>
             ) : (
               <>

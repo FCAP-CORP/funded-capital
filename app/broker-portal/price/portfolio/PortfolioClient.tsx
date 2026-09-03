@@ -7,7 +7,8 @@ import {
   PRODUCTS,
   CHANNEL_OPTIONS,
   RESIDENCY_OPTIONS,
-  EXPERIENCE_BUCKETS,
+  experienceBucketsFor,
+  reserveMonthsMax,
   LOAN_PURPOSE_OPTIONS,
   DSCR_TERM_OPTIONS,
   PPP_OPTIONS,
@@ -49,6 +50,7 @@ export interface PortfolioForm {
   financedInterestReserve: boolean;
   defaultInitialLtcPct: number;
   holdbackPct: number;
+  interestReserveMonths: number;
   // dscr
   dscrTerm: DscrTerm;
   ppp: Ppp;
@@ -92,6 +94,7 @@ const DEFAULTS: PortfolioForm = {
   financedInterestReserve: false,
   defaultInitialLtcPct: 0.7,
   holdbackPct: 1,
+  interestReserveMonths: 1,
   dscrTerm: "frm_30",
   ppp: "ppp_5yr",
   interestOnly: false,
@@ -149,6 +152,7 @@ export default function PortfolioClient() {
       financedInterestReserve: form.financedInterestReserve,
       defaultInitialLtcPct: effInitialPct,
       holdbackPct: form.holdbackPct,
+      interestReserveMonths: form.interestReserveMonths,
       dscrTerm: form.dscrTerm,
       ppp: form.ppp,
       interestOnly: form.interestOnly,
@@ -225,7 +229,10 @@ export default function PortfolioClient() {
               label={`Experience — ${meta.experienceUnit}`}
               value={String(form.experienceBucket)}
               onChange={(v) => set("experienceBucket", Number(v))}
-              options={EXPERIENCE_BUCKETS.map((b, i) => ({ value: String(i), label: `${b} (Tier ${i + 1})` }))}
+              options={experienceBucketsFor(form.product).map((b, i) => ({
+                value: String(i),
+                label: `${b} (Tier ${i + 1})`,
+              }))}
             />
             <div className="grid sm:grid-cols-2 gap-4">
               <RangeField label="Estimated credit score (mid)" value={form.fico} min={600} max={800} onChange={(v) => set("fico", v)} display={String(form.fico)} unit="" step={5} />
@@ -236,7 +243,15 @@ export default function PortfolioClient() {
                 options={RESIDENCY_OPTIONS.map((r) => ({ value: r.key, label: r.label }))}
               />
             </div>
-            <CheckRow label="Licensed RE agent or GC? (bumps tier)" checked={form.licensedAgentOrGc} onChange={(v) => set("licensedAgentOrGc", v)} />
+            <CheckRow
+              label={
+                form.product === "new_construction"
+                  ? "Licensed GC? (required for Tier 1 — does not raise the tier)"
+                  : "Licensed RE agent or GC? (bumps tier)"
+              }
+              checked={form.licensedAgentOrGc}
+              onChange={(v) => set("licensedAgentOrGc", v)}
+            />
           </Section>
 
           <Section title="Loan Structure">
@@ -296,6 +311,20 @@ export default function PortfolioClient() {
                 {isGU && (
                   <CheckRow label="Finance interest reserve? (adds up to 5% of cost, reserve only)" checked={form.financedInterestReserve} onChange={(v) => set("financedInterestReserve", v)} />
                 )}
+                <RangeField
+                  label="Interest reserve (months prepaid)"
+                  value={form.interestReserveMonths}
+                  min={1}
+                  max={reserveMonthsMax(form.extendedTerm)}
+                  step={1}
+                  unit=""
+                  onChange={(v) => set("interestReserveMonths", v)}
+                  display={`${form.interestReserveMonths} mo${quote.interestReserve ? ` · ${fmtUsd(quote.interestReserve)}` : ""}`}
+                />
+                <p className="text-xs text-slate-400 -mt-2">
+                  Default is 1 month. More months prepay interest across the whole portfolio so the
+                  borrower makes no out-of-pocket payments during the build or rehab.
+                </p>
               </>
             ) : (
               <>
