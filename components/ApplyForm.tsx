@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, AlertTriangle } from "lucide-react";
 import SmsConsentField from "@/components/SmsConsentField";
+import FormShield from "@/components/FormShield";
 import { trackFormStart, trackLead, trackLeadError } from "@/lib/analytics";
 
 export default function ApplyForm() {
@@ -70,10 +71,13 @@ export default function ApplyForm() {
   return (
     <div className="card">
       <form
-        className="flex flex-col gap-8"
+        className="relative flex flex-col gap-8"
         onSubmit={handleSubmit}
         onFocusCapture={handleFirstInteraction}
       >
+        {/* Invisible bot traps. Never rendered to a real visitor. */}
+        <FormShield />
+
         {/* Section: Your Information */}
         <fieldset className="flex flex-col gap-5">
           <legend className="font-bold text-navy-900 text-lg border-b border-slate-100 pb-3 w-full">

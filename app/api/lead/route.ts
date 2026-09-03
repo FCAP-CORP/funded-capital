@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
 import { SMS_CONSENT_TEXT, CONSENT_VERSION } from "@/lib/consent";
+import {
+  assessSubmission,
+  verifyTurnstile,
+  HONEYPOT_TEXT_FIELD,
+  HONEYPOT_CHECK_FIELD,
+  FORM_RENDERED_FIELD,
+} from "@/lib/antispam";
 
 /**
  * Public lead intake with TCPA / A2P 10DLC consent capture.
@@ -31,6 +38,22 @@ import { SMS_CONSENT_TEXT, CONSENT_VERSION } from "@/lib/consent";
  *   4. When Formspree fails but the Drive backup succeeds, the Apps Script
  *      sends the notification email itself (notify: true), so the team still
  *      hears about the lead immediately.
+ *
+ * SPAM DEFENSE (added 2026-09-03 after the 2026-09-02 Tor bot flood):
+ *   5. Every submission is screened by lib/antispam BEFORE anything is
+ *      forwarded. This is deliberately the first thing that happens, because
+ *      the damage from that attack was not the junk itself — it was 26 bot
+ *      submissions eating the whole Formspree monthly quota, after which
+ *      Formspree started rejecting real leads.
+ *   6. Blocked submissions get a 200 with a normal-looking body. Telling a bot
+ *      it was blocked just teaches its author what to change; a silent accept
+ *      keeps this one running against a wall.
+ *   7. Quarantined (suspicious but not certain) submissions still reach the
+ *      Drive sheet, flagged and with the notification suppressed, so a false
+ *      positive is recoverable rather than lost.
+ *   8. Formspree quota rejections (402/429) are now recognised explicitly and
+ *      never retried — retrying a quota error just wastes time on a request
+ *      that cannot succeed.
  */
 
 // Formspree endpoints, kept server-side. (These IDs were already public in the
@@ -68,6 +91,16 @@ async function sendToFormspree(
       });
       if (res.ok) return true;
       const text = await res.text().catch(() => "");
+      // Quota exhaustion is not a transient error and not a code bug — it is
+      // an account limit. Call it out by name so it is obvious in the logs.
+      if (res.status === 402 || res.status === 429) {
+        console.error(
+          "[api/lead] FORMSPREE QUOTA EXHAUSTED — the monthly submission limit " +
+            "is spent, so Formspree is rejecting real leads. The Drive intake " +
+            "is carrying them. Raise the plan limit or move off Formspree."
+        );
+        return false;
+      }
       console.error(
         "[api/lead] Formspree rejected submission. HTTP",
         res.status,
@@ -155,10 +188,55 @@ export async function POST(request: Request) {
 
   // Collect the lead fields the visitor typed. Strip control fields; we re-add
   // explicit, auditable consent fields below.
+  const CONTROL_FIELDS = new Set([
+    "smsConsent",
+    "formType",
+    "consent_page_url",
+    HONEYPOT_TEXT_FIELD,
+    HONEYPOT_CHECK_FIELD,
+    FORM_RENDERED_FIELD,
+    "cf-turnstile-response",
+  ]);
   const payload: Record<string, string> = {};
   for (const [key, value] of form.entries()) {
-    if (key === "smsConsent" || key === "formType" || key === "consent_page_url") continue;
+    if (CONTROL_FIELDS.has(key)) continue;
     if (typeof value === "string") payload[key] = value;
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* Spam screening — before any quota is spent or any email is sent.  */
+  /* ---------------------------------------------------------------- */
+
+  const assessment = assessSubmission({
+    fields: payload,
+    honeypotText: String(form.get(HONEYPOT_TEXT_FIELD) ?? ""),
+    honeypotCheck: String(form.get(HONEYPOT_CHECK_FIELD) ?? ""),
+    renderedAt: String(form.get(FORM_RENDERED_FIELD) ?? ""),
+    ip: consentIp,
+    userAgent,
+  });
+
+  const turnstileOk = await verifyTurnstile(
+    String(form.get("cf-turnstile-response") ?? ""),
+    consentIp
+  );
+
+  if (assessment.verdict === "block" || !turnstileOk) {
+    // One compact line per blocked hit: enough to watch the attack and confirm
+    // no real lead is being caught, without dumping harvested third-party PII
+    // into the logs.
+    console.warn(
+      "[api/lead] SPAM BLOCKED —",
+      JSON.stringify({
+        formType,
+        ip: consentIp,
+        reasons: turnstileOk ? assessment.reasons : ["turnstile_failed"],
+        email: (payload.email ?? "").slice(0, 60),
+      })
+    );
+    // Look successful. A bot that sees a rejection gets tuned; one that thinks
+    // it is winning keeps hammering a wall for free.
+    return NextResponse.json({ ok: true });
   }
 
   // --- Proof-of-consent record (server-authoritative) ---
@@ -171,6 +249,22 @@ export async function POST(request: Request) {
   payload.consent_ip = consentIp;
   payload.consent_user_agent = userAgent;
   payload.consent_page_url = pageUrl;
+
+  if (assessment.verdict === "quarantine") {
+    // Suspicious, not certain. Keep it out of Formspree (quota) and out of the
+    // team's inbox, but write it down so a false positive can be recovered.
+    // The flags travel with the record so the row is self-explaining in the Sheet.
+    payload.spam_flag = "SUSPECTED SPAM — review before contacting";
+    payload.spam_score = String(assessment.score);
+    payload.spam_reasons = assessment.reasons.join(", ");
+    payload._subject = `[SUSPECTED SPAM] ${formType} submission — not contacted`;
+    console.warn(
+      "[api/lead] SPAM QUARANTINED —",
+      JSON.stringify({ formType, ip: consentIp, ...assessment })
+    );
+    await sendToDriveBackup(formType, payload, false);
+    return NextResponse.json({ ok: true });
+  }
 
   // Flag SMS opt-in leads right in the email subject so the team can spot them.
   payload._subject = `New ${formType} lead${smsConsent ? " — SMS/Call opt-in ✓" : ""}`;

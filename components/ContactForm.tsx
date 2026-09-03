@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, AlertTriangle } from "lucide-react";
 import SmsConsentField from "@/components/SmsConsentField";
+import FormShield from "@/components/FormShield";
 import { trackFormStart, trackLead, trackLeadError } from "@/lib/analytics";
 
 export default function ContactForm() {
@@ -68,10 +69,13 @@ export default function ContactForm() {
         Send Us a Message
       </h2>
       <form
-        className="flex flex-col gap-5"
+        className="relative flex flex-col gap-5"
         onSubmit={handleSubmit}
         onFocusCapture={handleFirstInteraction}
       >
+        {/* Invisible bot traps. Never rendered to a real visitor. */}
+        <FormShield />
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label htmlFor="firstName" className="form-label">First Name *</label>
