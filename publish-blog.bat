@@ -3,6 +3,8 @@ REM ==========================================================
 REM  Funded Capital - auto-commit & push new blog articles
 REM  Double-click to run, or schedule via Windows Task Scheduler.
 REM  (Path updated 2026-08-24 for the new machine.)
+REM  (Date stamp fixed 2026-09-04: 'wmic' was removed in Windows 11
+REM   and silently produced commit messages like "(--)".)
 REM ==========================================================
 
 cd /d "C:\Users\luis\repos\funded-capital"
@@ -17,11 +19,21 @@ if %errorlevel%==0 (
     goto end
 )
 
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set dt=%%I
-set stamp=%dt:~0,4%-%dt:~4,2%-%dt:~6,2%
+REM Date stamp via PowerShell. The old 'wmic os get localdatetime'
+REM command no longer exists on Windows 11.
+set stamp=
+for /f %%I in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd"') do set stamp=%%I
+if "%stamp%"=="" set stamp=undated
 
 git commit -m "Auto-publish blog articles (%stamp%)"
+
 git push origin main
+if errorlevel 1 (
+    echo.
+    echo   ^>^> PUSH FAILED - the error is printed above.
+    echo   ^>^> Nothing reached GitHub, so Vercel has nothing to deploy.
+    goto end
+)
 echo Done. New articles pushed live.
 
 :end
