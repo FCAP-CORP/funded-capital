@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ShieldCheck } from "lucide-react";
 
 export const metadata = {
-  title: "Sign In | Funded Capital",
+  title: "Sign In",
   robots: { index: false, follow: false },
 };
 
