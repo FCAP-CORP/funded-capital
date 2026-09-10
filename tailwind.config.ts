@@ -9,6 +9,10 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Document navy. Matches the participation agreements and one-pagers
+        // so the participant portal reads as the same instrument.
+        ink: "#0D2035",
+
         // Institutional Navy / Slate
         navy: {
           950: "#060D1F",

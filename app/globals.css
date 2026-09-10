@@ -176,3 +176,40 @@
     width: 3%;
   }
 }
+
+/* ---- Participant portal print styles ---- */
+/*
+ * The statement is printed straight from the Documents page. Rather than
+ * portalling it to the body like the term sheet does, everything that is not
+ * the statement carries .pp-no-print — the sidebar, the page header, the
+ * program-documents panel. That keeps the statement a server component with
+ * no client JavaScript beyond the print button itself.
+ */
+@media print {
+  @page {
+    size: letter portrait;
+    margin: 0.5in;
+  }
+
+  .pp-no-print {
+    display: none !important;
+  }
+
+  .pp-statement {
+    border: 0 !important;
+    border-radius: 0 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .pp-statement table {
+    width: 100% !important;
+    table-layout: fixed;
+    border-collapse: collapse;
+  }
+
+  .pp-statement td,
+  .pp-statement th {
+    overflow-wrap: anywhere;
+  }
+}
