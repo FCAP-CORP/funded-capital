@@ -29,8 +29,15 @@ import { summarizeBook, summarizeHolder, toParticipationView } from "./revenueSh
  *   PARTICIPANT_ADMIN_EMAILS   comma-separated allowlist for the admin view
  */
 
-/** How long a sheet response may be reused. Payments post monthly. */
-const REVALIDATE_SECONDS = 300;
+/**
+ * How long a sheet response may be reused.
+ *
+ * Apps Script answers in 2-7 seconds, so this window is what stands between a
+ * participant and an instant page. Payments post once a month, so half an hour
+ * of staleness costs nothing in accuracy — and Next serves the stale copy while
+ * refreshing in the background, so in practice almost nobody waits on the sheet.
+ */
+const REVALIDATE_SECONDS = 1800;
 
 interface RawPacket {
   /** Every row carrying this email — one per participation. */

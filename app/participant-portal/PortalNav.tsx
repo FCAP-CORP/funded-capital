@@ -30,13 +30,8 @@ export default function PortalNav({ isAdmin = false }: { isAdmin?: boolean }) {
       ? `${user?.firstName?.[0] ?? ""}${user?.lastName?.[0] ?? ""}`.toUpperCase()
       : (name[0] || "P").toUpperCase();
 
-  // The sign-in and invitation screens are full-bleed.
-  if (
-    pathname === "/participant-portal/login" ||
-    pathname.startsWith("/participant-portal/accept")
-  ) {
-    return null;
-  }
+  // The sign-in screen is full-bleed.
+  if (pathname === "/participant-portal/login") return null;
 
   const links = isAdmin ? [...BASE_LINKS, ADMIN_LINK] : BASE_LINKS;
 
@@ -68,9 +63,20 @@ export default function PortalNav({ isAdmin = false }: { isAdmin?: boolean }) {
       <aside
         className={`pp-no-print ${open ? "block" : "hidden"} lg:block fixed lg:sticky top-0 z-30 w-full lg:w-64 shrink-0 lg:h-screen bg-ink border-r border-white/10`}
       >
-        <div className="hidden lg:flex flex-col justify-center px-6 h-24 border-b border-white/10">
+        {/*
+          items-start matters. A column flex container defaults to
+          align-items: stretch, which pulls the logo out to the full width of
+          the sidebar and overrides its aspect ratio — the mark renders
+          horizontally stretched. Aligning to the start lets the image keep its
+          natural proportions.
+        */}
+        <div className="hidden lg:flex flex-col items-start justify-center px-6 h-24 border-b border-white/10">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/LogoWhite.png" alt="Funded Capital" style={{ height: "40px", width: "auto" }} />
+          <img
+            src="/LogoWhite.png"
+            alt="Funded Capital"
+            className="block h-10 w-auto max-w-full self-start"
+          />
           <span className="mt-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-gold-500">
             Participant Portal
           </span>
