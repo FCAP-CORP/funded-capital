@@ -4,8 +4,6 @@ import { getBook, isPortalAdmin } from "@/lib/revenueShare.server";
 import { formatDate, money, todayIso } from "@/lib/revenueShare";
 import { Figure, PageHeader, Panel, PortalMessage, StatusPill } from "../ui";
 
-export const dynamic = "force-dynamic";
-
 export const metadata = {
   title: "Program Book | Participant Portal",
   robots: { index: false, follow: false, nocache: true },

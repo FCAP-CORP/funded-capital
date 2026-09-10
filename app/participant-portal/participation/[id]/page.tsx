@@ -22,8 +22,6 @@ import {
   StatusPill,
 } from "../../ui";
 
-export const dynamic = "force-dynamic";
-
 export const metadata = {
   title: "Participation | Participant Portal",
   robots: { index: false, follow: false, nocache: true },

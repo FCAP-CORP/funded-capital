@@ -11,8 +11,6 @@ import {
 } from "@/lib/revenueShare";
 import { Figure, PageHeader, Panel, PortalMessage, ProgramDisclaimer, StatusPill } from "../ui";
 
-export const dynamic = "force-dynamic";
-
 export const metadata = {
   title: "Payments | Participant Portal",
   robots: { index: false, follow: false, nocache: true },

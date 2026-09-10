@@ -11,8 +11,6 @@ import {
 import { PageHeader, Panel, PortalMessage, ProgramDisclaimer } from "../ui";
 import PrintButton from "./PrintButton";
 
-export const dynamic = "force-dynamic";
-
 export const metadata = {
   title: "Documents | Participant Portal",
   robots: { index: false, follow: false, nocache: true },

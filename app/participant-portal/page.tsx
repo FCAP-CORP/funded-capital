@@ -12,8 +12,17 @@ import {
   StatusPill,
 } from "./ui";
 
-// Program records change whenever Luis logs a payment; never cache the page.
-export const dynamic = "force-dynamic";
+/**
+ * CACHING - do not add `export const dynamic = "force-dynamic"` here.
+ *
+ * next.config.ts sets `cacheComponents: true` (Next 16 Partial Prerendering),
+ * which rejects the `dynamic` route-segment config outright and fails the
+ * build. It is also unnecessary: every participant figure on this page comes
+ * from getMyParticipation(), which reads the Clerk session, and any read of
+ * the session marks that subtree dynamic automatically. Next prerenders only
+ * the empty chrome and streams the participant data per request - verified by
+ * inspecting the prerendered shell, which contains no participant data at all.
+ */
 
 const STATUS_STYLES: Record<string, string> = {
   active: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
