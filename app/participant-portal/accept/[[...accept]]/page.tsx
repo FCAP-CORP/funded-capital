@@ -1,29 +1,21 @@
-import { SignIn } from "@clerk/nextjs";
+import { SignUp } from "@clerk/nextjs";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Sign In | Participant Portal",
+  title: "Activate Your Access | Participant Portal",
   robots: { index: false, follow: false, nocache: true },
 };
 
 /**
- * The participant sign-in screen. This route is public in proxy.ts — it has to
- * be, or there is no way into the portal.
+ * Where a Clerk invitation lands.
+ *
+ * The program is invitation-only: Clerk's sign-up mode is Restricted, so this
+ * form only completes when the visitor arrives carrying a valid invitation
+ * ticket. Anyone who finds the URL on their own sees the notice and nothing
+ * else useful. Set the invitation's redirect URL to this page when inviting a
+ * participant.
  */
-export default async function ParticipantLoginPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ redirect_url?: string }>;
-}) {
-  const { redirect_url } = await searchParams;
-
-  // Only accept an internal path, so the sign-in screen can never be used to
-  // bounce someone to another site.
-  const safeRedirect =
-    redirect_url && redirect_url.startsWith("/participant-portal")
-      ? redirect_url
-      : "/participant-portal";
-
+export default function ParticipantAcceptPage() {
   return (
     <div className="min-h-screen grid place-items-center bg-ink px-4 py-12">
       <div className="w-full max-w-md">
@@ -36,22 +28,26 @@ export default async function ParticipantLoginPage({
             className="mx-auto"
           />
           <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-gold-500">
-            Participant Portal
+            Activate Your Access
           </p>
           <p className="mt-3 text-sm text-slate-400">
-            Access is by invitation. Sign in with the email address on your
-            participation agreement.
+            Choose a password for the email address we invited. This is a
+            private program — accounts are created by invitation only.
           </p>
         </div>
 
-        <SignIn
+        <SignUp
           routing="hash"
-          fallbackRedirectUrl={safeRedirect}
-          signUpUrl="/participant-portal/accept"
+          fallbackRedirectUrl="/participant-portal"
+          signInUrl="/participant-portal/login"
         />
 
         <p className="mt-8 text-center text-xs text-slate-500">
-          Need help signing in? Contact{" "}
+          Already have access?{" "}
+          <a href="/participant-portal/login" className="text-gold-500 hover:underline">
+            Sign in
+          </a>
+          {" · "}
           <a href="mailto:info@fundedcapital.com" className="text-gold-500 hover:underline">
             info@fundedcapital.com
           </a>

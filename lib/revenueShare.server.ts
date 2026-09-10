@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { currentUser } from "@clerk/nextjs/server";
 import type {
   BookSummary,
@@ -28,6 +29,9 @@ import { summarizeBook, summarizeHolder, toParticipationView } from "./revenueSh
  *   PARTICIPANT_ADMIN_EMAILS   comma-separated allowlist for the admin view
  */
 
+/** How long a sheet response may be reused. Payments post monthly. */
+const REVALIDATE_SECONDS = 300;
+
 interface RawPacket {
   /** Every row carrying this email — one per participation. */
   participants?: ParticipantRecord[];
@@ -55,7 +59,12 @@ async function callScript<T>(params: Record<string, string>): Promise<FetchOutco
   try {
     const res = await fetch(`${url}?${qs.toString()}`, {
       redirect: "follow",
-      cache: "no-store",
+      // Apps Script answers in 2-7 seconds, which made every in-portal
+      // navigation feel broken. The underlying sheet changes a handful of
+      // times a month, so a short shared cache costs nothing in accuracy and
+      // turns repeat page loads into instant ones. The cache key includes the
+      // query string, so one holder's packet can never be served to another.
+      next: { revalidate: REVALIDATE_SECONDS },
     });
     if (!res.ok) return { ok: false, reason: "unavailable" };
 
@@ -82,7 +91,7 @@ async function callScript<T>(params: Record<string, string>): Promise<FetchOutco
  * email is read from the Clerk session on the server and there is no code path
  * that accepts an email from the request, so one holder can never see another's.
  */
-export async function getMyParticipation(): Promise<FetchOutcome<ParticipantPacket>> {
+async function loadMyParticipation(): Promise<FetchOutcome<ParticipantPacket>> {
   const user = await currentUser();
   const email = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase();
   if (!email) return { ok: false, reason: "not_found" };
@@ -134,6 +143,12 @@ export async function getMyParticipation(): Promise<FetchOutcome<ParticipantPack
   };
 }
 
+/**
+ * Deduped per request: a page and its layout can both ask for the packet and
+ * the sheet is still only consulted once.
+ */
+export const getMyParticipation = cache(loadMyParticipation);
+
 /** One participation by id, scoped to the signed-in holder. */
 export async function getMyParticipationById(
   participationId: string
@@ -152,7 +167,7 @@ export async function getMyParticipationById(
 }
 
 /** True when the signed-in user is on the admin allowlist. */
-export async function isPortalAdmin(): Promise<boolean> {
+async function loadIsPortalAdmin(): Promise<boolean> {
   const user = await currentUser();
   const email = user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase();
   if (!email) return false;
@@ -165,6 +180,8 @@ export async function isPortalAdmin(): Promise<boolean> {
   return allowlist.includes(email);
 }
 
+export const isPortalAdmin = cache(loadIsPortalAdmin);
+
 export interface BookPacket {
   participants: ParticipantRecord[];
   schedule: ScheduledPayment[];
@@ -176,7 +193,7 @@ export interface BookPacket {
  * does not check, so that the page can render a proper 404 instead of leaking
  * the existence of an admin route to a participant who guesses the URL.
  */
-export async function getBook(): Promise<FetchOutcome<BookPacket>> {
+async function loadBook(): Promise<FetchOutcome<BookPacket>> {
   const result = await callScript<RawBook>({ action: "book" });
   if (!result.ok) return result;
 
@@ -188,3 +205,5 @@ export async function getBook(): Promise<FetchOutcome<BookPacket>> {
     data: { participants, schedule, summary: summarizeBook(participants, schedule) },
   };
 }
+
+export const getBook = cache(loadBook);

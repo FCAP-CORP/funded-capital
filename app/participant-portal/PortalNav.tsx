@@ -30,8 +30,13 @@ export default function PortalNav({ isAdmin = false }: { isAdmin?: boolean }) {
       ? `${user?.firstName?.[0] ?? ""}${user?.lastName?.[0] ?? ""}`.toUpperCase()
       : (name[0] || "P").toUpperCase();
 
-  // The sign-in screen is full-bleed.
-  if (pathname === "/participant-portal/login") return null;
+  // The sign-in and invitation screens are full-bleed.
+  if (
+    pathname === "/participant-portal/login" ||
+    pathname.startsWith("/participant-portal/accept")
+  ) {
+    return null;
+  }
 
   const links = isAdmin ? [...BASE_LINKS, ADMIN_LINK] : BASE_LINKS;
 
