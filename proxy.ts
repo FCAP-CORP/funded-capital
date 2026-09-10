@@ -27,6 +27,7 @@ const isParticipantRoute = createRouteMatcher(["/participant-portal(.*)"]);
 const isGuardedRoute = createRouteMatcher([
   "/broker-portal(.*)",
   "/participant-portal(.*)",
+  "/portal(.*)",
   "/admin(.*)",
 ]);
 

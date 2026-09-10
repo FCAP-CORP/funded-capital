@@ -65,7 +65,21 @@ export default function RootLayout({
           in — resolving "connection() accessed outside <Suspense>".
         */}
         <Suspense fallback={null}>
-          <ClerkProvider dynamic>
+          <ClerkProvider
+            dynamic
+            /*
+              Clerk's own hosted screens and its emailed invitation links need
+              to know where this application's sign-in and sign-up pages live,
+              and where to send someone once they are through. An invitation
+              created in the Clerk Dashboard cannot carry its own redirect, so
+              everyone lands on /portal, which forwards each person to the
+              portal they actually belong to.
+            */
+            signInUrl="/sign-in"
+            signUpUrl="/sign-up"
+            signInFallbackRedirectUrl="/portal"
+            signUpFallbackRedirectUrl="/portal"
+          >
             <SiteChrome>{children}</SiteChrome>
           </ClerkProvider>
         </Suspense>
