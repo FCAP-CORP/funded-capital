@@ -327,7 +327,14 @@ export function termProgress(p: ParticipationView, today = todayIso()): number {
 export function toParticipationView(r: ParticipantRecord): ParticipationView {
   return {
     participationId: r.participantId,
-    displayName: r.entityName?.trim() ? r.entityName.trim() : r.fullName,
+    // The portal greets the person, never the entity. A participation may be
+    // held in a company name — Stonecabi Corp holds one of Jose Carlos's five —
+    // but a holder should see their own name across every participation they
+    // own, not a different one depending on which row they opened. The entity
+    // name stays in the tracker as the record of who legally holds it; it is
+    // simply not what the portal calls them. Entity name is the fallback only
+    // if a row somehow has no personal name at all.
+    displayName: r.fullName?.trim() || r.entityName?.trim() || "",
     capitalContributed: r.capitalContributed,
     designatedLoanSize: r.designatedLoanSize,
     monthlyRevenueShare: r.monthlyRevenueShare,
