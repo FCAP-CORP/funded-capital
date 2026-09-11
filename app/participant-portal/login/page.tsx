@@ -39,8 +39,7 @@ export default async function ParticipantLoginPage({
             Participant Portal
           </p>
           <p className="mt-3 text-sm text-slate-400">
-            Access is by invitation. Sign in with the email address on your
-            participation agreement.
+            Sign in with the email address on your participation agreement.
           </p>
         </div>
 
@@ -49,6 +48,19 @@ export default async function ParticipantLoginPage({
           fallbackRedirectUrl={safeRedirect}
           signUpUrl="/participant-portal/accept"
         />
+
+        {/*
+          The way in for someone who has never signed in. The welcome email
+          tells participants to look for this exact wording, so if the label
+          changes here it has to change there too.
+        */}
+        <a
+          href="/participant-portal/accept"
+          className="mt-6 flex items-center justify-center gap-1.5 rounded-md border border-white/15 bg-white/[0.03] px-4 py-3 text-sm text-slate-300 transition-colors hover:border-gold-500/50 hover:bg-white/[0.06] hover:text-white"
+        >
+          First time here?{" "}
+          <span className="font-semibold text-gold-500">Set your password</span>
+        </a>
 
         <p className="mt-8 text-center text-xs text-slate-500">
           Need help signing in? Contact{" "}

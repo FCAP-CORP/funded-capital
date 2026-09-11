@@ -13,6 +13,12 @@ import { NextResponse } from "next/server";
  * Now: the sign-in screens are explicitly public, and a signed-out visitor to
  * a protected route is redirected to the correct branded sign-in with a
  * redirect_url so they land where they were headed.
+ *
+ * Two doors, no inference. Participants enter at /participant-portal and sign
+ * in at /participant-portal/login; brokers enter at /broker-portal and sign in
+ * at /sign-in. Nothing looks anyone up to decide where they belong — an
+ * earlier /portal route did exactly that and has been removed, because the one
+ * person it could never answer correctly was the owner of both portals.
  */
 
 // Must stay reachable while signed out — these ARE the way in.
@@ -27,7 +33,6 @@ const isParticipantRoute = createRouteMatcher(["/participant-portal(.*)"]);
 const isGuardedRoute = createRouteMatcher([
   "/broker-portal(.*)",
   "/participant-portal(.*)",
-  "/portal(.*)",
   "/admin(.*)",
 ]);
 

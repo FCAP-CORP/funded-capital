@@ -68,17 +68,17 @@ export default function RootLayout({
           <ClerkProvider
             dynamic
             /*
-              Clerk's own hosted screens and its emailed invitation links need
-              to know where this application's sign-in and sign-up pages live,
-              and where to send someone once they are through. An invitation
-              created in the Clerk Dashboard cannot carry its own redirect, so
-              everyone lands on /portal, which forwards each person to the
-              portal they actually belong to.
+              Defaults for anything Clerk redirects on its own. The two portals
+              each have their own sign-in screen and pass their own redirect
+              props, which win over these; what is left falling back here is
+              broker traffic and Clerk's hosted pages (password resets), so the
+              broker portal is the right default. Participants are never routed
+              by inference — they arrive at /participant-portal directly.
             */
             signInUrl="/sign-in"
             signUpUrl="/sign-up"
-            signInFallbackRedirectUrl="/portal"
-            signUpFallbackRedirectUrl="/portal"
+            signInFallbackRedirectUrl="/broker-portal"
+            signUpFallbackRedirectUrl="/broker-portal"
           >
             <SiteChrome>{children}</SiteChrome>
           </ClerkProvider>

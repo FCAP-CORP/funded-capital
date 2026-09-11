@@ -55,15 +55,29 @@ export default async function ParticipantOverviewPage() {
         </PortalMessage>
       );
     }
+    // Whoever lands here is in the wrong place, not at a dead end: either they
+    // used a different address than the one on their agreement, or they are a
+    // broker who followed the wrong link. Both need a way onward in one click.
     return (
       <PortalMessage title="No participation found for this sign-in">
-        We could not match this email address to a participation on file. If you
-        signed in with a different address than the one on your agreement, please
-        sign out and try again, or contact{" "}
-        <a href="mailto:info@fundedcapital.com" className="text-gold-600 underline">
-          info@fundedcapital.com
-        </a>
-        .
+        <>
+          We could not match this email address to a participation on file. If you
+          signed in with a different address than the one on your agreement, please
+          sign out and try again, or contact{" "}
+          <a href="mailto:info@fundedcapital.com" className="text-gold-600 underline">
+            info@fundedcapital.com
+          </a>
+          .
+          <span className="mt-5 block border-t border-slate-200 pt-4 text-sm text-slate-500">
+            Looking for the broker portal?{" "}
+            <Link
+              href="/broker-portal"
+              className="font-semibold text-gold-600 hover:underline"
+            >
+              Go to Broker Portal
+            </Link>
+          </span>
+        </>
       </PortalMessage>
     );
   }

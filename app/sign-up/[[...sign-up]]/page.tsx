@@ -39,7 +39,7 @@ export default function SignUpPage() {
       </div>
 
       <div className="flex items-center justify-center p-6 sm:p-12 bg-slate-50">
-        <SignUp fallbackRedirectUrl="/portal" signInUrl="/sign-in" />
+        <SignUp fallbackRedirectUrl="/broker-portal" signInUrl="/sign-in" />
       </div>
     </div>
   );
