@@ -1,18 +1,23 @@
+import { Suspense } from "react";
 import { getPipeline, getCounts } from "@/lib/db/queries";
 import { money, daysSince } from "@/lib/crm/view";
 import PipelineTable from "./PipelineTable";
+import { GridSkeleton, StatSkeleton } from "./Skeleton";
 
 /**
  * Pipeline — the Lending OS home screen.
  *
- * A Server Component: the query runs on the server and the grid arrives as HTML
- * with the rows already in it. The only JavaScript that ships is the grid's own
- * interaction code.
+ * NO `export const dynamic = "force-dynamic"` HERE. This project runs Next 16
+ * with `cacheComponents: true` (see next.config.ts), which rejects the old route
+ * segment config outright — the build fails with "not compatible with
+ * nextConfig.cacheComponents".
  *
- * `force-dynamic` because this reads live pipeline state. A cached CRM that
- * shows yesterday's stages is worse than no CRM.
+ * Cache Components asks the question differently: the page is a static shell,
+ * and anything that reads live data goes inside a <Suspense> boundary, which
+ * makes that subtree dynamic on its own. That is strictly better here. The
+ * heading and sidebar paint immediately from the prerendered shell and the grid
+ * streams in behind them, instead of the whole screen waiting on Postgres.
  */
-export const dynamic = "force-dynamic";
 
 export const metadata = {
   title: "Pipeline | Funded Capital Lending OS",
@@ -32,7 +37,8 @@ function Stat({ label, value, sub, tone = "default" }: {
   );
 }
 
-export default async function PipelinePage() {
+/** Everything that touches the database lives in here, behind the boundary. */
+async function Pipeline() {
   const [rows, counts] = await Promise.all([getPipeline(), getCounts()]);
 
   const open = rows.filter((r) => r.stage !== "closed_lost" && r.stage !== "payoff");
@@ -48,14 +54,7 @@ export default async function PipelinePage() {
   }).length;
 
   return (
-    <main className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-navy-900">Pipeline</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Every application in one place. Change a stage here and the history is written with it.
-        </p>
-      </header>
-
+    <>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <Stat label="Open files" value={String(open.length)} sub={`${counts.applications} all time`} />
         <Stat label="Requested" value={money(openValue)} sub="open files only" />
@@ -73,6 +72,23 @@ export default async function PipelinePage() {
       </div>
 
       <PipelineTable rows={rows} />
+    </>
+  );
+}
+
+export default function PipelinePage() {
+  return (
+    <main className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
+      <header className="mb-6">
+        <h1 className="text-2xl font-bold text-navy-900">Pipeline</h1>
+        <p className="mt-1 text-sm text-slate-500">
+          Every application in one place. Change a stage here and the history is written with it.
+        </p>
+      </header>
+
+      <Suspense fallback={<><StatSkeleton /><GridSkeleton /></>}>
+        <Pipeline />
+      </Suspense>
     </main>
   );
 }

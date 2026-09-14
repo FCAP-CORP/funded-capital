@@ -61,8 +61,21 @@ function run(command, { cwd = ROOT, timeoutMs = 15 * 60 * 1000 } = {}) {
 /** npm's own chatter is never the reason a step failed. */
 const NOISE = /^\s*npm (notice|warn|WARN|http)\b/;
 
+/**
+ * Colour codes have to come off before anything is matched.
+ *
+ * Turbopack wraps its error lines in ANSI escapes, so `/^\s*error\b/` never
+ * matched them and the report showed only the "build failed with N errors"
+ * summary — the one line that does not say what is wrong. That cost a full
+ * round trip on 2026-09-14.
+ */
+const ANSI = /\u001b\[[0-9;]*m/g;
+
 function meaningfulLines(text) {
-  return text.split(/\r?\n/).filter((l) => l.trim() !== "" && !NOISE.test(l));
+  return text
+    .replace(ANSI, "")
+    .split(/\r?\n/)
+    .filter((l) => l.trim() !== "" && !NOISE.test(l));
 }
 
 /** Last N meaningful lines — failures put the useful part at the end. */
@@ -143,13 +156,24 @@ console.log(` node ${env.node}   npm ${env.npm}   branch ${env.branch} @ ${env.s
 console.log(` mode: ${FAST ? "FAST (no production build)" : "FULL"}`);
 console.log("");
 
-/* 1 — dependencies present */
+/* 1 — dependencies present.
+   Installs automatically when anything the later steps need is missing, so
+   nobody ever has to open a terminal and run npm install by hand. */
 banner("1. DEPENDENCIES");
-if (!existsSync(join(ROOT, "node_modules"))) {
-  console.log("  node_modules missing — running npm install. This takes a few minutes.");
-  record("npm install", "node_modules was missing", run("npm install"));
+const NODE_MODULES = join(ROOT, "node_modules");
+const REQUIRED = ["typescript", "tsx", "next"];
+const missing = !existsSync(NODE_MODULES)
+  ? ["node_modules"]
+  : REQUIRED.filter((pkg) => !existsSync(join(NODE_MODULES, pkg)));
+
+if (missing.length > 0) {
+  console.log(`  Missing: ${missing.join(", ")}`);
+  console.log("  Installing now. The first run takes a few minutes — leave this window open.\n");
+  record("npm install", `missing: ${missing.join(", ")}`, run("npm install"), {
+    advice: "If this failed, check the internet connection and that Node.js is installed.",
+  });
 } else {
-  record("dependencies installed", "node_modules present", {
+  record("dependencies installed", "typescript, tsx and next all present", {
     ok: true,
     seconds: "0.0",
     output: "",
@@ -244,6 +268,21 @@ if (failed.length) {
     lines.push(excerpt(s.output) || "(no output captured)");
     lines.push("```");
     lines.push("");
+
+    /**
+     * The excerpt is for reading; this file is for diagnosing. An excerpt that
+     * drops the one line naming the file and the rule turns a two-minute fix
+     * into another round trip, so the complete output is always on disk.
+     */
+    const logName = `fail-${s.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.log`;
+    try {
+      mkdirSync(OUT_DIR, { recursive: true });
+      writeFileSync(join(OUT_DIR, logName), s.output || "(no output captured)", "utf8");
+      lines.push(`Full output: \`.fc-check/${logName}\``);
+      lines.push("");
+    } catch {
+      // A log we could not write must never fail the report that names it.
+    }
   }
 } else {
   lines.push("No failures. Safe to push.");

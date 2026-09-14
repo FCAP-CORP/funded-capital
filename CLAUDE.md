@@ -25,6 +25,19 @@ Always tell Luis to run `fc-check.bat` after you change code, and always read th
 saying the change is good. `fc-check.bat --fast` skips the production build when you only need
 typecheck and tests.
 
+**Before spending one of Luis's runs, reproduce the build yourself.** Cowork sessions have a Linux
+container with its own shell and a matching `node_modules`. Assemble a scratch app there — this
+repo's `tsconfig.json`, `next.config.ts`, `tailwind.config.ts`, `postcss.config.mjs`,
+`next-env.d.ts`, `package.json`, a stub `app/layout.tsx`, plus only the routes you changed — and run
+`npx next build` against it. Hard-link `node_modules` with `cp -al`; a symlink makes Turbopack panic
+with *"points out of the filesystem root"*. A stub `.env.local` with a syntactically valid fake
+`DATABASE_URL` is enough, because nothing connects at build time. This catches config-level errors
+like the `cacheComponents` one below without a round trip, and it is the difference between finding
+a problem in two minutes and finding it in twenty.
+
+When a step does fail on Luis's machine, the complete output is in `.fc-check/fail-<step>.log` —
+read that, not just the excerpt in `report.md`.
+
 ---
 
 ## Stack — non-negotiable
@@ -164,6 +177,13 @@ transitions at minimum.
 
 ## Known quirks — check here before debugging
 
+- **Never write `export const dynamic = "force-dynamic"`.** `next.config.ts` sets
+  `cacheComponents: true` (Next 16 Partial Prerendering), and any route segment config is a hard
+  build error: *"Route segment config \"dynamic\" is not compatible with
+  `nextConfig.cacheComponents`"*. The replacement is structural — keep the page a static shell and
+  put everything that reads live data inside a `<Suspense>` boundary, which makes that subtree
+  dynamic on its own. `app/crm/page.tsx` is the reference. This does not show up in `npm run
+  typecheck`; only the production build catches it.
 - **`db.transaction()` does not work.** `lib/db` uses Drizzle's `neon-http` driver, which talks to
   Postgres over HTTP and throws `No transactions support in neon-http driver` at runtime. It
   compiles and builds clean, so nothing catches it until the first write. Use **`db.batch([...])`**
