@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { checkBotId } from "botid/server";
 import { SMS_CONSENT_TEXT, CONSENT_VERSION } from "@/lib/consent";
+import { recordLead, type LeadInput } from "@/lib/leads/record";
 import {
   hardBlockReason,
   advisoryFlags,
@@ -204,6 +205,43 @@ async function sendToFormspreeBackstop(
   }
 }
 
+/**
+ * Write the lead into Postgres.
+ *
+ * Runs in PARALLEL with the Drive intake so it costs the visitor no extra wait,
+ * and its failure can never fail the request — the Apps Script remains the
+ * primary record while this path proves itself on real traffic.
+ *
+ * A failure is logged under "[api/lead] DB WRITE FAILED" with the full payload,
+ * matching the existing "[api/lead] LEAD BACKUP" convention, so a lost row is
+ * always recoverable from the Vercel logs rather than silently gone.
+ */
+async function recordLeadSafely(input: LeadInput): Promise<void> {
+  try {
+    const result = await recordLead(input);
+    if (result.ok) {
+      console.info(
+        "[api/lead] DB —",
+        JSON.stringify({
+          applicationId: result.applicationId,
+          repeatEnquirer: result.repeat,
+          quarantined: input.quarantined,
+        })
+      );
+    } else {
+      console.error(
+        "[api/lead] DB WRITE FAILED —",
+        JSON.stringify({ error: result.error, payload: input.payload })
+      );
+    }
+  } catch (err) {
+    console.error(
+      "[api/lead] DB WRITE FAILED (threw) —",
+      JSON.stringify({ error: String(err), payload: input.payload })
+    );
+  }
+}
+
 export async function POST(request: Request) {
   let form: FormData;
   try {
@@ -304,7 +342,14 @@ export async function POST(request: Request) {
       "[api/lead] QUARANTINED —",
       JSON.stringify({ formType, ip: consentIp, botVerdict, rateLimited, flags })
     );
-    await sendToDriveIntake(formType, payload, false);
+    await Promise.allSettled([
+      sendToDriveIntake(formType, payload, false),
+      recordLeadSafely({
+        formType, payload, quarantined: true, quarantineReason: why,
+        smsConsent, consentVersion: CONSENT_VERSION,
+        consentAt: new Date(consentTimestamp), advisoryFlags: flags,
+      }),
+    ]);
     return NextResponse.json({ ok: true });
   }
 
@@ -322,7 +367,15 @@ export async function POST(request: Request) {
   payload._subject = `New ${formType} lead${smsConsent ? " — SMS/Call opt-in ✓" : ""}`;
 
   // 1) PRIMARY: the Drive intake stores the lead and notifies the team.
-  const driveOk = await sendToDriveIntake(formType, payload, true);
+  const [driveSettled] = await Promise.allSettled([
+    sendToDriveIntake(formType, payload, true),
+    recordLeadSafely({
+      formType, payload, quarantined: false,
+      smsConsent, consentVersion: CONSENT_VERSION,
+      consentAt: new Date(consentTimestamp), advisoryFlags: flags,
+    }),
+  ]);
+  const driveOk = driveSettled.status === "fulfilled" && driveSettled.value === true;
   if (driveOk) return NextResponse.json({ ok: true });
 
   // 2) BACKSTOP: only reached when Drive is down.

@@ -24,6 +24,10 @@ yarn-error.log*
 .env*.local
 .env
 
+# Vercel credential pull scratch file. NOT matched by the patterns above —
+# fc-db.bat deletes it, but if a run fails partway it must never be committed.
+.env.vercel
+
 # vercel
 .vercel
 
