@@ -1,4 +1,6 @@
 import { Suspense } from "react";
+import { notFound } from "next/navigation";
+import { isCrmStaff } from "@/lib/crm/access";
 import { getPipeline, getCounts } from "@/lib/db/queries";
 import { money, daysSince } from "@/lib/crm/view";
 import PipelineTable from "./PipelineTable";
@@ -39,6 +41,11 @@ function Stat({ label, value, sub, tone = "default" }: {
 
 /** Everything that touches the database lives in here, behind the boundary. */
 async function Pipeline() {
+  // Checked here too, not only in the layout: a layout and its page render
+  // concurrently, so this is what guarantees the query never runs for someone
+  // who is not staff.
+  if (!(await isCrmStaff())) notFound();
+
   const [rows, counts] = await Promise.all([getPipeline(), getCounts()]);
 
   const open = rows.filter((r) => r.stage !== "closed_lost" && r.stage !== "payoff");

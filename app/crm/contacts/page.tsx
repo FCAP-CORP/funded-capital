@@ -1,4 +1,6 @@
 import { Suspense } from "react";
+import { notFound } from "next/navigation";
+import { isCrmStaff } from "@/lib/crm/access";
 import { getContacts } from "@/lib/db/queries";
 import ContactsTable from "./ContactsTable";
 import { GridSkeleton } from "../Skeleton";
@@ -11,6 +13,9 @@ export const metadata = {
 };
 
 async function Contacts() {
+  // See the note in app/crm/page.tsx — the page gates its own query.
+  if (!(await isCrmStaff())) notFound();
+
   const rows = await getContacts();
 
   const withDeals = rows.filter((r) => r.deals > 0).length;

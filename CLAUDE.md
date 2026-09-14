@@ -128,6 +128,14 @@ the bug class that has already shipped three times here.
 Not editable in the grid on purpose: **email, phone and consent.** Email is the identity key Klaviyo
 resolves on, phone must pass E.164 normalisation, and consent is mirrored inbound only.
 
+**Access is an allowlist, and being signed in is never enough.** `CRM_STAFF_EMAILS` (falling back to
+`PARTICIPANT_ADMIN_EMAILS`) lists the staff addresses; `lib/crm/access.ts` is the only place that
+decides, it **fails closed** when unset, and a non-staff user gets a 404 rather than a 403 so the
+route does not advertise itself. The broker portal has open sign-up, so "any Clerk user" includes
+every registered broker — gating on `userId` alone would expose the whole borrower book. Every new
+`/crm` page and **every server action** carries its own check: an action is an addressable endpoint
+and a guard on the page does not cover it.
+
 
 Full architecture: `docs/lending-os.md`. Decisions already locked, do not relitigate:
 

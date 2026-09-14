@@ -6,17 +6,22 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { applications, contacts, stageTransitions } from "@/lib/db/schema";
 import { STAGE_LABEL } from "@/lib/crm/view";
+import { assertCrmStaff } from "@/lib/crm/access";
 
 /**
  * Write actions for the CRM grid.
  *
- * Every one of these re-checks auth. The middleware already guards /crm, but a
- * server action is an addressable endpoint in its own right — it is reachable
- * with a crafted POST regardless of which page the caller claims to be on.
+ * Every one of these re-checks BOTH that the caller is signed in and that they
+ * are on the staff allowlist. The middleware guards /crm and the pages gate
+ * themselves, but a server action is an addressable endpoint in its own right:
+ * it is reachable with a crafted POST by anyone who can sign in, regardless of
+ * which page they can load. Gating the page and not the action is how a
+ * read-only leak becomes a write.
  */
 async function requireUser(): Promise<string> {
   const { userId } = await auth();
   if (!userId) throw new Error("not signed in");
+  await assertCrmStaff();
   return userId;
 }
 
