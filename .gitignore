@@ -33,3 +33,6 @@ next-env.d.ts
 
 # clerk configuration (can include secrets)
 /.clerk/
+
+# repo health check output (local diagnostic, read by Claude from disk)
+/.fc-check/
