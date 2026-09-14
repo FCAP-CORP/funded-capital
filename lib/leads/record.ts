@@ -54,31 +54,64 @@ export interface LeadRecord {
   timeline: string | null;
   borrowerType: string | null;
   message: string | null;
+  /** /contact only. A TOPIC ("Broker Partnership"), never a loan product. */
+  inquiryTopic: string | null;
+  /** Broker partnership enquiries are partners, not borrowers. */
+  leadSource: "website" | "broker";
   notes: string | null;
 }
 
 /**
  * Pure field mapping — no database, so it is fully testable.
  *
- * The two forms carry different names for the same ideas. /apply has a real
- * loanType select; /contact has `subject`, which the existing Apps Script already
- * treats as the loan type, and `message` where /apply has `additionalInfo`.
+ * The two forms are NOT the same shape. /apply has a real loanType select whose
+ * options are products. /contact has `subject`, whose options are TOPICS —
+ * "Loan Inquiry", "Broker Partnership", "Existing Loan Question", "Rates &
+ * Programs", "Other". Reading `subject` as a product is wrong and silently
+ * discards the topic; both forms are mapped against their real option values,
+ * which lib/leads/record.regress.ts asserts verbatim.
  */
 export function buildLeadRecord(input: LeadInput): LeadRecord {
   const p = input.payload;
   const isContact = input.formType === "contact";
 
-  const loanType = clean(isContact ? p.subject : p.loanType);
   const message = clean(isContact ? p.message : p.additionalInfo);
   const phone = normalisePhone(clean(p.phone) ?? "");
 
-  const { product, confident } = mapProduct({
-    loanType,
-    goal: clean(p.exitStrategy),
-    strategy: clean(p.propertyType),
-  });
+  /**
+   * /contact's `subject` is a TOPIC — "Loan Inquiry", "Broker Partnership",
+   * "Existing Loan Question", "Rates & Programs", "Other". It is NOT a loan
+   * product, and treating it as one made every contact-form lead land as
+   * `unknown` with the topic thrown away. The topic is recorded separately;
+   * the product simply stays unknown, because the contact form never asks.
+   */
+  const inquiryTopic = isContact ? clean(p.subject) : null;
+
+  /**
+   * Property type is a fallback product signal on /apply: "5+ Units
+   * (Multifamily)" implies the product even when the programme select says
+   * "Not sure — help me choose".
+   */
+  const propertyType = clean(p.propertyType);
+  const multifamilyByProperty = /5\+\s*units|multifamily/i.test(propertyType ?? "");
+
+  let { product, confident } = isContact
+    ? { product: "unknown" as string, confident: false }
+    : mapProduct({ loanType: clean(p.loanType), goal: clean(p.exitStrategy) });
+
+  if (product === "unknown" && multifamilyByProperty) {
+    product = "multifamily";
+    confident = false;
+  }
+
+  // A broker partnership enquiry is a partner introducing themselves, not a
+  // borrower asking for money. Routing it as a website lead loses that.
+  const leadSource: "website" | "broker" =
+    /broker/i.test(inquiryTopic ?? "") ? "broker" : "website";
 
   const notes: string[] = [];
+  if (inquiryTopic) notes.push(`topic: ${inquiryTopic}`);
+  if (propertyType) notes.push(`property type: ${propertyType}`);
   if (input.quarantined) {
     notes.push(`HELD FOR REVIEW — ${input.quarantineReason ?? "flagged by the spam filter"}`);
   }
@@ -102,6 +135,8 @@ export function buildLeadRecord(input: LeadInput): LeadRecord {
     timeline: clean(p.timeline),
     borrowerType: clean(p.borrowerType),
     message,
+    inquiryTopic,
+    leadSource,
     notes: notes.length ? notes.join(" · ") : null,
   };
 }
@@ -152,8 +187,8 @@ export async function recordLead(input: LeadInput): Promise<LeadWriteResult> {
       const [created] = await db.insert(schema.contacts).values({
         firstName: rec.firstName, lastName: rec.lastName, email: rec.email,
         phone: rec.phone, phoneRaw: rec.phoneRaw,
-        leadSource: "website", creditBand: rec.creditBand,
-        ownerName: "Luis Fajardo", tags: ["website", input.formType],
+        leadSource: rec.leadSource, creditBand: rec.creditBand,
+        ownerName: "Luis Fajardo", tags: [rec.leadSource, input.formType, ...(rec.inquiryTopic ? [rec.inquiryTopic.toLowerCase()] : [])],
         ...(input.smsConsent
           ? { smsConsentAt: input.consentAt, smsConsentVersion: input.consentVersion }
           : {}),
@@ -183,7 +218,7 @@ export async function recordLead(input: LeadInput): Promise<LeadWriteResult> {
       loanAmount: rec.loanAmount, purchasePrice: rec.purchasePrice, arv: rec.arv,
     });
     const [app] = await db.insert(schema.applications).values({
-      stage: "lead", product: rec.product as never, leadSource: "website",
+      stage: "lead", product: rec.product as never, leadSource: rec.leadSource,
       channel: input.formType, ownerName: "Luis Fajardo", propertyId,
       requestedAmount: rec.loanAmount !== null ? String(rec.loanAmount) : null,
       ltc: lev.ltc !== null ? lev.ltc.toFixed(4) : null,
@@ -220,6 +255,7 @@ export async function recordLead(input: LeadInput): Promise<LeadWriteResult> {
         quarantined: input.quarantined,
         productConfident: rec.productConfident,
         borrowerType: rec.borrowerType,
+        inquiryTopic: rec.inquiryTopic,
       },
       dedupKey: `web:${input.formType}:${rec.email ?? rec.phone ?? "anon"}:${input.consentAt.toISOString()}`,
     }).onConflictDoNothing();

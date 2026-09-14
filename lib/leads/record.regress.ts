@@ -2,11 +2,14 @@
  * Regression suite for website lead field mapping.
  *
  * Covers the pure half of lib/leads/record.ts — the part that decides what a
- * submission MEANS. Field names are taken from the live forms
- * (components/ApplyForm.tsx and components/ContactForm.tsx), not invented, and
- * the two forms genuinely disagree: /contact calls the loan type `subject` and
- * the free text `message`, where /apply uses `loanType` and `additionalInfo`.
- * Get that mapping wrong and every contact-form lead lands with no product.
+ * submission MEANS.
+ *
+ * Field names AND every dropdown option below are copied verbatim from the live
+ * forms (components/ApplyForm.tsx, components/ContactForm.tsx). That matters:
+ * the first version of this suite invented plausible-looking values and passed,
+ * while production quietly mapped every /contact lead to `product: unknown`.
+ * /apply's `loanType` options are products; /contact's `subject` options are
+ * TOPICS. If either form's options change, these tests must change with them.
  */
 
 import { buildLeadRecord, type LeadInput } from "./record";
@@ -44,12 +47,41 @@ check("claimed experience goes to notes, not a verified field", (apply.notes ?? 
 console.log("\n=== 2. /contact — different names for the same ideas ===");
 const contact = buildLeadRecord(base("contact", {
   firstName: "Jared", lastName: "Shapiro", email: "jared@example.com",
-  phone: "305-897-0483", subject: "DSCR", message: "Interested in a rental loan",
+  phone: "305-897-0483", subject: "Loan Inquiry", message: "Interested in a rental loan",
 }));
-check("subject is read as the loan type", contact.product === "dscr", contact.product);
+check("subject is NOT read as a loan type", contact.product === "unknown", `product=${contact.product} — the contact form never asks`);
 check("message is read as the message", contact.message === "Interested in a rental loan", "kept");
 check("no property fields is fine", contact.propertyAddress === null && contact.arv === null, "null");
 check("apply's field names are NOT read on a contact form", buildLeadRecord(base("contact", { loanType: "DSCR", additionalInfo: "x" })).product === "unknown", "unknown — correctly ignored");
+
+console.log("\n=== 2b. EVERY real /contact subject option (these are topics, not products) ===");
+for (const topic of ["Loan Inquiry", "Broker Partnership", "Existing Loan Question", "Rates & Programs", "Other"]) {
+  const r = buildLeadRecord(base("contact", { email: "t@x.com", subject: topic }));
+  check(`"${topic}" is not mistaken for a product`, r.product === "unknown", `product=${r.product}`);
+  check(`"${topic}" is preserved as the topic`, r.inquiryTopic === topic, `topic kept, notes="${r.notes}"`);
+}
+const broker = buildLeadRecord(base("contact", { email: "b@x.com", subject: "Broker Partnership" }));
+check("Broker Partnership routes to the broker source", broker.leadSource === "broker", broker.leadSource);
+check("a loan enquiry stays a website lead", buildLeadRecord(base("contact", { email: "l@x.com", subject: "Loan Inquiry" })).leadSource === "website", "website");
+
+console.log("\n=== 2c. EVERY real /apply loanType option ===");
+const expectApply: [string, string][] = [
+  ["Fix & Flip", "fix_and_flip"],
+  ["DSCR / Rental", "dscr"],
+  ["New Construction", "ground_up"],
+  ["Multifamily", "multifamily"],
+  ["Not sure — help me choose", "unknown"],
+];
+for (const [opt, want] of expectApply) {
+  const r = buildLeadRecord(base("apply", { email: "a@x.com", loanType: opt }));
+  check(`"${opt}" -> ${want}`, r.product === want, r.product);
+}
+const unsureMF = buildLeadRecord(base("apply", {
+  email: "m@x.com", loanType: "Not sure — help me choose", propertyType: "5+ Units (Multifamily)",
+}));
+check("'Not sure' + a 5+ unit property still infers multifamily", unsureMF.product === "multifamily", unsureMF.product);
+check("...and is marked low confidence", unsureMF.productConfident === false, "confident=false");
+check("property type is recorded in notes", (unsureMF.notes ?? "").includes("property type: 5+ Units (Multifamily)"), unsureMF.notes ?? "null");
 
 console.log("\n=== 3. Leverage from what the borrower typed ===");
 check("all three ratios available to the caller", apply.loanAmount !== null && apply.purchasePrice !== null && apply.arv !== null, "loan/cost/ARV present");
@@ -80,8 +112,8 @@ const badPhone = buildLeadRecord(base("apply", { email: "x@y.com", phone: "000-0
 check("unusable phone -> null, raw preserved", badPhone.phone === null && badPhone.phoneRaw === "000-000-0000", "raw kept for recovery");
 
 console.log("\n=== 7. Products Funded Capital does not lend on ===");
-check("a HELOC enquiry is labelled, not silently accepted",
-  buildLeadRecord(base("contact", { email: "h@x.com", subject: "HELOC", exitStrategy: "HELOC" })).product === "not_our_product",
+check("a HELOC exit strategy on /apply is labelled, not silently accepted",
+  buildLeadRecord(base("apply", { email: "h@x.com", loanType: "DSCR / Rental", exitStrategy: "HELOC" })).product === "not_our_product",
   "not_our_product");
 check("New Construction -> ground_up",
   buildLeadRecord(base("apply", { email: "g@x.com", loanType: "New Construction" })).product === "ground_up", "ground_up");
