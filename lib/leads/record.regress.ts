@@ -54,34 +54,61 @@ check("message is read as the message", contact.message === "Interested in a ren
 check("no property fields is fine", contact.propertyAddress === null && contact.arv === null, "null");
 check("apply's field names are NOT read on a contact form", buildLeadRecord(base("contact", { loanType: "DSCR", additionalInfo: "x" })).product === "unknown", "unknown — correctly ignored");
 
-console.log("\n=== 2b. EVERY real /contact subject option (these are topics, not products) ===");
-for (const topic of ["Loan Inquiry", "Broker Partnership", "Existing Loan Question", "Rates & Programs", "Other"]) {
-  const r = buildLeadRecord(base("contact", { email: "t@x.com", subject: topic }));
-  check(`"${topic}" is not mistaken for a product`, r.product === "unknown", `product=${r.product}`);
-  check(`"${topic}" is preserved as the topic`, r.inquiryTopic === topic, `topic kept, notes="${r.notes}"`);
-}
-const broker = buildLeadRecord(base("contact", { email: "b@x.com", subject: "Broker Partnership" }));
-check("Broker Partnership routes to the broker source", broker.leadSource === "broker", broker.leadSource);
-check("a loan enquiry stays a website lead", buildLeadRecord(base("contact", { email: "l@x.com", subject: "Loan Inquiry" })).leadSource === "website", "website");
-
-console.log("\n=== 2c. EVERY real /apply loanType option ===");
-const expectApply: [string, string][] = [
-  ["Fix & Flip", "fix_and_flip"],
-  ["DSCR / Rental", "dscr"],
-  ["New Construction", "ground_up"],
-  ["Multifamily", "multifamily"],
-  ["Not sure — help me choose", "unknown"],
+console.log("\n=== 2b. EVERY real /contact subject VALUE (slugs, not labels) ===");
+const CONTACT_SUBJECTS: [string, string][] = [
+  ["loan-inquiry", "Loan Inquiry"],
+  ["broker", "Broker Partnership"],
+  ["existing-loan", "Existing Loan Question"],
+  ["rates", "Rates & Programs"],
+  ["other", "Other"],
 ];
-for (const [opt, want] of expectApply) {
-  const r = buildLeadRecord(base("apply", { email: "a@x.com", loanType: opt }));
-  check(`"${opt}" -> ${want}`, r.product === want, r.product);
+for (const [value, label] of CONTACT_SUBJECTS) {
+  const r = buildLeadRecord(base("contact", { email: "t@x.com", subject: value }));
+  check(`value="${value}" is not mistaken for a product`, r.product === "unknown", `product=${r.product}`);
+  check(`value="${value}" is stored as "${label}"`, r.inquiryTopic === label, r.inquiryTopic ?? "null");
 }
-const unsureMF = buildLeadRecord(base("apply", {
-  email: "m@x.com", loanType: "Not sure — help me choose", propertyType: "5+ Units (Multifamily)",
-}));
-check("'Not sure' + a 5+ unit property still infers multifamily", unsureMF.product === "multifamily", unsureMF.product);
+check("subject=broker routes to the broker source",
+  buildLeadRecord(base("contact", { email: "b@x.com", subject: "broker" })).leadSource === "broker", "broker");
+check("subject=loan-inquiry stays a website lead",
+  buildLeadRecord(base("contact", { email: "l@x.com", subject: "loan-inquiry" })).leadSource === "website", "website");
+
+console.log("\n=== 2c. EVERY real /apply loanType VALUE ===");
+const APPLY_LOAN_TYPES: [string, string][] = [
+  ["fix-flip", "fix_and_flip"],
+  ["dscr", "dscr"],
+  ["construction", "ground_up"],
+  ["multifamily", "multifamily"],
+  ["unsure", "unknown"],
+];
+for (const [value, want] of APPLY_LOAN_TYPES) {
+  const r = buildLeadRecord(base("apply", { email: "a@x.com", loanType: value }));
+  check(`value="${value}" -> ${want}`, r.product === want, r.product);
+}
+
+console.log("\n=== 2d. EVERY real /apply borrowerType VALUE ===");
+for (const [value, source] of [["investor","website"],["broker","broker"],["developer","website"],["other","website"]] as const) {
+  const r = buildLeadRecord(base("apply", { email: "bt@x.com", borrowerType: value }));
+  check(`borrowerType="${value}" -> ${source}`, r.leadSource === source, r.leadSource);
+}
+check("borrowerType is stored readably",
+  buildLeadRecord(base("apply", { email: "bt@x.com", borrowerType: "broker" })).borrowerType
+    === "Mortgage Broker (submitting on behalf of borrower)", "readable label");
+
+console.log("\n=== 2e. EVERY real /apply propertyType VALUE ===");
+for (const [value, label] of [["sfr","Single Family Residence"],["2-4","2–4 Units"],["multifamily","5+ Units (Multifamily)"],["condo","Condo / Townhome"],["commercial","Commercial"],["land","Land / Lot"]] as const) {
+  const r = buildLeadRecord(base("apply", { email: "pt@x.com", propertyType: value }));
+  check(`propertyType="${value}" reads as "${label}"`, (r.notes ?? "").includes(`property type: ${label}`), r.notes ?? "null");
+}
+const unsureMF = buildLeadRecord(base("apply", { email: "m@x.com", loanType: "unsure", propertyType: "multifamily" }));
+check("'unsure' + a multifamily property infers multifamily", unsureMF.product === "multifamily", unsureMF.product);
 check("...and is marked low confidence", unsureMF.productConfident === false, "confident=false");
-check("property type is recorded in notes", (unsureMF.notes ?? "").includes("property type: 5+ Units (Multifamily)"), unsureMF.notes ?? "null");
+
+console.log("\n=== 2f. The dedicated /broker-program/register form ===");
+const reg = buildLeadRecord(base("broker", {
+  firstName: "Dana", lastName: "Reyes", email: "dana@brokerage.com", phone: "305-555-0199",
+}));
+check("formType=broker routes to the broker source", reg.leadSource === "broker", reg.leadSource);
+check("no product is invented for a partner", reg.product === "unknown", reg.product);
 
 console.log("\n=== 3. Leverage from what the borrower typed ===");
 check("all three ratios available to the caller", apply.loanAmount !== null && apply.purchasePrice !== null && apply.arv !== null, "loan/cost/ARV present");

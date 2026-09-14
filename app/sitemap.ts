@@ -23,6 +23,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
 
     // Supporting pages
     { url: `${baseUrl}/broker-program`, lastModified: now, changeFrequency: "monthly", priority: 0.75 },
+    { url: `${baseUrl}/broker-program/register`, lastModified: now, changeFrequency: "monthly", priority: 0.75 },
     { url: `${baseUrl}/how-it-works`, lastModified: now, changeFrequency: "monthly", priority: 0.7 },
     { url: `${baseUrl}/about`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },
     { url: `${baseUrl}/why-us`, lastModified: now, changeFrequency: "monthly", priority: 0.6 },

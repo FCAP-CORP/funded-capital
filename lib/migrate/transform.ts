@@ -123,10 +123,30 @@ export function mapLeadSource(v: unknown): LeadSource {
  * an explicit non-product (HELOC, conventional) beats everything, then the
  * strategy field, then loan_type.
  */
+/**
+ * The website forms submit SLUGS, not the labels a visitor sees. `<option
+ * value="construction">New Construction</option>` posts "construction". Matching
+ * on label text silently produced `unknown` for every New Construction lead.
+ * These are the exact submitted values from components/ApplyForm.tsx.
+ */
+const WEB_LOAN_TYPE: Record<string, Product> = {
+  "fix-flip": "fix_and_flip",
+  "dscr": "dscr",
+  "construction": "ground_up",
+  "multifamily": "multifamily",
+  "unsure": "unknown",
+};
+
 export function mapProduct(input: {
   loanType?: unknown; goal?: unknown; strategy?: unknown;
 }): { product: Product; confident: boolean } {
   const loanType = (clean(input.loanType) ?? "").toLowerCase();
+
+  // Exact web-form slug wins over any text heuristic below.
+  if (loanType in WEB_LOAN_TYPE) {
+    const product = WEB_LOAN_TYPE[loanType];
+    return { product, confident: product !== "unknown" };
+  }
   const goal = (clean(input.goal) ?? "").toLowerCase();
   const strategy = (clean(input.strategy) ?? "").toLowerCase();
 

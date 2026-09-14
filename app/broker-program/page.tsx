@@ -85,7 +85,7 @@ export default function BrokerProgramPage() {
             doing it.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 mt-8">
-            <Link href="/apply?type=broker" className="btn-primary">
+            <Link href="/broker-program/register" className="btn-primary">
               Register as a Broker
               <ArrowRight size={16} />
             </Link>
@@ -228,7 +228,7 @@ export default function BrokerProgramPage() {
                 ))}
               </ul>
               <Link
-                href="/apply?type=broker"
+                href="/broker-program/register"
                 className="btn-primary mt-8 w-full justify-center"
               >
                 Register as a Broker Partner

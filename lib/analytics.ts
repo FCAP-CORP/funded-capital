@@ -23,6 +23,13 @@
  * error would be worse than having no analytics.
  */
 
+/**
+ * Every form that posts to /api/lead. Adding a form here is what makes its
+ * analytics calls typecheck — the broker registration form was the third, and
+ * without it `trackLead("broker", ...)` is a compile error.
+ */
+export type FormType = "apply" | "contact" | "broker";
+
 export const GA_ID = process.env.NEXT_PUBLIC_GA_ID ?? "";
 export const analyticsEnabled = GA_ID.length > 0;
 
@@ -87,13 +94,13 @@ export function track(event: string, params: Params = {}): void {
  */
 
 /** Fired once per page, the first time the visitor touches any field. */
-export function trackFormStart(formType: "apply" | "contact"): void {
+export function trackFormStart(formType: FormType): void {
   track("form_start", { form_type: formType });
 }
 
 /** Fired only after the server has confirmed the lead was captured. */
 export function trackLead(
-  formType: "apply" | "contact",
+  formType: FormType,
   detail: { loanType?: string; smsConsent?: boolean } = {}
 ): void {
   // generate_lead is a GA4 recommended event, so it appears in the standard
@@ -111,7 +118,7 @@ export function trackLead(
  * pipeline turned them away — treat any occurrence as an incident.
  */
 export function trackLeadError(
-  formType: "apply" | "contact",
+  formType: FormType,
   status: number | string
 ): void {
   track("lead_submit_failed", { form_type: formType, status: String(status) });

@@ -71,6 +71,29 @@ export interface LeadRecord {
  * discards the topic; both forms are mapped against their real option values,
  * which lib/leads/record.regress.ts asserts verbatim.
  */
+/** Submitted value -> the label the visitor actually saw, for readable records. */
+const CONTACT_TOPIC_LABEL: Record<string, string> = {
+  "loan-inquiry": "Loan Inquiry",
+  "broker": "Broker Partnership",
+  "existing-loan": "Existing Loan Question",
+  "rates": "Rates & Programs",
+  "other": "Other",
+};
+const BORROWER_TYPE_LABEL: Record<string, string> = {
+  investor: "Real Estate Investor",
+  broker: "Mortgage Broker (submitting on behalf of borrower)",
+  developer: "Developer / Builder",
+  other: "Other",
+};
+const PROPERTY_TYPE_LABEL: Record<string, string> = {
+  sfr: "Single Family Residence",
+  "2-4": "2–4 Units",
+  multifamily: "5+ Units (Multifamily)",
+  condo: "Condo / Townhome",
+  commercial: "Commercial",
+  land: "Land / Lot",
+};
+
 export function buildLeadRecord(input: LeadInput): LeadRecord {
   const p = input.payload;
   const isContact = input.formType === "contact";
@@ -85,15 +108,17 @@ export function buildLeadRecord(input: LeadInput): LeadRecord {
    * `unknown` with the topic thrown away. The topic is recorded separately;
    * the product simply stays unknown, because the contact form never asks.
    */
-  const inquiryTopic = isContact ? clean(p.subject) : null;
+  const topicSlug = isContact ? clean(p.subject)?.toLowerCase() ?? null : null;
+  const inquiryTopic = topicSlug ? (CONTACT_TOPIC_LABEL[topicSlug] ?? topicSlug) : null;
 
   /**
    * Property type is a fallback product signal on /apply: "5+ Units
    * (Multifamily)" implies the product even when the programme select says
    * "Not sure — help me choose".
    */
-  const propertyType = clean(p.propertyType);
-  const multifamilyByProperty = /5\+\s*units|multifamily/i.test(propertyType ?? "");
+  const propertySlug = clean(p.propertyType)?.toLowerCase() ?? null;
+  const propertyType = propertySlug ? (PROPERTY_TYPE_LABEL[propertySlug] ?? propertySlug) : null;
+  const multifamilyByProperty = propertySlug === "multifamily";
 
   let { product, confident } = isContact
     ? { product: "unknown" as string, confident: false }
@@ -106,8 +131,18 @@ export function buildLeadRecord(input: LeadInput): LeadRecord {
 
   // A broker partnership enquiry is a partner introducing themselves, not a
   // borrower asking for money. Routing it as a website lead loses that.
+  const borrowerSlug = clean(p.borrowerType)?.toLowerCase() ?? null;
+  const borrowerType = borrowerSlug ? (BORROWER_TYPE_LABEL[borrowerSlug] ?? borrowerSlug) : null;
+
+  /**
+   * A broker is a partner, not a borrower — whichever form they arrive on.
+   * /contact signals it with subject=broker; /apply with borrowerType=broker;
+   * the dedicated /broker-program/register form with formType=broker.
+   */
   const leadSource: "website" | "broker" =
-    /broker/i.test(inquiryTopic ?? "") ? "broker" : "website";
+    topicSlug === "broker" || borrowerSlug === "broker" || input.formType === "broker"
+      ? "broker"
+      : "website";
 
   const notes: string[] = [];
   if (inquiryTopic) notes.push(`topic: ${inquiryTopic}`);
@@ -133,7 +168,7 @@ export function buildLeadRecord(input: LeadInput): LeadRecord {
     creditBand: clean(p.creditScore),
     exitStrategy: clean(p.exitStrategy),
     timeline: clean(p.timeline),
-    borrowerType: clean(p.borrowerType),
+    borrowerType,
     message,
     inquiryTopic,
     leadSource,
@@ -156,6 +191,7 @@ export async function recordLead(input: LeadInput): Promise<LeadWriteResult> {
 
     const db = drizzle(neon(url), { schema });
     const rec = buildLeadRecord(input);
+    const p_raw = input.payload;
 
     /* -- contact: one per person, matched on email -- */
     let contactId: string | null = null;
@@ -194,6 +230,26 @@ export async function recordLead(input: LeadInput): Promise<LeadWriteResult> {
           : {}),
       }).returning({ id: schema.contacts.id });
       contactId = created.id;
+    }
+
+    /* -- A dedicated broker registration is a partner introducing themselves.
+          There is no deal, so there is no application, no property and no
+          participant link — just the contact and the submission itself. -- */
+    if (input.formType === "broker") {
+      await db.insert(schema.activities).values({
+        contactId, kind: "form_submission", occurredAt: input.consentAt,
+        source: "web:broker", subject: "Broker registration",
+        body: rec.message,
+        metadata: {
+          smsConsent: input.smsConsent, consentVersion: input.consentVersion,
+          company: clean(p_raw.company), licenseNumber: clean(p_raw.licenseNumber),
+          partnerType: clean(p_raw.partnerType), statesServed: clean(p_raw.statesServed),
+          programs: clean(p_raw.programs), monthlyVolume: clean(p_raw.monthlyVolume),
+          quarantined: input.quarantined,
+        },
+        dedupKey: `web:broker:${rec.email ?? rec.phone ?? "anon"}:${input.consentAt.toISOString()}`,
+      }).onConflictDoNothing();
+      return { ok: true, contactId, applicationId: "", repeat };
     }
 
     /* -- property, when they told us about one -- */
