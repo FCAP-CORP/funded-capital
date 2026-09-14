@@ -2,7 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 /**
- * Auth routing for the two portals.
+ * Auth routing for the portals and the internal CRM.
  *
  * A protected route that simply calls auth.protect() with no sign-in URL
  * resolved returns a bare 404 to signed-out visitors. That is what happened
@@ -34,6 +34,9 @@ const isGuardedRoute = createRouteMatcher([
   "/broker-portal(.*)",
   "/participant-portal(.*)",
   "/admin(.*)",
+  // Lending OS. Internal staff tooling — the whole borrower book is behind it,
+  // so it is guarded here as well as in each server action.
+  "/crm(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, request) => {

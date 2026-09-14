@@ -106,6 +106,16 @@ logs the same constant verbatim, so the words shown and the words stored can nev
 
 ## Lending OS (the CRM) — build in progress
 
+**Live now at `/crm`** (Clerk-guarded in `proxy.ts`): Pipeline and Contacts, both sortable,
+searchable, facet-filtered, with in-place editing of stage, notes and target market. `lib/crm/view.ts`
+holds every pure presentation function and is fully covered by `lib/crm/view.regress.ts`;
+`lib/crm/schema-sync.regress.ts` fails the build if a database enum value has no UI label, which is
+the bug class that has already shipped three times here.
+
+Not editable in the grid on purpose: **email, phone and consent.** Email is the identity key Klaviyo
+resolves on, phone must pass E.164 normalisation, and consent is mirrored inbound only.
+
+
 Full architecture: `docs/lending-os.md`. Decisions already locked, do not relitigate:
 
 - **Postgres on Neon + Drizzle.** Clerk stays for auth. Deploy-on-push unchanged.
@@ -154,6 +164,16 @@ transitions at minimum.
 
 ## Known quirks — check here before debugging
 
+- **`db.transaction()` does not work.** `lib/db` uses Drizzle's `neon-http` driver, which talks to
+  Postgres over HTTP and throws `No transactions support in neon-http driver` at runtime. It
+  compiles and builds clean, so nothing catches it until the first write. Use **`db.batch([...])`**
+  — it sends the statements in one request inside a real Postgres transaction. Anything that must
+  commit together (a `stage_transitions` row and the `applications.stage` cache, above all) goes
+  through `db.batch`.
+- **Row shapes passed to the CRM grid must be `type` aliases, not `interface`s.** TypeScript gives a
+  type alias an implicit index signature and an interface none, so only the alias form satisfies the
+  grid's `Record<string, unknown>` constraint. Tidying `PipelineRow` back into an interface breaks
+  the build.
 - **`npm run lint` is stubbed to `exit 0`** so Vercel builds don't fail on lint. It catches nothing.
   `npm run typecheck` is the real check. Do not assume a green build means clean code.
 - **MDX tables need `remark-gfm`** in the MDXRemote options. Already wired into `blog/[slug]/page.tsx`.
