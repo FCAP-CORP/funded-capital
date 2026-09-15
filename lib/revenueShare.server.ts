@@ -54,40 +54,72 @@ interface RawBook {
 /** Not-configured and upstream-failure are different states and must stay so. */
 export type FetchOutcome<T> =
   | { ok: true; data: T }
-  | { ok: false; reason: "unconfigured" | "unavailable" | "not_found" };
+  | {
+      ok: false;
+      reason: "unconfigured" | "unavailable" | "not_found";
+      /**
+       * What actually went wrong, for the admin view only. The old code threw
+       * this away and the page printed a guess — "check the Apps Script
+       * deployment" — which sent us chasing a perfectly healthy endpoint for
+       * the better part of an afternoon. Never shown on a participant surface.
+       */
+      detail?: string;
+    };
 
-async function callScript<T>(params: Record<string, string>): Promise<FetchOutcome<T>> {
+async function callScript<T>(
+  params: Record<string, string>,
+  opts: { cache?: boolean } = {}
+): Promise<FetchOutcome<T>> {
   const url = process.env.PARTICIPANT_WEBAPP_URL;
   const secret = process.env.PARTICIPANT_WEBAPP_SECRET;
   if (!url || !secret) return { ok: false, reason: "unconfigured" };
 
   const qs = new URLSearchParams({ secret, ...params });
+  const target = `${url}?${qs.toString()}`;
 
-  try {
-    const res = await fetch(`${url}?${qs.toString()}`, {
-      redirect: "follow",
-      // Apps Script answers in 2-7 seconds, which made every in-portal
-      // navigation feel broken. The underlying sheet changes a handful of
-      // times a month, so a short shared cache costs nothing in accuracy and
-      // turns repeat page loads into instant ones. The cache key includes the
-      // query string, so one holder's packet can never be served to another.
-      next: { revalidate: REVALIDATE_SECONDS },
-    });
-    if (!res.ok) return { ok: false, reason: "unavailable" };
-
-    // Apps Script returns an HTML error page rather than a JSON error status
-    // when the deployment is misconfigured, so parse defensively.
-    const text = await res.text();
-    let parsed: unknown;
+  /**
+   * Apps Script fails transiently. It is a shared Google service with its own
+   * cold starts and quotas, and when it stumbles it does not return an error
+   * status — it returns an HTML page with HTTP 200. A single bad second used
+   * to surface as a hard error on the page, and because the result feeds a
+   * prerendered route, that error could then be served from cache long after
+   * the endpoint recovered. One retry removes almost all of it.
+   */
+  let detail = "";
+  for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      parsed = JSON.parse(text);
-    } catch {
-      return { ok: false, reason: "unavailable" };
+      const res = await fetch(target, {
+        redirect: "follow",
+        // The whole-book read backs a live admin screen, so it is never cached:
+        // a cached failure is worse than a slow success. Per-holder packets keep
+        // the shared window — the sheet changes a handful of times a month, and
+        // the cache key includes the query string, so one holder's packet can
+        // never be served to another.
+        ...(opts.cache === false
+          ? { cache: "no-store" as const }
+          : { next: { revalidate: REVALIDATE_SECONDS } }),
+      });
+
+      if (!res.ok) {
+        detail = `HTTP ${res.status} ${res.statusText}`.trim();
+      } else {
+        const text = await res.text();
+        try {
+          return { ok: true, data: JSON.parse(text) as T };
+        } catch {
+          // Almost always Google's own HTML error or sign-in page.
+          const head = text.replace(/\s+/g, " ").slice(0, 160);
+          detail = `HTTP 200 but not JSON — ${head || "(empty body)"}`;
+        }
+      }
+    } catch (err) {
+      detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     }
-    return { ok: true, data: parsed as T };
-  } catch {
-    return { ok: false, reason: "unavailable" };
+
+    if (attempt === 1) await new Promise((r) => setTimeout(r, 700));
   }
+
+  return { ok: false, reason: "unavailable", detail };
 }
 
 /**
@@ -201,7 +233,7 @@ export interface BookPacket {
  * the existence of an admin route to a participant who guesses the URL.
  */
 async function loadBook(): Promise<FetchOutcome<BookPacket>> {
-  const result = await callScript<RawBook>({ action: "book" });
+  const result = await callScript<RawBook>({ action: "book" }, { cache: false });
   if (!result.ok) return result;
 
   const participants = (result.data.participants ?? []).filter((r) => r.participantId);

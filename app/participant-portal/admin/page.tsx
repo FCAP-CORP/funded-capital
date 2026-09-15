@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { AlertTriangle, CalendarClock, CheckCircle2 } from "lucide-react";
 import { getBook, isPortalAdmin } from "@/lib/revenueShare.server";
@@ -16,7 +17,49 @@ const STATUS_STYLES: Record<string, string> = {
   pending: "bg-gold-500/10 text-gold-700 ring-gold-600/25",
 };
 
-export default async function ProgramBookPage() {
+/**
+ * CACHING — read before editing.
+ *
+ * Do NOT add `export const dynamic = "force-dynamic"` here. next.config.ts sets
+ * `cacheComponents: true`, and any route segment config is a hard build error:
+ * *Route segment config "dynamic" is not compatible with
+ * nextConfig.cacheComponents*. That error does not surface in `npm run
+ * typecheck` — only a full production build catches it — so it can sit in the
+ * tree failing every deploy while local checks look green, which is exactly
+ * what happened here.
+ *
+ * The replacement is structural: the page stays a static shell and everything
+ * that reads live data sits inside <Suspense>, which makes that subtree dynamic
+ * on its own. `app/crm/page.tsx` is the reference implementation.
+ */
+export default function ProgramBookPage() {
+  return (
+    <Suspense fallback={<ProgramBookLoading />}>
+      <ProgramBook />
+    </Suspense>
+  );
+}
+
+function ProgramBookLoading() {
+  return (
+    <div className="p-5 sm:p-8 lg:p-10 max-w-6xl mx-auto animate-pulse" aria-busy="true">
+      <span className="sr-only">Loading the program book…</span>
+      <div className="h-2.5 w-32 rounded bg-slate-200 mb-3" />
+      <div className="h-7 w-56 rounded bg-slate-300 mb-8" />
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="rounded-lg border border-slate-200 bg-white p-5">
+            <div className="h-2.5 w-24 rounded bg-slate-200" />
+            <div className="h-6 w-28 rounded bg-slate-300 mt-4" />
+          </div>
+        ))}
+      </div>
+      <div className="rounded-lg border border-slate-200 bg-white h-64" />
+    </div>
+  );
+}
+
+async function ProgramBook() {
   // A participant who guesses this URL gets a 404, not a 403 — the admin
   // surface should not advertise that it exists.
   if (!(await isPortalAdmin())) notFound();
@@ -25,9 +68,21 @@ export default async function ProgramBookPage() {
   if (!result.ok) {
     return (
       <PortalMessage title="Program records unavailable">
-        {result.reason === "unconfigured"
-          ? "PARTICIPANT_WEBAPP_URL and PARTICIPANT_WEBAPP_SECRET are not set on this deployment."
-          : "The participant sheet could not be reached. Check that the Apps Script deployment is still live."}
+        <>
+          {result.reason === "unconfigured"
+            ? "PARTICIPANT_WEBAPP_URL and PARTICIPANT_WEBAPP_SECRET are not set on this deployment."
+            : "The sheet did not answer on either of two attempts. This is usually transient — reload before changing anything."}
+          {/*
+            The exact failure, admin-only. Without this the page printed a
+            guess, and the guess was wrong: it blamed the Apps Script
+            deployment while that deployment was healthy the whole time.
+          */}
+          {result.detail && (
+            <span className="mt-4 block rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-left font-mono text-xs leading-relaxed text-slate-600">
+              {result.detail}
+            </span>
+          )}
+        </>
       </PortalMessage>
     );
   }
