@@ -4,6 +4,7 @@ import {
   allPayments,
   allScheduled,
   formatDate,
+  isSettledState,
   money,
   moneyExact,
   PAYMENT_STATE_META,
@@ -37,8 +38,11 @@ export default async function PaymentsPage() {
 
   const payments = allPayments(participations);
   const scheduled = allScheduled(participations);
-  const upcoming = scheduled.filter((r) => paymentState(r) !== "paid");
+  // Settled means paid OR ended by an early payoff. Counting an ended period as
+  // "remaining" would promise money that is no longer coming.
+  const upcoming = scheduled.filter((r) => !isSettledState(paymentState(r)));
   const remainingTotal = upcoming.reduce((n, r) => n + (r.scheduledAmount || 0), 0);
+  const endedCount = scheduled.filter((r) => paymentState(r) === "ended").length;
 
   return (
     <div className="p-5 sm:p-8 lg:p-10 max-w-5xl mx-auto">
@@ -61,12 +65,20 @@ export default async function PaymentsPage() {
         <Figure
           label={many ? "Combined Monthly Share" : "Monthly Revenue Share"}
           value={money(totals.monthlyRevenueShare)}
-          note="Paid on or before the 15th"
+          note={
+            totals.monthlyRevenueShare > 0
+              ? "Paid on or before the 15th"
+              : "No active participations"
+          }
         />
         <Figure
           label="Remaining Scheduled"
           value={money(remainingTotal)}
-          note={`Across ${upcoming.length} payment${upcoming.length === 1 ? "" : "s"}`}
+          note={
+            endedCount > 0
+              ? `Across ${upcoming.length} payment${upcoming.length === 1 ? "" : "s"} · ${endedCount} ended on early payoff`
+              : `Across ${upcoming.length} payment${upcoming.length === 1 ? "" : "s"}`
+          }
         />
       </div>
 
@@ -151,9 +163,11 @@ export default async function PaymentsPage() {
       <Panel
         title="Payment Schedule"
         description={
-          many
-            ? "Every payment through maturity, across all participations"
-            : "Every payment through maturity"
+          endedCount > 0
+            ? "Periods after an early payoff are shown as ended — those payments are not due"
+            : many
+              ? "Every payment through maturity, across all participations"
+              : "Every payment through maturity"
         }
         flush
       >
@@ -186,11 +200,19 @@ export default async function PaymentsPage() {
                       key={`${row.participationId}-${row.paymentNumber}`}
                       className={`border-b border-slate-50 last:border-0 ${state === "due" ? "bg-gold-500/[0.04]" : ""}`}
                     >
-                      <td className="px-5 py-3.5 font-semibold text-ink tabular-nums">{formatDate(row.dueDate)}</td>
+                      <td
+                        className={`px-5 py-3.5 font-semibold tabular-nums ${state === "ended" ? "text-slate-400" : "text-ink"}`}
+                      >
+                        {formatDate(row.dueDate)}
+                      </td>
                       <td className="px-5 py-3.5 text-slate-500 tabular-nums">
                         {many ? row.participationId : row.paymentNumber}
                       </td>
-                      <td className="px-5 py-3.5 text-right font-semibold text-ink tabular-nums">{money(row.scheduledAmount)}</td>
+                      <td
+                        className={`px-5 py-3.5 text-right font-semibold tabular-nums ${state === "ended" ? "text-slate-400 line-through decoration-slate-300" : "text-ink"}`}
+                      >
+                        {money(row.scheduledAmount)}
+                      </td>
                       <td className="px-5 py-3.5">
                         <StatusPill label={meta.label} className={meta.className} />
                       </td>

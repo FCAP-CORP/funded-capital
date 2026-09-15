@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { CheckCircle2, Undo2 } from "lucide-react";
+import { formatDate, money, type CapitalReturn } from "@/lib/revenueShare";
 
 /**
  * Shared presentation primitives for the participant portal.
@@ -160,18 +162,98 @@ export function Notice({
   title,
   children,
 }: {
-  tone?: "neutral" | "warning";
+  tone?: "neutral" | "warning" | "positive";
   title: string;
   children: ReactNode;
 }) {
   const tones = {
     neutral: "bg-slate-50 border-slate-200 text-slate-600",
     warning: "bg-amber-50 border-amber-200 text-amber-800",
+    positive: "bg-sky-50 border-sky-200 text-sky-900",
   } as const;
   return (
     <div className={`rounded-lg border p-5 ${tones[tone]}`}>
       <p className="text-sm font-bold text-ink mb-1">{title}</p>
       <div className="text-sm leading-relaxed">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * What a holder sees when a designated loan repaid ahead of maturity.
+ *
+ * The program promise is deliberately plain: payments stop, and the capital
+ * contribution comes back within ten business days. This block says exactly
+ * that, with the date, and switches to past tense the moment the return is
+ * recorded — so nobody is left reading a future promise about money they
+ * already have.
+ */
+export function CapitalReturnNotice({
+  info,
+  context,
+}: {
+  info: CapitalReturn;
+  /** Optional lead-in, e.g. the property, when several participations are shown. */
+  context?: string;
+}) {
+  if (!info) return null;
+
+  if (info.state === "returned") {
+    return (
+      <div className="rounded-lg border border-sky-200 bg-sky-50 p-5">
+        <div className="flex items-start gap-3">
+          <span className="mt-0.5 shrink-0 text-sky-600">
+            <CheckCircle2 size={18} />
+          </span>
+          <div>
+            <p className="text-sm font-bold text-ink">Loan repaid early — capital returned</p>
+            <p className="mt-1 text-sm leading-relaxed text-sky-900">
+              {context ? `${context}: t` : "T"}he borrower repaid ahead of maturity, so the
+              monthly payments on this participation have ended. Your capital contribution
+              of <strong className="font-semibold">{money(info.amount)}</strong> was returned
+              on {formatDate(info.on)}. Revenue share already paid to you is yours and is
+              never reclaimed.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-sky-200 bg-sky-50 p-5">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 shrink-0 text-sky-600">
+          <Undo2 size={18} />
+        </span>
+        <div>
+          <p className="text-sm font-bold text-ink">Loan repaid early — capital coming back</p>
+          <p className="mt-1 text-sm leading-relaxed text-sky-900">
+            {context ? `${context}: t` : "T"}he borrower repaid ahead of maturity, so the
+            monthly payments on this participation have ended. Your capital contribution of{" "}
+            <strong className="font-semibold">{money(info.amount)}</strong> is being returned
+            to you{" "}
+            {info.due ? (
+              <>
+                within ten business days of the payoff — expected by{" "}
+                <strong className="font-semibold">{formatDate(info.due)}</strong>
+              </>
+            ) : (
+              <>within ten business days of the payoff</>
+            )}
+            . Revenue share already paid to you is yours and is never reclaimed.
+          </p>
+          {info.overdue && (
+            <p className="mt-2 text-sm font-semibold text-amber-800">
+              If you have not received it, contact{" "}
+              <a href="mailto:info@fundedcapital.com" className="underline">
+                info@fundedcapital.com
+              </a>
+              .
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

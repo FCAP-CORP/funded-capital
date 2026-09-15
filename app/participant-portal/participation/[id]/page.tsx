@@ -2,15 +2,20 @@ import Link from "next/link";
 import { ArrowLeft, Building2 } from "lucide-react";
 import { getMyParticipationById } from "@/lib/revenueShare.server";
 import {
+  capitalReturn,
   formatDate,
+  isPaidOff,
   lockUpCleared,
   money,
   nextScheduledPayment,
   PAYMENT_STATE_META,
   paymentState,
+  scheduleOf,
+  statusStyle,
   termProgress,
 } from "@/lib/revenueShare";
 import {
+  CapitalReturnNotice,
   DetailRow,
   Figure,
   Meter,
@@ -25,13 +30,6 @@ import {
 export const metadata = {
   title: "Participation | Participant Portal",
   robots: { index: false, follow: false, nocache: true },
-};
-
-const STATUS_STYLES: Record<string, string> = {
-  active: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
-  matured: "bg-slate-100 text-slate-600 ring-slate-500/20",
-  withdrawn: "bg-slate-100 text-slate-600 ring-slate-500/20",
-  pending: "bg-gold-500/10 text-gold-700 ring-gold-600/25",
 };
 
 export default async function ParticipationDetailPage({
@@ -60,11 +58,14 @@ export default async function ParticipationDetailPage({
 
   const { packet, participation } = result.data;
   const p = participation.view;
-  const schedule = participation.schedule;
+  // Rows carry the payoff date, so periods after an early payoff read as
+  // "ended" rather than ageing into a debt that no longer exists.
+  const schedule = scheduleOf(participation);
   const next = nextScheduledPayment(schedule);
   const nextState = next ? paymentState(next) : null;
   const cleared = lockUpCleared(p);
-  const statusKey = (p.status || "").trim().toLowerCase();
+  const paidOff = isPaidOff(p);
+  const ret = capitalReturn(p);
   const many = packet.participations.length > 1;
 
   return (
@@ -85,29 +86,36 @@ export default async function ParticipationDetailPage({
         meta={
           <span className="inline-flex items-center gap-3 flex-wrap">
             <span>{p.property || "Property details pending"}</span>
-            {p.status && (
-              <StatusPill
-                label={p.status}
-                className={
-                  STATUS_STYLES[statusKey] ?? "bg-slate-100 text-slate-600 ring-slate-500/20"
-                }
-              />
-            )}
+            {p.status && <StatusPill label={p.status} className={statusStyle(p.status)} />}
           </span>
         }
       />
+
+      {ret && (
+        <div className="mb-6">
+          <CapitalReturnNotice info={ret} />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <Figure
           label="Capital Contributed"
           value={money(p.capitalContributed)}
-          note="Returned in full at maturity"
+          note={
+            ret
+              ? ret.state === "returned"
+                ? `Returned ${formatDate(ret.on)}`
+                : ret.due
+                  ? `Being returned — expected by ${formatDate(ret.due)}`
+                  : "Being returned"
+              : "Returned in full at maturity"
+          }
         />
         <Figure
           label="Monthly Revenue Share"
           value={money(p.monthlyRevenueShare)}
-          note="Paid on or before the 15th"
-          emphasis
+          note={paidOff ? "Payments ended — loan repaid early" : "Paid on or before the 15th"}
+          emphasis={!paidOff}
         />
         <Figure
           label="Paid to Date"
@@ -159,32 +167,56 @@ export default async function ParticipationDetailPage({
           </dl>
         </Panel>
 
-        <Panel title="Term" description="Funding through maturity">
+        <Panel
+          title="Term"
+          description={paidOff ? "Funding through early payoff" : "Funding through maturity"}
+        >
           <dl className="mb-5">
             <DetailRow label="Funding date" value={formatDate(p.fundingDate)} mono />
             <DetailRow label="First payment" value={formatDate(p.firstPaymentDue)} mono />
-            <DetailRow label="Maturity date" value={formatDate(p.maturityDate)} mono />
-            <DetailRow
-              label="Days remaining"
-              value={
-                Number.isFinite(p.daysToMaturity) && p.daysToMaturity > 0
-                  ? `${p.daysToMaturity}`
-                  : "—"
-              }
-              mono
-            />
+            <DetailRow label="Scheduled maturity" value={formatDate(p.maturityDate)} mono />
+            {paidOff ? (
+              <>
+                <DetailRow label="Loan repaid" value={formatDate(p.payoffDate)} mono />
+                <DetailRow
+                  label={ret?.state === "returned" ? "Capital returned" : "Capital return due"}
+                  value={formatDate(
+                    ret?.state === "returned" ? ret.on : p.capitalReturnDue
+                  )}
+                  mono
+                />
+              </>
+            ) : (
+              <DetailRow
+                label="Days remaining"
+                value={
+                  Number.isFinite(p.daysToMaturity) && p.daysToMaturity > 0
+                    ? `${p.daysToMaturity}`
+                    : "—"
+                }
+                mono
+              />
+            )}
           </dl>
-          <Meter fraction={termProgress(p)} label="Term elapsed" />
+          <Meter fraction={paidOff ? 1 : termProgress(p)} label="Term elapsed" />
           <div className="mt-2 flex justify-between text-[11px] text-slate-400 tabular-nums">
             <span>{formatDate(p.fundingDate)}</span>
-            <span>{formatDate(p.maturityDate)}</span>
+            <span>{formatDate(paidOff ? p.payoffDate : p.maturityDate)}</span>
           </div>
         </Panel>
       </div>
 
       {/* Schedule for this participation only. */}
       <div className="mt-6">
-        <Panel title="Payment Schedule" description="Every payment on this participation" flush>
+        <Panel
+          title="Payment Schedule"
+          description={
+            paidOff
+              ? "Payments ended when the borrower repaid on " + formatDate(p.payoffDate)
+              : "Every payment on this participation"
+          }
+          flush
+        >
           {schedule.length === 0 ? (
             <p className="px-5 py-10 text-center text-sm text-slate-500">
               The schedule will appear here once this designated loan funds.
@@ -212,11 +244,19 @@ export default async function ParticipationDetailPage({
                     return (
                       <tr
                         key={row.paymentNumber}
-                        className={`border-b border-slate-50 last:border-0 ${state === "due" ? "bg-gold-500/[0.04]" : ""}`}
+                        className={`border-b border-slate-50 last:border-0 ${state === "due" ? "bg-gold-500/[0.04]" : ""} ${state === "ended" ? "text-slate-400" : ""}`}
                       >
                         <td className="px-5 py-3.5 text-slate-400 tabular-nums">{row.paymentNumber}</td>
-                        <td className="px-5 py-3.5 font-semibold text-ink tabular-nums">{formatDate(row.dueDate)}</td>
-                        <td className="px-5 py-3.5 text-right font-semibold text-ink tabular-nums">{money(row.scheduledAmount)}</td>
+                        <td
+                          className={`px-5 py-3.5 font-semibold tabular-nums ${state === "ended" ? "text-slate-400" : "text-ink"}`}
+                        >
+                          {formatDate(row.dueDate)}
+                        </td>
+                        <td
+                          className={`px-5 py-3.5 text-right font-semibold tabular-nums ${state === "ended" ? "text-slate-400 line-through decoration-slate-300" : "text-ink"}`}
+                        >
+                          {money(row.scheduledAmount)}
+                        </td>
                         <td className="px-5 py-3.5">
                           <StatusPill label={meta.label} className={meta.className} />
                         </td>
@@ -230,6 +270,7 @@ export default async function ParticipationDetailPage({
         </Panel>
       </div>
 
+      {!paidOff && (
       <div className="mt-6">
         <Notice
           title={
@@ -264,6 +305,7 @@ export default async function ParticipationDetailPage({
           )}
         </Notice>
       </div>
+      )}
 
       <ProgramDisclaimer />
     </div>

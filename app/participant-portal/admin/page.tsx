@@ -1,20 +1,13 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { AlertTriangle, CalendarClock, CheckCircle2 } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, Undo2 } from "lucide-react";
 import { getBook, isPortalAdmin } from "@/lib/revenueShare.server";
-import { formatDate, money, todayIso } from "@/lib/revenueShare";
+import { formatDate, isPaidOff, money, statusStyle, todayIso } from "@/lib/revenueShare";
 import { Figure, PageHeader, Panel, PortalMessage, StatusPill } from "../ui";
 
 export const metadata = {
   title: "Program Book | Participant Portal",
   robots: { index: false, follow: false, nocache: true },
-};
-
-const STATUS_STYLES: Record<string, string> = {
-  active: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
-  matured: "bg-slate-100 text-slate-600 ring-slate-500/20",
-  withdrawn: "bg-slate-100 text-slate-600 ring-slate-500/20",
-  pending: "bg-gold-500/10 text-gold-700 ring-gold-600/25",
 };
 
 /**
@@ -121,6 +114,15 @@ async function ProgramBook() {
       tone: s.maturingWithin90 > 0 ? "text-amber-600" : "text-slate-400",
     },
     {
+      label:
+        s.capitalReturning > 0
+          ? `Capital to return — ${money(s.capitalReturning)}`
+          : "Capital to return",
+      value: s.paidOffCount,
+      icon: Undo2,
+      tone: s.capitalReturnOverdueCount > 0 ? "text-red-600" : s.capitalReturning > 0 ? "text-sky-600" : "text-slate-400",
+    },
+    {
       label: `Active participations · ${s.holders} holder${s.holders === 1 ? "" : "s"}`,
       value: s.activeParticipants,
       icon: CheckCircle2,
@@ -157,6 +159,31 @@ async function ProgramBook() {
           <p className="mt-1 text-sm text-red-700">
             These are scheduled payments with a due date in the past and no matching
             row in the Payment Log.
+          </p>
+        </div>
+      )}
+
+      {s.capitalReturning > 0 && (
+        <div
+          className={`mb-4 rounded-lg border px-5 py-4 ${
+            s.capitalReturnOverdueCount > 0
+              ? "border-red-200 bg-red-50"
+              : "border-sky-200 bg-sky-50"
+          }`}
+        >
+          <p
+            className={`text-sm font-bold ${s.capitalReturnOverdueCount > 0 ? "text-red-800" : "text-ink"}`}
+          >
+            {money(s.capitalReturning)} of capital to return on{" "}
+            {s.paidOffCount} early payoff{s.paidOffCount === 1 ? "" : "s"}
+            {s.capitalReturnBy ? ` — first due ${formatDate(s.capitalReturnBy)}` : ""}
+          </p>
+          <p
+            className={`mt-1 text-sm ${s.capitalReturnOverdueCount > 0 ? "text-red-700" : "text-sky-900"}`}
+          >
+            {s.capitalReturnOverdueCount > 0
+              ? `${s.capitalReturnOverdueCount} return deadline${s.capitalReturnOverdueCount === 1 ? " has" : "s have"} passed with no date in the Capital Returned column.`
+              : "Due within ten business days of payoff. Record the date in the tracker's Capital Returned column once sent, and the portal switches to past tense."}
           </p>
         </div>
       )}
@@ -203,7 +230,8 @@ async function ProgramBook() {
               <tbody>
                 {roster.map((r) => {
                   const owed = r.balanceOwed || 0;
-                  const statusKey = (r.status || "").trim().toLowerCase();
+                  const off = isPaidOff(r);
+                  const returned = String(r.capitalReturned || "").slice(0, 10);
                   return (
                     <tr key={r.participantId} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
                       <td className="px-4 py-3.5">
@@ -219,11 +247,24 @@ async function ProgramBook() {
                       <td className="px-4 py-3.5 text-right font-semibold text-ink tabular-nums">{money(r.monthlyRevenueShare)}</td>
                       <td className="px-4 py-3.5 text-slate-600 tabular-nums">{formatDate(r.fundingDate)}</td>
                       <td className="px-4 py-3.5 text-slate-600 tabular-nums">
-                        {formatDate(r.maturityDate)}
-                        {Number.isFinite(r.daysToMaturity) && r.daysToMaturity >= 0 && r.daysToMaturity <= 90 && (
-                          <span className="ml-2 text-[11px] font-semibold text-amber-600">
-                            {r.daysToMaturity}d
-                          </span>
+                        {off ? (
+                          <>
+                            <span className="text-slate-400 line-through decoration-slate-300">
+                              {formatDate(r.maturityDate)}
+                            </span>
+                            <span className="ml-2 text-[11px] font-semibold text-sky-600">
+                              repaid {formatDate(r.payoffDate)}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            {formatDate(r.maturityDate)}
+                            {Number.isFinite(r.daysToMaturity) && r.daysToMaturity >= 0 && r.daysToMaturity <= 90 && (
+                              <span className="ml-2 text-[11px] font-semibold text-amber-600">
+                                {r.daysToMaturity}d
+                              </span>
+                            )}
+                          </>
                         )}
                       </td>
                       <td className="px-4 py-3.5 text-right text-slate-600 tabular-nums">{money(r.totalPaidToDate)}</td>
@@ -231,10 +272,26 @@ async function ProgramBook() {
                         {owed > 0 ? money(owed) : "—"}
                       </td>
                       <td className="px-4 py-3.5">
-                        <StatusPill
-                          label={r.status || "—"}
-                          className={STATUS_STYLES[statusKey] ?? "bg-slate-100 text-slate-600 ring-slate-500/20"}
-                        />
+                        <StatusPill label={r.status || "—"} className={statusStyle(r.status)} />
+                        {off && (
+                          <p className="mt-1 text-[11px] tabular-nums">
+                            {returned ? (
+                              <span className="text-slate-400">
+                                returned {formatDate(returned)}
+                              </span>
+                            ) : (
+                              <span
+                                className={
+                                  r.capitalReturnDue && String(r.capitalReturnDue).slice(0, 10) < today
+                                    ? "font-semibold text-red-600"
+                                    : "text-sky-600"
+                                }
+                              >
+                                {money(r.capitalContributed)} due {formatDate(r.capitalReturnDue)}
+                              </span>
+                            )}
+                          </p>
+                        )}
                       </td>
                     </tr>
                   );

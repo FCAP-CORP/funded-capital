@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { ArrowRight, ChevronRight } from "lucide-react";
 import { getMyParticipation } from "@/lib/revenueShare.server";
-import { formatDate, money } from "@/lib/revenueShare";
+import { capitalReturn, formatDate, isPaidOff, money, statusStyle } from "@/lib/revenueShare";
 import {
+  CapitalReturnNotice,
   Figure,
   Notice,
   PageHeader,
@@ -23,13 +24,6 @@ import {
  * the empty chrome and streams the participant data per request - verified by
  * inspecting the prerendered shell, which contains no participant data at all.
  */
-
-const STATUS_STYLES: Record<string, string> = {
-  active: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
-  matured: "bg-slate-100 text-slate-600 ring-slate-500/20",
-  withdrawn: "bg-slate-100 text-slate-600 ring-slate-500/20",
-  pending: "bg-gold-500/10 text-gold-700 ring-gold-600/25",
-};
 
 export default async function ParticipantOverviewPage() {
   const result = await getMyParticipation();
@@ -85,6 +79,13 @@ export default async function ParticipantOverviewPage() {
   const { holder, participations, totals } = result.data;
   const many = participations.length > 1;
 
+  // Early payoffs, most recent first. Each gets its own notice so a holder with
+  // several participations can tell which loan repaid.
+  const returning = participations
+    .map((p) => ({ v: p.view, info: capitalReturn(p.view) }))
+    .filter((x) => x.info !== null)
+    .sort((a, b) => String(b.v.payoffDate).localeCompare(String(a.v.payoffDate)));
+
   return (
     <div className="p-5 sm:p-8 lg:p-10 max-w-5xl mx-auto">
       <PageHeader
@@ -100,6 +101,20 @@ export default async function ParticipantOverviewPage() {
         }
       />
 
+      {/* An early payoff is the first thing a holder needs to see: their
+          payments on that loan have stopped and their capital is coming back. */}
+      {returning.length > 0 && (
+        <div className="mb-6 space-y-3">
+          {returning.map(({ v, info }) => (
+            <CapitalReturnNotice
+              key={v.participationId}
+              info={info}
+              context={many ? v.property || v.participationId : undefined}
+            />
+          ))}
+        </div>
+      )}
+
       {/* Consolidated position. For a holder with several participations this
           is the number that matters — any single participation understates it. */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
@@ -108,15 +123,19 @@ export default async function ParticipantOverviewPage() {
           value={money(totals.capitalContributed)}
           note={
             many
-              ? `Across ${totals.activeCount} active participations · returned in full at maturity`
+              ? `Across ${totals.activeCount} active participation${totals.activeCount === 1 ? "" : "s"} · returned in full at maturity`
               : "Returned in full at maturity"
           }
         />
         <Figure
           label={many ? "Combined Monthly Share" : "Monthly Revenue Share"}
           value={money(totals.monthlyRevenueShare)}
-          note="Paid on or before the 15th"
-          emphasis
+          note={
+            totals.monthlyRevenueShare > 0
+              ? "Paid on or before the 15th"
+              : "No active participations"
+          }
+          emphasis={totals.monthlyRevenueShare > 0}
         />
         <Figure
           label="Paid to Date"
@@ -124,6 +143,22 @@ export default async function ParticipantOverviewPage() {
           note={`${totals.paymentsLogged} payment${totals.paymentsLogged === 1 ? "" : "s"} received`}
         />
       </div>
+
+      {totals.capitalReturning > 0 && (
+        <div className="mb-6">
+          <Panel title="Capital Being Returned">
+            <p className="text-[26px] leading-none font-bold tabular-nums text-ink">
+              {money(totals.capitalReturning)}
+            </p>
+            <p className="mt-2 text-sm text-slate-500">
+              {totals.capitalReturnBy
+                ? `Expected by ${formatDate(totals.capitalReturnBy)}`
+                : "Within ten business days of payoff"}
+              {totals.paidOffCount > 1 && ` · across ${totals.paidOffCount} repaid loans`}
+            </p>
+          </Panel>
+        </div>
+      )}
 
       {/* Next payment, summed across everything landing on that date. */}
       {totals.nextPaymentDate && (
@@ -163,7 +198,7 @@ export default async function ParticipantOverviewPage() {
       >
         <ul className="divide-y divide-slate-100">
           {participations.map(({ view: v }) => {
-            const statusKey = (v.status || "").trim().toLowerCase();
+            const off = isPaidOff(v);
             return (
               <li key={v.participationId}>
                 <Link
@@ -176,13 +211,7 @@ export default async function ParticipantOverviewPage() {
                         {v.participationId}
                       </span>
                       {v.status && (
-                        <StatusPill
-                          label={v.status}
-                          className={
-                            STATUS_STYLES[statusKey] ??
-                            "bg-slate-100 text-slate-600 ring-slate-500/20"
-                          }
-                        />
+                        <StatusPill label={v.status} className={statusStyle(v.status)} />
                       )}
                     </div>
                     <p className="mt-1 text-sm text-slate-600 truncate">
@@ -190,17 +219,23 @@ export default async function ParticipantOverviewPage() {
                     </p>
                     <p className="mt-0.5 text-xs text-slate-400 tabular-nums">
                       {v.loanReference ? `Loan ${v.loanReference} · ` : ""}
-                      {v.maturityDate
-                        ? `Matures ${formatDate(v.maturityDate)}`
-                        : "Funding date pending"}
+                      {off
+                        ? `Repaid ${formatDate(v.payoffDate)}`
+                        : v.maturityDate
+                          ? `Matures ${formatDate(v.maturityDate)}`
+                          : "Funding date pending"}
                     </p>
                   </div>
 
                   <div className="text-right shrink-0">
-                    <p className="text-sm font-bold text-ink tabular-nums">
+                    <p
+                      className={`text-sm font-bold tabular-nums ${off ? "text-slate-400" : "text-ink"}`}
+                    >
                       {money(v.monthlyRevenueShare)}
                     </p>
-                    <p className="text-xs text-slate-400">per month</p>
+                    <p className="text-xs text-slate-400">
+                      {off ? "payments ended" : "per month"}
+                    </p>
                     <p className="mt-1 text-xs text-slate-500 tabular-nums">
                       {money(v.capitalContributed)} contributed
                     </p>

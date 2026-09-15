@@ -59,6 +59,15 @@ export interface ParticipantRecord {
   alert: string;
   /** Optional. Add a "Documents Folder" column to the tracker to enable. */
   documentsFolder?: string;
+  /**
+   * Set when the borrower repaid the designated loan ahead of maturity.
+   * Optional: rows predating the Paid Off columns simply do not carry it.
+   */
+  payoffDate?: string;
+  /** Ten business days after payoff — the date capital is due back. */
+  capitalReturnDue?: string;
+  /** The date capital actually went back. Blank while the return is in flight. */
+  capitalReturned?: string;
 }
 
 /** One row of the Payment Schedule sheet. */
@@ -106,6 +115,10 @@ export interface ParticipationView {
   paymentsLogged: number;
   daysToMaturity: number;
   documentsFolder: string;
+  /** Blank unless the loan was repaid early. Drives the whole paid-off path. */
+  payoffDate: string;
+  capitalReturnDue: string;
+  capitalReturned: string;
 }
 
 /** One participation, with everything that belongs to it. */
@@ -136,6 +149,13 @@ export interface HolderTotals {
   nextPaymentCount: number;
   earliestMaturity: string | null;
   latestMaturity: string | null;
+  /** Capital from paid-off participations that has not gone back yet. */
+  capitalReturning: number;
+  /** The last date any of that capital is due back, or null if none is owed. */
+  capitalReturnBy: string | null;
+  /** Capital already returned after an early payoff. History, not a balance. */
+  capitalReturned: number;
+  paidOffCount: number;
 }
 
 export interface ParticipantPacket {
@@ -163,6 +183,13 @@ export interface BookSummary {
   overdueCount: number;
   maturingWithin90: number;
   behindCount: number;
+  paidOffCount: number;
+  /** What Funded Capital still owes back on early payoffs. */
+  capitalReturning: number;
+  /** The soonest of those return deadlines. Null when nothing is outstanding. */
+  capitalReturnBy: string | null;
+  /** Return deadlines already in the past with no return date recorded. */
+  capitalReturnOverdueCount: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -238,21 +265,37 @@ export function todayIso(): string {
 /* Derivation                                                          */
 /* ------------------------------------------------------------------ */
 
-export type PaymentState = "paid" | "scheduled" | "due" | "overdue";
+export type PaymentState = "paid" | "scheduled" | "due" | "overdue" | "ended";
 
 /**
  * Resolves a schedule row to a display state.
  * The sheet's own Status column wins when it says PAID; otherwise the state
  * follows from the due date relative to today.
  */
-export function paymentState(row: ScheduledPayment, today = todayIso()): PaymentState {
+export function paymentState(
+  row: ScheduledPayment & { payoffDate?: string },
+  today = todayIso()
+): PaymentState {
   const status = (row.status || "").trim().toUpperCase();
   if (status === "PAID") return "paid";
   const due = String(row.dueDate || "").slice(0, 10);
+
+  // An early payoff ends the schedule. Every period that had not come due by
+  // the payoff date is never going to be paid, so it must not read as
+  // "scheduled" (a promise the program is no longer making) nor age into
+  // "overdue" (a debt that does not exist). Payments stop; capital comes back.
+  const payoff = String(row.payoffDate || "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(payoff) && due && due > payoff) return "ended";
+
   if (!due) return "scheduled";
   if (due < today) return "overdue";
   if (due.slice(0, 7) === today.slice(0, 7)) return "due";
   return "scheduled";
+}
+
+/** True for a state that no longer represents money the holder will receive. */
+export function isSettledState(state: PaymentState): boolean {
+  return state === "paid" || state === "ended";
 }
 
 export const PAYMENT_STATE_META: Record<
@@ -263,15 +306,35 @@ export const PAYMENT_STATE_META: Record<
   due: { label: "Due this month", className: "bg-gold-500/10 text-gold-700 ring-gold-600/25" },
   scheduled: { label: "Scheduled", className: "bg-slate-100 text-slate-600 ring-slate-500/20" },
   overdue: { label: "Overdue", className: "bg-red-50 text-red-700 ring-red-600/20" },
+  ended: { label: "Not due — loan repaid", className: "bg-slate-100 text-slate-500 ring-slate-400/20" },
 };
 
+/**
+ * Participation status pill styling. Shared by the overview, the participation
+ * page and the admin book so the three cannot drift apart.
+ * Keys are the tracker's Status value, lowercased and trimmed.
+ */
+export const STATUS_STYLES: Record<string, string> = {
+  active: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+  "paid off": "bg-sky-50 text-sky-700 ring-sky-600/20",
+  matured: "bg-slate-100 text-slate-600 ring-slate-500/20",
+  withdrawn: "bg-slate-100 text-slate-600 ring-slate-500/20",
+  pending: "bg-gold-500/10 text-gold-700 ring-gold-600/25",
+};
+
+export const STATUS_FALLBACK_STYLE = "bg-slate-100 text-slate-600 ring-slate-500/20";
+
+export function statusStyle(status: string | null | undefined): string {
+  return STATUS_STYLES[(status || "").trim().toLowerCase()] ?? STATUS_FALLBACK_STYLE;
+}
+
 /** The next payment a participant should expect, or null once the term is done. */
-export function nextScheduledPayment(
-  schedule: ScheduledPayment[],
+export function nextScheduledPayment<T extends ScheduledPayment & { payoffDate?: string }>(
+  schedule: T[],
   today = todayIso()
-): ScheduledPayment | null {
+): T | null {
   const upcoming = schedule
-    .filter((r) => paymentState(r, today) !== "paid" && r.dueDate)
+    .filter((r) => !!r.dueDate && !isSettledState(paymentState(r, today)))
     .sort((a, b) => String(a.dueDate).localeCompare(String(b.dueDate)));
   return upcoming[0] ?? null;
 }
@@ -351,6 +414,12 @@ export function toParticipationView(r: ParticipantRecord): ParticipationView {
     paymentsLogged: r.paymentsLogged,
     daysToMaturity: r.daysToMaturity,
     documentsFolder: r.documentsFolder ?? "",
+    // Payoff is a participant-facing fact, not an internal one: the holder is
+    // entitled to know their loan repaid early and when their capital comes
+    // back. No rate, tier or program version rides along with it.
+    payoffDate: r.payoffDate ?? "",
+    capitalReturnDue: r.capitalReturnDue ?? "",
+    capitalReturned: r.capitalReturned ?? "",
   };
 }
 
@@ -360,6 +429,56 @@ export function toParticipationView(r: ParticipantRecord): ParticipationView {
 
 function isActiveView(v: ParticipationView): boolean {
   return (v.status || "").trim().toLowerCase() === "active";
+}
+
+/** The tracker's Status value for a loan the borrower repaid ahead of maturity. */
+export const STATUS_PAID_OFF = "Paid Off";
+
+export function isPaidOff(v: { status?: string; payoffDate?: string }): boolean {
+  if ((v.status || "").trim().toLowerCase() === "paid off") return true;
+  // A payoff date on its own is enough. If Luis fills the date and has not yet
+  // changed the dropdown, the portal should already be telling the truth.
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(v.payoffDate || "").slice(0, 10));
+}
+
+export type CapitalReturn =
+  | { state: "returned"; on: string; amount: number }
+  | { state: "pending"; due: string; amount: number; overdue: boolean }
+  | null;
+
+/**
+ * What to tell a holder about capital from an early payoff.
+ *
+ * Returns null unless the participation actually paid off, so every caller can
+ * render it unconditionally. `overdue` means the ten business days have run
+ * without a return date being recorded — a fact Luis needs to see, not one the
+ * participant is left to work out from a date in the past.
+ */
+export function capitalReturn(v: ParticipationView, today = todayIso()): CapitalReturn {
+  if (!isPaidOff(v)) return null;
+  const amount = v.capitalContributed || 0;
+  const returned = String(v.capitalReturned || "").slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(returned)) {
+    return { state: "returned", on: returned, amount };
+  }
+  const due = String(v.capitalReturnDue || "").slice(0, 10);
+  return {
+    state: "pending",
+    due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : "",
+    amount,
+    overdue: /^\d{4}-\d{2}-\d{2}$/.test(due) && due < today,
+  };
+}
+
+/** A participation's schedule rows, each carrying its participation's payoff date. */
+export function scheduleOf(
+  p: Participation
+): Array<ScheduledPayment & { participationId: string; payoffDate: string }> {
+  return p.schedule.map((row) => ({
+    ...row,
+    participationId: p.view.participationId,
+    payoffDate: p.view.payoffDate || "",
+  }));
 }
 
 /**
@@ -376,10 +495,16 @@ export function summarizeHolder(
 ): HolderTotals {
   const active = participations.filter((p) => isActiveView(p.view));
 
-  // Earliest unpaid due date across every participation.
+  // Schedules tagged with their participation's payoff date, so a repaid loan's
+  // remaining periods read as "ended" and drop out of every figure below.
+  // Without this a paid-off participation keeps contributing phantom future
+  // payments that quietly age into a false "payment behind".
+  const schedules = participations.map((p) => scheduleOf(p));
+
+  // Earliest still-live due date across every participation.
   let nextDate: string | null = null;
-  for (const p of participations) {
-    const next = nextScheduledPayment(p.schedule, today);
+  for (const rows of schedules) {
+    const next = nextScheduledPayment(rows, today);
     const due = next ? String(next.dueDate).slice(0, 10) : "";
     if (!due) continue;
     if (nextDate === null || due < nextDate) nextDate = due;
@@ -389,14 +514,31 @@ export function summarizeHolder(
   let nextAmount = 0;
   let nextCount = 0;
   if (nextDate) {
-    for (const p of participations) {
-      for (const row of p.schedule) {
+    for (const rows of schedules) {
+      for (const row of rows) {
         if (String(row.dueDate).slice(0, 10) !== nextDate) continue;
-        if (paymentState(row, today) === "paid") continue;
+        if (isSettledState(paymentState(row, today))) continue;
         nextAmount += row.scheduledAmount || 0;
         nextCount += 1;
       }
     }
+  }
+
+  // Early payoffs: capital on its way back, and capital already back.
+  const returns = participations
+    .map((p) => capitalReturn(p.view, today))
+    .filter((r): r is NonNullable<CapitalReturn> => r !== null);
+
+  let capitalReturning = 0;
+  let capitalReturned = 0;
+  let capitalReturnBy: string | null = null;
+  for (const r of returns) {
+    if (r.state === "returned") {
+      capitalReturned += r.amount;
+      continue;
+    }
+    capitalReturning += r.amount;
+    if (r.due && (capitalReturnBy === null || r.due > capitalReturnBy)) capitalReturnBy = r.due;
   }
 
   const maturities = active
@@ -417,6 +559,10 @@ export function summarizeHolder(
     nextPaymentCount: nextCount,
     earliestMaturity: maturities[0] ?? null,
     latestMaturity: maturities.length ? maturities[maturities.length - 1] : null,
+    capitalReturning,
+    capitalReturnBy,
+    capitalReturned,
+    paidOffCount: returns.length,
   };
 }
 
@@ -438,11 +584,9 @@ export function allPayments(
 /** Every scheduled payment across a holder, oldest first, tagged by participation. */
 export function allScheduled(
   participations: Participation[]
-): Array<ScheduledPayment & { participationId: string }> {
+): Array<ScheduledPayment & { participationId: string; payoffDate: string }> {
   return participations
-    .flatMap((p) =>
-      p.schedule.map((row) => ({ ...row, participationId: p.view.participationId }))
-    )
+    .flatMap(scheduleOf)
     .sort(
       (a, b) =>
         String(a.dueDate).localeCompare(String(b.dueDate)) ||
@@ -473,16 +617,26 @@ export function summarizeBook(
   const active = records.filter(isActive);
   const thisMonth = today.slice(0, 7);
 
+  // Payoff dates by participation, so a repaid loan's remaining periods stop
+  // counting as money owed. The Payment Schedule tab keeps generating rows for
+  // the full term; the payoff date is what makes them stop meaning anything.
+  const payoffById = new Map<string, string>();
+  for (const r of records) {
+    const d = String(r.payoffDate || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) payoffById.set(r.participantId, d);
+  }
+
   let dueThisMonth = 0;
   let dueThisMonthCount = 0;
   let overdueAmount = 0;
   let overdueCount = 0;
 
-  for (const row of schedule) {
+  for (const raw of schedule) {
+    const row = { ...raw, payoffDate: payoffById.get(raw.participantId) || "" };
     const state = paymentState(row, today);
     const due = String(row.dueDate || "").slice(0, 10);
     if (!due) continue;
-    if (due.slice(0, 7) === thisMonth && state !== "paid") {
+    if (due.slice(0, 7) === thisMonth && !isSettledState(state)) {
       dueThisMonth += row.scheduledAmount || 0;
       dueThisMonthCount += 1;
     }
@@ -490,6 +644,21 @@ export function summarizeBook(
       overdueAmount += row.scheduledAmount || 0;
       overdueCount += 1;
     }
+  }
+
+  // Capital owed back on early payoffs, and how many of those deadlines passed.
+  const paidOff = records.filter((r) => isPaidOff(r));
+  let capitalReturning = 0;
+  let capitalReturnBy: string | null = null;
+  let capitalReturnOverdueCount = 0;
+  for (const r of paidOff) {
+    const returned = String(r.capitalReturned || "").slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(returned)) continue;
+    capitalReturning += r.capitalContributed || 0;
+    const due = String(r.capitalReturnDue || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) continue;
+    if (capitalReturnBy === null || due < capitalReturnBy) capitalReturnBy = due;
+    if (due < today) capitalReturnOverdueCount += 1;
   }
 
   const holders = new Set(
@@ -512,5 +681,9 @@ export function summarizeBook(
       (r) => Number.isFinite(r.daysToMaturity) && r.daysToMaturity >= 0 && r.daysToMaturity <= 90
     ).length,
     behindCount: active.filter((r) => (r.balanceOwed || 0) > 0).length,
+    paidOffCount: paidOff.length,
+    capitalReturning,
+    capitalReturnBy,
+    capitalReturnOverdueCount,
   };
 }
