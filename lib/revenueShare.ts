@@ -147,6 +147,8 @@ export interface HolderTotals {
   nextPaymentDate: string | null;
   nextPaymentAmount: number;
   nextPaymentCount: number;
+  /** True when every payment landing on that date has already been sent. */
+  nextPaymentInitiated: boolean;
   earliestMaturity: string | null;
   latestMaturity: string | null;
   /** Capital from paid-off participations that has not gone back yet. */
@@ -265,7 +267,13 @@ export function todayIso(): string {
 /* Derivation                                                          */
 /* ------------------------------------------------------------------ */
 
-export type PaymentState = "paid" | "scheduled" | "due" | "overdue" | "ended";
+export type PaymentState =
+  | "paid"
+  | "initiated"
+  | "scheduled"
+  | "due"
+  | "overdue"
+  | "ended";
 
 /**
  * Resolves a schedule row to a display state.
@@ -278,6 +286,12 @@ export function paymentState(
 ): PaymentState {
   const status = (row.status || "").trim().toUpperCase();
   if (status === "PAID") return "paid";
+
+  // Money already sent but not yet logged as received. This is checked before
+  // the date rules on purpose: a payment initiated on its due date must not
+  // tip into "overdue" overnight just because the log entry lands a day later.
+  if (status === "INITIATED") return "initiated";
+
   const due = String(row.dueDate || "").slice(0, 10);
 
   // An early payoff ends the schedule. Every period that had not come due by
@@ -293,9 +307,21 @@ export function paymentState(
   return "scheduled";
 }
 
-/** True for a state that no longer represents money the holder will receive. */
+/**
+ * True for a state that no longer represents money the holder will receive.
+ *
+ * "initiated" is deliberately NOT settled: the transfer has left but nothing
+ * has been logged as received, so it still belongs in remaining-scheduled and
+ * in what Luis owes. It stops being outstanding when the Payment Log entry
+ * appears, not when the wire is sent.
+ */
 export function isSettledState(state: PaymentState): boolean {
   return state === "paid" || state === "ended";
+}
+
+/** True once the transfer has been sent, whether or not it has landed. */
+export function isSentState(state: PaymentState): boolean {
+  return state === "paid" || state === "initiated";
 }
 
 export const PAYMENT_STATE_META: Record<
@@ -307,6 +333,7 @@ export const PAYMENT_STATE_META: Record<
   scheduled: { label: "Scheduled", className: "bg-slate-100 text-slate-600 ring-slate-500/20" },
   overdue: { label: "Overdue", className: "bg-red-50 text-red-700 ring-red-600/20" },
   ended: { label: "Not due — loan repaid", className: "bg-slate-100 text-slate-500 ring-slate-400/20" },
+  initiated: { label: "Payment initiated", className: "bg-sky-50 text-sky-700 ring-sky-600/20" },
 };
 
 /**
@@ -513,13 +540,16 @@ export function summarizeHolder(
   // Everything landing on that date, across all participations.
   let nextAmount = 0;
   let nextCount = 0;
+  let nextInitiated = 0;
   if (nextDate) {
     for (const rows of schedules) {
       for (const row of rows) {
         if (String(row.dueDate).slice(0, 10) !== nextDate) continue;
-        if (isSettledState(paymentState(row, today))) continue;
+        const state = paymentState(row, today);
+        if (isSettledState(state)) continue;
         nextAmount += row.scheduledAmount || 0;
         nextCount += 1;
+        if (state === "initiated") nextInitiated += 1;
       }
     }
   }
@@ -557,6 +587,7 @@ export function summarizeHolder(
     nextPaymentDate: nextDate,
     nextPaymentAmount: nextAmount,
     nextPaymentCount: nextCount,
+    nextPaymentInitiated: nextCount > 0 && nextInitiated === nextCount,
     earliestMaturity: maturities[0] ?? null,
     latestMaturity: maturities.length ? maturities[maturities.length - 1] : null,
     capitalReturning,

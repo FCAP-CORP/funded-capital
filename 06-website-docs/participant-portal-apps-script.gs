@@ -866,3 +866,326 @@ function addPaidOffColumns_Sept2026() {
   try { SpreadsheetApp.getUi().alert(msg); } catch (e) {}
   return msg;
 }
+
+
+/* ==================================================================
+ * MARK PAID OFF — the September 14 2026 payoffs
+ * ==================================================================
+ * Run ONCE from the Apps Script editor: pick markPaidOff_Sept2026
+ * from the function dropdown and press Run. Safe to re-run.
+ *
+ * Doing this as a script rather than by hand is deliberate. Each
+ * change is matched to a Participant ID and checked against the loan
+ * ID before anything is written, and the whole thing reports what it
+ * did by reading the cells back afterwards.
+ *
+ * It also scans for OTHER rows carrying the same loan, because one
+ * loan can back several participations — sometimes for different
+ * people — and half-marking a loan would leave one holder still being
+ * promised payments that are not coming.
+ * ================================================================== */
+
+var PAYOFFS_SEPT2026 = [
+  { id: 'FC-015', loan: '127895', y: 2026, m: 9, d: 14 },
+  { id: 'FC-004', loan: '128399', y: 2026, m: 9, d: 14 }
+];
+
+function markPaidOff_Sept2026() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var parts = ss.getSheetByName(SHEET_PARTICIPANTS);
+  if (!parts) throw new Error('No "' + SHEET_PARTICIPANTS + '" tab.');
+
+  var cId     = headerCol_(parts, 'Participant ID');
+  var cName   = headerCol_(parts, 'Full Legal Name');
+  var cLoan   = headerCol_(parts, 'Loan ID / Reference');
+  var cCap    = headerCol_(parts, 'Capital Contributed');
+  var cStatus = headerCol_(parts, 'Status');
+  var cPayoff = headerCol_(parts, 'Payoff Date');
+  var cDue    = headerCol_(parts, 'Capital Return Due');
+  var cBack   = headerCol_(parts, 'Capital Returned');
+
+  if (!cPayoff || !cDue || !cBack) {
+    throw new Error('The Paid Off columns are not there yet. ' +
+                    'Run addPaidOffColumns_Sept2026 first.');
+  }
+
+  var firstRow = HEADER_ROW + 1;
+  var lastRow = parts.getLastRow();
+  var nRows = lastRow - HEADER_ROW;
+
+  var ids = parts.getRange(firstRow, cId, nRows, 1).getValues();
+  var loans = parts.getRange(firstRow, cLoan, nRows, 1).getValues();
+
+  function rowOf(id) {
+    for (var i = 0; i < nRows; i++) {
+      if (String(ids[i][0]).trim() === id) return firstRow + i;
+    }
+    return 0;
+  }
+  function loanAt(row) {
+    return String(loans[row - firstRow][0]).trim().replace(/\.0+$/, '');
+  }
+
+  var report = [];
+  var touched = {};
+
+  for (var k = 0; k < PAYOFFS_SEPT2026.length; k++) {
+    var p = PAYOFFS_SEPT2026[k];
+    var row = rowOf(p.id);
+    if (!row) { report.push('SKIPPED ' + p.id + ' — no such Participant ID.'); continue; }
+
+    // Guard: the row must be the loan we think it is. A mismatch means the
+    // roster moved under us, and writing a payoff onto the wrong participation
+    // would tell the wrong person their money is coming back.
+    var actual = loanAt(row);
+    if (actual !== String(p.loan)) {
+      report.push('SKIPPED ' + p.id + ' at row ' + row + ' — expected loan ' + p.loan +
+                  ' but the row says ' + (actual || '(blank)') + '. Nothing written.');
+      continue;
+    }
+
+    var was = String(parts.getRange(row, cStatus).getValue()).trim();
+    parts.getRange(row, cStatus).setValue(PAID_OFF_STATUS);
+    // A DATE() formula rather than a JS Date: the date is then built inside the
+    // spreadsheet's own timezone and cannot land a day early or late.
+    parts.getRange(row, cPayoff)
+         .setFormula('=DATE(' + p.y + ',' + p.m + ',' + p.d + ')')
+         .setNumberFormat('mm/dd/yyyy');
+    touched[p.id] = true;
+    report.push('MARKED  ' + p.id + ' row ' + row + ' — loan ' + actual +
+                ' — status ' + (was || '(blank)') + ' -> ' + PAID_OFF_STATUS + '.');
+  }
+
+  SpreadsheetApp.flush();
+
+  /* ---- sibling check: same loan, not marked ---- */
+  var warnings = [];
+  for (var k2 = 0; k2 < PAYOFFS_SEPT2026.length; k2++) {
+    var want = String(PAYOFFS_SEPT2026[k2].loan);
+    for (var i = 0; i < nRows; i++) {
+      var r = firstRow + i;
+      var thisId = String(ids[i][0]).trim();
+      if (!thisId || touched[thisId]) continue;
+      if (loanAt(r) !== want) continue;
+      warnings.push('  ' + thisId + ' (row ' + r + ') also carries loan ' + want +
+                    ' and was NOT marked. Check whether it should be.');
+    }
+  }
+
+  /* ---- read everything back ---- */
+  var tz = ss.getSpreadsheetTimeZone();
+  function fmt(v) {
+    if (v instanceof Date) return Utilities.formatDate(v, tz, 'MM/dd/yyyy');
+    return String(v === null || v === undefined ? '' : v);
+  }
+
+  var lines = [];
+  var owed = 0;
+  for (var i2 = 0; i2 < nRows; i2++) {
+    var r2 = firstRow + i2;
+    var st = String(parts.getRange(r2, cStatus).getValue()).trim();
+    var po = parts.getRange(r2, cPayoff).getValue();
+    if (st !== PAID_OFF_STATUS && !po) continue;
+    var back = parts.getRange(r2, cBack).getValue();
+    var cap = Number(parts.getRange(r2, cCap).getValue()) || 0;
+    if (!back) owed += cap;
+    lines.push('  ' + String(parts.getRange(r2, cId).getValue()).trim() +
+               '  ' + String(parts.getRange(r2, cName).getValue()).trim() +
+               '\n      loan ' + loanAt(r2) +
+               '  ·  capital $' + cap.toLocaleString() +
+               '\n      payoff ' + fmt(po) +
+               '  ·  capital due back ' + fmt(parts.getRange(r2, cDue).getValue()) +
+               '  ·  returned ' + (back ? fmt(back) : '(not yet)'));
+  }
+
+  var msg = 'MARK PAID OFF COMPLETE\n\n' + report.join('\n') + '\n\n' +
+    (warnings.length
+      ? 'CHECK THESE:\n' + warnings.join('\n') + '\n\n'
+      : 'Sibling check: no other row carries either loan. Nothing left half-marked.\n\n') +
+    'Paid off on the roster now:\n' + (lines.length ? lines.join('\n') : '  (none)') + '\n\n' +
+    'CAPITAL STILL TO RETURN: $' + owed.toLocaleString() + '\n\n' +
+    'When each wire goes out, type the date in the Capital Returned column and\n' +
+    'the portal switches from "is being returned" to "was returned on ...".';
+
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) {}
+  return msg;
+}
+
+
+/* ==================================================================
+ * PAYMENT INITIATED + the "behind on its own due date" fix
+ * ==================================================================
+ * Run ONCE from the Apps Script editor: pick
+ * paymentsInitiated_Sept2026 and press Run. Safe to re-run.
+ *
+ * NO REDEPLOY NEEDED. This rides on the Payment Schedule's existing
+ * Status column, which the web app already sends. Nothing about the
+ * data the portal receives changes shape.
+ *
+ * TWO CHANGES, and they must happen in this order, which is the only
+ * reason this is a script rather than four cells:
+ *
+ * 1. A payment stops counting as late on its own due date.
+ *    "Payments Due to Date" counted the current month the moment the
+ *    due date arrived, so on the 15th every unpaid row read PAYMENT
+ *    BEHIND before the day was out. One character: the comparison
+ *    becomes "on or before", so a period counts from the day AFTER
+ *    it falls due. The portal never had this bug - it already showed
+ *    these as "Due this month", which is why the Program Book
+ *    disagreed with itself today.
+ *
+ * 2. "Payment initiated" - money sent, not yet logged as received.
+ *    Set globally on Program Terms ("Payments initiated through"),
+ *    or per payment in a new Initiated column on the Payment
+ *    Schedule when one wire moves differently from the rest.
+ *    Participants see "Payment initiated" on that row.
+ *
+ * The order matters: adding the Program Terms row shifts the holiday
+ * table down, and the due-date formula points at it by row number.
+ * Doing 1 before 2 by hand would leave it pointing at the wrong range.
+ * ================================================================== */
+
+var INITIATED_LABEL = 'Payments initiated through';
+var INITIATED_COLUMN = 'Initiated';
+
+function paymentsInitiated_Sept2026() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var terms = ss.getSheetByName('Program Terms');
+  var parts = ss.getSheetByName(SHEET_PARTICIPANTS);
+  var sched = ss.getSheetByName(SHEET_SCHEDULE);
+  if (!terms || !parts || !sched) throw new Error('A required tab is missing.');
+
+  var report = [];
+
+  /* ---- 1. the global "initiated through" constant ---- */
+  var initRow = findRow_(terms, INITIATED_LABEL);
+  if (initRow) {
+    report.push('Program Terms: "' + INITIATED_LABEL + '" already at B' + initRow + '.');
+  } else {
+    var anchor = findRow_(terms, '15th payment rule effective from');
+    if (!anchor) throw new Error('Could not find the payment-rule constants on Program Terms.');
+    initRow = anchor + 1;
+    if (String(terms.getRange(initRow, 1).getValue()).trim() !== '') {
+      terms.insertRowsAfter(anchor, 1);
+    }
+    terms.getRange(initRow, 1).setValue(INITIATED_LABEL);
+    terms.getRange(initRow, 2).setNumberFormat('mm/dd/yyyy');
+    terms.getRange(initRow, 3).setValue('date');
+    terms.getRange(initRow, 4).setValue(
+      'Any unpaid payment due on or before this date is shown to participants as ' +
+      '"Payment initiated". Set it when a payment run goes out; clear it when the ' +
+      'Payment Log has caught up. Leave blank to use only the per-payment column.');
+    terms.getRange(initRow, 2).setNote(
+      'Type the date the payment run was sent. Every unpaid scheduled payment due on ' +
+      'or before it reads as "Payment initiated" in the portal until the Payment Log ' +
+      'records it as received.');
+    report.push('Program Terms: added "' + INITIATED_LABEL + '" at B' + initRow + ' (left blank).');
+  }
+  SpreadsheetApp.flush();
+
+  /* ---- 2. the due-date fix, read back AFTER any row insert so the
+            holiday range reference is whatever Sheets rewrote it to ---- */
+  var cDue = headerCol_(parts, 'Payments Due to Date');
+  if (!cDue) throw new Error('No "Payments Due to Date" column on the Participants tab.');
+  var firstRow = HEADER_ROW + 1;
+  var nParts = parts.getLastRow() - HEADER_ROW;
+  var f = parts.getRange(firstRow, cDue).getFormula();
+
+  if (!f) {
+    report.push('WARNING: Payments Due to Date row ' + firstRow +
+                ' is a typed value, not a formula. Not changed.');
+  } else if (f.indexOf('TODAY()<=WORKDAY(') !== -1) {
+    report.push('Due-date fix already applied.');
+  } else if (f.indexOf('TODAY()<WORKDAY(') === -1) {
+    report.push('WARNING: could not find the comparison to change in Payments Due to Date. ' +
+                'Not changed - tell Claude what the formula looks like.');
+  } else {
+    parts.getRange(firstRow, cDue, nParts, 1)
+         .setFormula(f.replace('TODAY()<WORKDAY(', 'TODAY()<=WORKDAY('));
+    report.push('Payments Due to Date: a period now counts from the day AFTER it falls due (' +
+                nParts + ' rows).');
+  }
+  SpreadsheetApp.flush();
+
+  /* ---- 3. the per-payment Initiated column ---- */
+  var cInit = headerCol_(sched, INITIATED_COLUMN);
+  if (cInit) {
+    report.push('Payment Schedule: "' + INITIATED_COLUMN + '" already at ' + colLetter_(cInit) + '.');
+  } else {
+    cInit = lastHeaderCol_(sched) + 1;
+    if (cInit > sched.getMaxColumns()) sched.insertColumnsAfter(sched.getMaxColumns(), 1);
+    sched.getRange(HEADER_ROW, cInit).setValue(INITIATED_COLUMN);
+    report.push('Payment Schedule: added "' + INITIATED_COLUMN + '" at ' + colLetter_(cInit) + '.');
+  }
+  var nSched = sched.getLastRow() - HEADER_ROW;
+  sched.getRange(HEADER_ROW + 1, cInit, nSched, 1).setNumberFormat('mm/dd/yyyy');
+  sched.setColumnWidth(cInit, 110);
+  sched.getRange(HEADER_ROW, cInit).setNote(
+    'Optional. The date THIS payment was sent, when it moves differently from the rest ' +
+    'of the run. Overrides the global "' + INITIATED_LABEL + '" on Program Terms. ' +
+    'Leave blank for the normal case.');
+
+  /* ---- 4. the Status formula gains an INITIATED branch ---- */
+  var cStatus = headerCol_(sched, 'Status');
+  var cDueDate = headerCol_(sched, 'Due Date');
+  if (!cStatus || !cDueDate) throw new Error('Payment Schedule is missing Status or Due Date.');
+
+  var g = sched.getRange(HEADER_ROW + 1, cStatus).getFormula();
+  if (g.indexOf('"INITIATED"') !== -1) {
+    report.push('Payment Schedule Status already has the INITIATED branch.');
+  } else if (g.indexOf('"PAID",') === -1) {
+    report.push('WARNING: the Status formula is not the shape expected. Not changed.');
+  } else {
+    var E = '$' + colLetter_(cDueDate) + (HEADER_ROW + 1);
+    var L = '$' + colLetter_(cInit) + (HEADER_ROW + 1);
+    var INIT = "'Program Terms'!$B$" + initRow;
+    // Slotted in immediately after PAID: a logged payment always wins, and an
+    // initiated one is checked before any date rule so it cannot read OVERDUE.
+    var branch = 'IF(OR(' + L + '<>"",AND(' + INIT + '<>"",' + E + '<=' + INIT + ')),"INITIATED",';
+    var at = g.indexOf('"PAID",') + '"PAID",'.length;
+    var patched = g.slice(0, at) + branch + g.slice(at, g.length - 1) + ')' + g.slice(g.length - 1);
+    sched.getRange(HEADER_ROW + 1, cStatus, nSched, 1).setFormula(patched);
+    report.push('Payment Schedule Status: INITIATED branch added (' + nSched + ' rows).');
+  }
+
+  SpreadsheetApp.flush();
+
+  /* ---- 5. read it all back ---- */
+  var cAlert = headerCol_(parts, 'Alert');
+  var cOwed = headerCol_(parts, 'Balance Owed');
+  var alerts = parts.getRange(firstRow, cAlert, nParts, 1).getValues();
+  var oweds = parts.getRange(firstRow, cOwed, nParts, 1).getValues();
+  var behind = 0, owed = 0;
+  for (var i = 0; i < nParts; i++) {
+    if (String(alerts[i][0]).trim() === 'PAYMENT BEHIND') behind++;
+    owed += Number(oweds[i][0]) || 0;
+  }
+
+  var statuses = sched.getRange(HEADER_ROW + 1, cStatus, nSched, 1).getValues();
+  var tally = {};
+  for (var j = 0; j < nSched; j++) {
+    var v = String(statuses[j][0]).trim();
+    if (!v) continue;
+    tally[v] = (tally[v] || 0) + 1;
+  }
+  var tallyLines = [];
+  for (var key in tally) tallyLines.push('  ' + key + ': ' + tally[key]);
+
+  var msg = 'PAYMENT INITIATED SETUP COMPLETE\n\n' + report.join('\n') + '\n\n' +
+    'Participants tab now reads:\n' +
+    '  PAYMENT BEHIND: ' + behind + '\n' +
+    '  Total balance owed: $' + owed.toLocaleString() + '\n\n' +
+    'Payment Schedule statuses:\n' + tallyLines.join('\n') + '\n\n' +
+    'TO MARK A PAYMENT RUN AS INITIATED\n' +
+    '  Type the send date in Program Terms B' + initRow + '.\n' +
+    '  Every unpaid payment due on or before it shows the participant\n' +
+    '  "Payment initiated" until the Payment Log records it.\n' +
+    '  For a single payment that moves on its own, put its date in the\n' +
+    '  Initiated column (' + colLetter_(cInit) + ') on the Payment Schedule instead.\n\n' +
+    'Participants see this within 30 minutes. No redeploy needed.';
+
+  Logger.log(msg);
+  try { SpreadsheetApp.getUi().alert(msg); } catch (e) {}
+  return msg;
+}

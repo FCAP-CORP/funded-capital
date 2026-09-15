@@ -43,6 +43,8 @@ export default async function PaymentsPage() {
   const upcoming = scheduled.filter((r) => !isSettledState(paymentState(r)));
   const remainingTotal = upcoming.reduce((n, r) => n + (r.scheduledAmount || 0), 0);
   const endedCount = scheduled.filter((r) => paymentState(r) === "ended").length;
+  const initiated = scheduled.filter((r) => paymentState(r) === "initiated");
+  const initiatedTotal = initiated.reduce((n, r) => n + (r.scheduledAmount || 0), 0);
 
   return (
     <div className="p-5 sm:p-8 lg:p-10 max-w-5xl mx-auto">
@@ -159,6 +161,21 @@ export default async function PaymentsPage() {
           )}
         </Panel>
       </div>
+
+      {initiated.length > 0 && (
+        <div className="mb-8 rounded-lg border border-sky-200 bg-sky-50 p-5">
+          <p className="text-sm font-bold text-ink">
+            {money(initiatedTotal)} initiated
+          </p>
+          <p className="mt-1 text-sm leading-relaxed text-sky-900">
+            {initiated.length === 1
+              ? "This payment has been sent and is on its way to you."
+              : `These ${initiated.length} payments have been sent and are on their way to you.`}{" "}
+            Transfers usually settle within a few business days. This page updates to
+            Paid once it lands.
+          </p>
+        </div>
+      )}
 
       <Panel
         title="Payment Schedule"

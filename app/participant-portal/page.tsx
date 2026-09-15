@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, ChevronRight } from "lucide-react";
+import { ArrowRight, ChevronRight, Send } from "lucide-react";
 import { getMyParticipation } from "@/lib/revenueShare.server";
 import { capitalReturn, formatDate, isPaidOff, money, statusStyle } from "@/lib/revenueShare";
 import {
@@ -182,6 +182,12 @@ export default async function ParticipantOverviewPage() {
               {totals.nextPaymentCount > 1 &&
                 ` · combined across ${totals.nextPaymentCount} participations`}
             </p>
+            {totals.nextPaymentInitiated && (
+              <p className="mt-2 inline-flex items-center gap-1.5 text-sm font-semibold text-sky-700">
+                <Send size={13} />
+                Payment initiated — on its way to you
+              </p>
+            )}
           </Panel>
         </div>
       )}
