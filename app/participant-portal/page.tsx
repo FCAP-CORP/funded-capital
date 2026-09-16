@@ -5,10 +5,10 @@ import { capitalReturn, formatDate, isPaidOff, money, statusStyle } from "@/lib/
 import {
   CapitalReturnNotice,
   Figure,
+  PacketUnavailable,
   Notice,
   PageHeader,
   Panel,
-  PortalMessage,
   ProgramDisclaimer,
   StatusPill,
 } from "./ui";
@@ -29,51 +29,7 @@ export default async function ParticipantOverviewPage() {
   const result = await getMyParticipation();
 
   if (!result.ok) {
-    if (result.reason === "unconfigured") {
-      return (
-        <PortalMessage title="Portal not yet connected">
-          Program records are not connected to this portal yet. Once the participant
-          sheet is linked, your participation details will appear here automatically.
-        </PortalMessage>
-      );
-    }
-    if (result.reason === "unavailable") {
-      return (
-        <PortalMessage title="Program records are temporarily unavailable">
-          We could not reach program records just now. Please try again in a few
-          minutes. If this continues, contact{" "}
-          <a href="mailto:info@fundedcapital.com" className="text-gold-600 underline">
-            info@fundedcapital.com
-          </a>
-          .
-        </PortalMessage>
-      );
-    }
-    // Whoever lands here is in the wrong place, not at a dead end: either they
-    // used a different address than the one on their agreement, or they are a
-    // broker who followed the wrong link. Both need a way onward in one click.
-    return (
-      <PortalMessage title="No participation found for this sign-in">
-        <>
-          We could not match this email address to a participation on file. If you
-          signed in with a different address than the one on your agreement, please
-          sign out and try again, or contact{" "}
-          <a href="mailto:info@fundedcapital.com" className="text-gold-600 underline">
-            info@fundedcapital.com
-          </a>
-          .
-          <span className="mt-5 block border-t border-slate-200 pt-4 text-sm text-slate-500">
-            Looking for the broker portal?{" "}
-            <Link
-              href="/broker-portal"
-              className="font-semibold text-gold-600 hover:underline"
-            >
-              Go to Broker Portal
-            </Link>
-          </span>
-        </>
-      </PortalMessage>
-    );
+    return <PacketUnavailable reason={result.reason} subject="your participation details" />;
   }
 
   const { holder, participations, totals } = result.data;

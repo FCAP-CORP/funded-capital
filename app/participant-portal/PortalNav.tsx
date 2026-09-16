@@ -12,6 +12,11 @@ const BASE_LINKS = [
   { label: "Documents", href: "/participant-portal/documents", icon: FileText },
 ];
 
+const SIGNED_OUT_ROUTES = [
+  "/participant-portal/login",
+  "/participant-portal/accept",
+];
+
 const ADMIN_LINK = {
   label: "Program Book",
   href: "/participant-portal/admin",
@@ -30,8 +35,11 @@ export default function PortalNav({ isAdmin = false }: { isAdmin?: boolean }) {
       ? `${user?.firstName?.[0] ?? ""}${user?.lastName?.[0] ?? ""}`.toUpperCase()
       : (name[0] || "P").toUpperCase();
 
-  // The sign-in screen is full-bleed.
-  if (pathname === "/participant-portal/login") return null;
+  // Both signed-out screens are full-bleed. Rendering the nav on the accept
+  // page put Overview / Payments / Documents links, an avatar and a "Sign out"
+  // button in front of someone who does not have an account yet — and every one
+  // of those links would have bounced them straight back to sign-in.
+  if (SIGNED_OUT_ROUTES.some((route) => pathname.startsWith(route))) return null;
 
   const links = isAdmin ? [...BASE_LINKS, ADMIN_LINK] : BASE_LINKS;
 

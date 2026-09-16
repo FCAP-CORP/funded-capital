@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { CheckCircle2, Undo2 } from "lucide-react";
 import { formatDate, money, type CapitalReturn } from "@/lib/revenueShare";
 
@@ -275,6 +276,72 @@ export function ProgramDisclaimer() {
       </a>
       .
     </p>
+  );
+}
+
+/**
+ * The three ways a page can have no packet to render, each said honestly.
+ *
+ * These are NOT the same thing and must never share a message. "We could not
+ * load your documents just now, please try again shortly" is true of a sheet
+ * outage and false of a holder whose email has no participation — telling that
+ * person to retry sends them round a loop that can never succeed. Documents and
+ * Payments did exactly that until this existed; only the overview branched
+ * correctly, so which page you opened decided whether you were told the truth.
+ *
+ * Nothing here reveals whether an email exists in the sheet.
+ */
+export function PacketUnavailable({
+  reason,
+  subject,
+}: {
+  reason: "unconfigured" | "unavailable" | "not_found";
+  /** What the caller was trying to show, e.g. "your payment records". */
+  subject: string;
+}) {
+  if (reason === "unconfigured") {
+    return (
+      <PortalMessage title="Portal not yet connected">
+        Program records are not connected to this portal yet. Once the participant
+        sheet is linked, {subject} will appear here automatically.
+      </PortalMessage>
+    );
+  }
+
+  if (reason === "unavailable") {
+    return (
+      <PortalMessage title="Program records are temporarily unavailable">
+        We could not reach program records just now, so {subject} cannot be shown.
+        Please try again in a few minutes. If this continues, contact{" "}
+        <a href="mailto:info@fundedcapital.com" className="text-gold-600 underline">
+          info@fundedcapital.com
+        </a>
+        .
+      </PortalMessage>
+    );
+  }
+
+  // Whoever lands here is in the wrong place, not at a dead end: either they
+  // used a different address than the one on their agreement, or they are a
+  // broker who followed the wrong link. Both need a way onward in one click.
+  return (
+    <PortalMessage title="No participation found for this sign-in">
+      <>
+        We could not match this email address to a participation on file. If you
+        signed in with a different address than the one on your agreement, please
+        sign out and try again, or contact{" "}
+        <a href="mailto:info@fundedcapital.com" className="text-gold-600 underline">
+          info@fundedcapital.com
+        </a>
+        .
+        <span className="mt-5 block border-t border-slate-200 pt-4 text-sm text-slate-500">
+          Looking for the broker portal?{" "}
+          <Link href="/broker-portal" className="font-semibold text-gold-600 hover:underline">
+            Go to Broker Portal
+          </Link>
+        </span>
+      </>
+    </PortalMessage>
   );
 }
 

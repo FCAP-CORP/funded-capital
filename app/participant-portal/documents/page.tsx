@@ -8,7 +8,7 @@ import {
   moneyExact,
   todayIso,
 } from "@/lib/revenueShare";
-import { PageHeader, Panel, PortalMessage, ProgramDisclaimer } from "../ui";
+import { PacketUnavailable, PageHeader, Panel, ProgramDisclaimer } from "../ui";
 import PrintButton from "./PrintButton";
 
 export const metadata = {
@@ -20,15 +20,7 @@ export default async function DocumentsPage() {
   const result = await getMyParticipation();
 
   if (!result.ok) {
-    return (
-      <PortalMessage title="Documents unavailable">
-        We could not load your documents just now. Please try again shortly, or contact{" "}
-        <a href="mailto:info@fundedcapital.com" className="text-gold-600 underline">
-          info@fundedcapital.com
-        </a>
-        .
-      </PortalMessage>
-    );
+    return <PacketUnavailable reason={result.reason} subject="your documents" />;
   }
 
   const { holder, participations, totals } = result.data;

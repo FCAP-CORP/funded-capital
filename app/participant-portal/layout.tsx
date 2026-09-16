@@ -3,7 +3,10 @@ import PortalNav from "./PortalNav";
 import { isPortalAdmin } from "@/lib/revenueShare.server";
 
 export const metadata: Metadata = {
-  title: "Participant Portal | Funded Capital",
+  // The root layout appends " | Funded Capital" through its title template, so
+  // repeating it here rendered "Participant Portal | Funded Capital | Funded
+  // Capital" in the browser tab.
+  title: "Participant Portal",
   robots: { index: false, follow: false, nocache: true },
 };
 

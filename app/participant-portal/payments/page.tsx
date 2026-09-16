@@ -10,7 +10,14 @@ import {
   PAYMENT_STATE_META,
   paymentState,
 } from "@/lib/revenueShare";
-import { Figure, PageHeader, Panel, PortalMessage, ProgramDisclaimer, StatusPill } from "../ui";
+import {
+  Figure,
+  PacketUnavailable,
+  PageHeader,
+  Panel,
+  ProgramDisclaimer,
+  StatusPill,
+} from "../ui";
 
 export const metadata = {
   title: "Payments | Participant Portal",
@@ -21,16 +28,7 @@ export default async function PaymentsPage() {
   const result = await getMyParticipation();
 
   if (!result.ok) {
-    return (
-      <PortalMessage title="Payment records unavailable">
-        We could not load your payment records just now. Please try again shortly, or
-        contact{" "}
-        <a href="mailto:info@fundedcapital.com" className="text-gold-600 underline">
-          info@fundedcapital.com
-        </a>
-        .
-      </PortalMessage>
-    );
+    return <PacketUnavailable reason={result.reason} subject="your payment records" />;
   }
 
   const { participations, totals } = result.data;
