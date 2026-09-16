@@ -287,19 +287,27 @@ export function paymentState(
   const status = (row.status || "").trim().toUpperCase();
   if (status === "PAID") return "paid";
 
-  // Money already sent but not yet logged as received. This is checked before
-  // the date rules on purpose: a payment initiated on its due date must not
-  // tip into "overdue" overnight just because the log entry lands a day later.
-  if (status === "INITIATED") return "initiated";
-
   const due = String(row.dueDate || "").slice(0, 10);
 
   // An early payoff ends the schedule. Every period that had not come due by
   // the payoff date is never going to be paid, so it must not read as
   // "scheduled" (a promise the program is no longer making) nor age into
   // "overdue" (a debt that does not exist). Payments stop; capital comes back.
+  //
+  // This is tested BEFORE "initiated" on purpose. The tracker sets INITIATED
+  // from a single global date covering a whole payment run, and that date has
+  // no idea which participations have paid off — so a run initiated today
+  // would otherwise light up the ended rows of a repaid loan and tell that
+  // holder money is coming that is never coming. A period after the payoff
+  // cannot legitimately be initiated. A period due BEFORE the payoff still
+  // can, and still falls through to the check below.
   const payoff = String(row.payoffDate || "").slice(0, 10);
   if (/^\d{4}-\d{2}-\d{2}$/.test(payoff) && due && due > payoff) return "ended";
+
+  // Money already sent but not yet logged as received. Checked before the date
+  // rules so a payment initiated on its due date does not tip into "overdue"
+  // overnight just because the log entry lands a day later.
+  if (status === "INITIATED") return "initiated";
 
   if (!due) return "scheduled";
   if (due < today) return "overdue";
