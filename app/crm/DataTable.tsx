@@ -129,7 +129,15 @@ export default function DataTable<T extends Record<string, unknown>>({
 
       {/* Grid */}
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="w-full text-sm border-collapse">
+        {/*
+          min-w-full, NOT w-full.
+          w-full pins the table to the container and the browser then compresses
+          columns to fit, which squeezed the Stage <select> down to a bare
+          chevron with no readable label — the most important column on the
+          screen, unreadable. min-w-full lets the table take the width its
+          columns need and the wrapper above scrolls horizontally.
+        */}
+        <table className="min-w-full text-sm border-collapse">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
               {columns.map((c) => {
@@ -139,7 +147,7 @@ export default function DataTable<T extends Record<string, unknown>>({
                   <th
                     key={c.key}
                     scope="col"
-                    style={c.width ? { width: c.width } : undefined}
+                    style={c.width ? { minWidth: c.width } : undefined}
                     aria-sort={sorted ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
                     className={`px-3 py-2.5 font-semibold text-[11px] uppercase tracking-wider text-slate-500 ${
                       c.align === "right" ? "text-right" : "text-left"

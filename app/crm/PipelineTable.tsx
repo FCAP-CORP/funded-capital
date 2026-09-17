@@ -80,6 +80,30 @@ export default function PipelineTable({ rows }: { rows: PipelineRow[] }) {
         const binding = r.bindingRatio;
         const value = binding === "ltarv" ? r.ltarv : binding === "ltc" ? r.ltc : null;
         if (!binding || value === null) return <span className="text-slate-300">—</span>;
+
+        /**
+         * Above 100% is not leverage, it is missing data.
+         *
+         * Neither web form asks for a rehab budget, so LTC is computed as
+         * loan / purchase price alone. On any fix & flip where the loan also
+         * funds the rehab, that prints a ratio well over 100% — 136.8% on the
+         * first row of this grid. The arithmetic is right; the input is
+         * incomplete. Showing it as a confident number invites someone to
+         * decline a perfectly normal deal, so it is marked as unusable instead.
+         */
+        const num = Number(value);
+        if (Number.isFinite(num) && num > 1) {
+          return (
+            <span
+              className="text-amber-600"
+              title="Over 100% — the rehab budget was never captured, so this is loan ÷ purchase price only. Not a usable leverage figure."
+            >
+              n/a
+              <span className="ml-1 text-[10px] uppercase tracking-wide text-amber-500">incomplete</span>
+            </span>
+          );
+        }
+
         return (
           <span>
             {percent(value)}
