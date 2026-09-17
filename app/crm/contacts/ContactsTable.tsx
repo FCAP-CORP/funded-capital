@@ -2,6 +2,7 @@
 
 import DataTable, { type Column } from "../DataTable";
 import { InlineText } from "../Editable";
+import LastContact from "../LastContact";
 import { setContactField } from "../actions";
 import type { ContactRow } from "@/lib/db/queries";
 import { SOURCE_LABEL, label, shortDate, displayPhone } from "@/lib/crm/view";
@@ -50,6 +51,12 @@ export default function ContactsTable({ rows }: { rows: ContactRow[] }) {
         }
         return <span className="text-slate-300">—</span>;
       },
+    },
+    {
+      key: "lastContactAt",
+      header: "Last contact",
+      width: "9rem",
+      render: (r) => <LastContact at={r.lastContactAt} direction={r.lastContactDirection} />,
     },
     {
       key: "deals",

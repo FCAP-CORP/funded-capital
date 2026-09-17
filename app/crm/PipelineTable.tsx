@@ -2,6 +2,7 @@
 
 import DataTable, { type Column } from "./DataTable";
 import { StageSelect, InlineText } from "./Editable";
+import LastContact from "./LastContact";
 import { setStage, setApplicationNotes } from "./actions";
 import type { PipelineRow } from "@/lib/db/queries";
 import {
@@ -60,6 +61,12 @@ export default function PipelineTable({ rows }: { rows: PipelineRow[] }) {
                 : "text-slate-600";
         return <span className={tone}>{ageLabel(d)}</span>;
       },
+    },
+    {
+      key: "lastContactAt",
+      header: "Last contact",
+      width: "9rem",
+      render: (r) => <LastContact at={r.lastContactAt} direction={r.lastContactDirection} />,
     },
     { key: "product", header: "Product", width: "8rem", render: (r) => label(PRODUCT_LABEL, r.product) },
     {

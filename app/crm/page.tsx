@@ -62,7 +62,7 @@ async function Pipeline() {
 
   return (
     <>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-6">
         <Stat label="Open files" value={String(open.length)} sub={`${counts.applications} all time`} />
         <Stat label="Requested" value={money(openValue)} sub="open files only" />
         <Stat
@@ -70,6 +70,12 @@ async function Pipeline() {
           value={String(stalled)}
           sub="no stage movement"
           tone={stalled > 0 ? "warn" : "default"}
+        />
+        <Stat
+          label="Never contacted"
+          value={String(counts.neverContacted)}
+          sub="no email either way"
+          tone={counts.neverContacted > 0 ? "warn" : "default"}
         />
         <Stat
           label="Contacts"

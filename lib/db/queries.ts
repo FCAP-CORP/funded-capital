@@ -1,7 +1,7 @@
 import "server-only";
-import { desc, sql as dsql, eq } from "drizzle-orm";
+import { desc, sql as dsql, eq, type SQL, type AnyColumn } from "drizzle-orm";
 import { db } from "./index";
-import { applications, contacts, participants, properties } from "./schema";
+import { activities, applications, contacts, participants, properties } from "./schema";
 
 /**
  * Read queries for the CRM.
@@ -17,6 +17,29 @@ import { applications, contacts, participants, properties } from "./schema";
  * constraint the generic grid uses. Rewriting these as interfaces breaks the
  * build at every DataTable call site.
  */
+
+/**
+ * Newest real correspondence with a contact, and which way it went.
+ *
+ * Correlated subqueries rather than a join, because a contact has many
+ * activities and joining would multiply the rows before we could collapse them.
+ * `activities_contact_idx` covers the lookup.
+ *
+ * Restricted to email_in / email_out on purpose: a form submission is the
+ * borrower raising their hand, not a conversation, and counting it would put
+ * every untouched lead back under a reassuring "last contacted" date — which is
+ * the illusion this column exists to destroy.
+ */
+const LAST_CONTACT_AT = (contactId: SQL | AnyColumn) => dsql<Date | null>`(
+  SELECT max(a.occurred_at) FROM ${activities} a
+  WHERE a.contact_id = ${contactId} AND a.kind IN ('email_in', 'email_out')
+)`;
+
+const LAST_CONTACT_DIR = (contactId: SQL | AnyColumn) => dsql<string | null>`(
+  SELECT a.kind FROM ${activities} a
+  WHERE a.contact_id = ${contactId} AND a.kind IN ('email_in', 'email_out')
+  ORDER BY a.occurred_at DESC LIMIT 1
+)`;
 
 export type PipelineRow = {
   id: string;
@@ -37,6 +60,8 @@ export type PipelineRow = {
   stageEnteredAt: string | null;
   notes: string | null;
   borrowerMessage: string | null;
+  lastContactAt: string | null;
+  lastContactDirection: string | null;
 }
 
 export async function getPipeline(): Promise<PipelineRow[]> {
@@ -61,6 +86,8 @@ export async function getPipeline(): Promise<PipelineRow[]> {
       stageEnteredAt: applications.stageEnteredAt,
       notes: applications.notes,
       borrowerMessage: applications.borrowerMessage,
+      lastContactAt: LAST_CONTACT_AT(contacts.id),
+      lastContactDirection: LAST_CONTACT_DIR(contacts.id),
     })
     .from(applications)
     .leftJoin(participants, eq(participants.applicationId, applications.id))
@@ -88,6 +115,8 @@ export async function getPipeline(): Promise<PipelineRow[]> {
     stageEnteredAt: r.stageEnteredAt ? r.stageEnteredAt.toISOString() : null,
     notes: r.notes,
     borrowerMessage: r.borrowerMessage,
+    lastContactAt: r.lastContactAt ? new Date(r.lastContactAt).toISOString() : null,
+    lastContactDirection: r.lastContactDirection,
   }));
 }
 
@@ -105,6 +134,8 @@ export type ContactRow = {
   deals: number;
   createdAt: string | null;
   notes: string | null;
+  lastContactAt: string | null;
+  lastContactDirection: string | null;
 }
 
 export async function getContacts(): Promise<ContactRow[]> {
@@ -126,6 +157,8 @@ export async function getContacts(): Promise<ContactRow[]> {
       deals: dsql<number>`(
         SELECT count(*)::int FROM ${participants} p WHERE p.contact_id = ${contacts.id}
       )`,
+      lastContactAt: LAST_CONTACT_AT(contacts.id),
+      lastContactDirection: LAST_CONTACT_DIR(contacts.id),
     })
     .from(contacts)
     .orderBy(desc(contacts.createdAt));
@@ -144,6 +177,8 @@ export async function getContacts(): Promise<ContactRow[]> {
     deals: Number(r.deals ?? 0),
     createdAt: r.createdAt ? r.createdAt.toISOString() : null,
     notes: r.notes,
+    lastContactAt: r.lastContactAt ? new Date(r.lastContactAt).toISOString() : null,
+    lastContactDirection: r.lastContactDirection,
   }));
 }
 
@@ -152,6 +187,8 @@ export interface CrmCounts {
   applications: number;
   noApplication: number;
   openPipeline: number;
+  /** Contacts with no email either way. The Angel Tellez detector. */
+  neverContacted: number;
 }
 
 export async function getCounts(): Promise<CrmCounts> {
@@ -165,8 +202,17 @@ export async function getCounts(): Promise<CrmCounts> {
     .from(applications)
     .where(dsql`${applications.stage} NOT IN ('closed_lost', 'payoff')`);
 
+  const [never] = await db
+    .select({ n: dsql<number>`count(*)::int` })
+    .from(contacts)
+    .where(dsql`NOT EXISTS (
+      SELECT 1 FROM ${activities} a
+      WHERE a.contact_id = ${contacts.id} AND a.kind IN ('email_in', 'email_out')
+    )`);
+
   return {
     contacts: Number(c.n),
+    neverContacted: Number(never.n),
     applications: Number(a.n),
     // Contacts with no deal at all — the aged-prospect pool, 96% of the book.
     noApplication: Number(c.n) - Number(linked.n),
