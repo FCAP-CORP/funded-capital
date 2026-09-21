@@ -64,6 +64,32 @@ export const SOURCE_LABEL: Record<string, string> = {
   unknown: "—",
 };
 
+/**
+ * Broker portal roles, as Luis sees them in the firm management screen.
+ *
+ * The wording matters more than usual here, because this dropdown is where a
+ * brokerage's principal is granted sight of their colleagues' borrowers. "Team
+ * lead — sees the whole firm" has to say what it does at the moment of choosing,
+ * not in a tooltip nobody opens.
+ */
+export const BROKER_ROLE_LABEL: Record<string, string> = {
+  owner: "Firm owner — sees every deal at the firm",
+  lead: "Team lead — sees every deal at the firm",
+  member: "Broker — sees only their own deals",
+};
+
+/** Short form, for a table cell where the explanation does not fit. */
+export const BROKER_ROLE_SHORT: Record<string, string> = {
+  owner: "Owner",
+  lead: "Team lead",
+  member: "Broker",
+};
+
+export const BROKER_STATUS_LABEL: Record<string, string> = {
+  active: "Active",
+  suspended: "Suspended",
+};
+
 export function label(map: Record<string, string>, key: string | null | undefined): string {
   if (!key) return "—";
   return map[key] ?? key;

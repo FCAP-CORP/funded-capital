@@ -137,6 +137,35 @@ every registered broker — gating on `userId` alone would expose the whole borr
 and a guard on the page does not cover it.
 
 
+### Broker portal ↔ CRM (Phase 2, in progress)
+
+The database is now **multi-tenant**, and that changes the cost of a mistake. Until Phase 2 there
+was one tenant and the only question was staff or not. Now brokerages share these tables, and a
+scoping bug does not throw or look broken — it renders a tidy, plausible table containing a
+competitor's borrowers. That ends a broker relationship and is a GLBA problem on top.
+
+**`lib/broker/scope.ts` is the only place that decides what a broker may see.** It is pure, it is
+covered by `lib/broker/scope.regress.ts`, and no query may re-derive the rule inline. Three things
+it enforces that are easy to get wrong:
+
+- **Scope comes from the session, never from the request.** A `firmId` in a body or query string is
+  attacker-controlled. The only trusted input is the Clerk user id.
+- **A null firm never matches a null firm.** Website and BiggerPockets leads have no
+  `broker_firm_id`. A stray `null === null` hands every house lead to every broker in the system.
+  Both null guards in `canViewApplication` are load-bearing.
+- **Unassigned is a normal state.** Brokers sign up themselves and get a `broker_users` row with a
+  null firm until Luis links them — that queue is how he works. They see their own submissions in
+  the meantime and nothing else. Firms are created by Luis in the CRM, never by self-service; a
+  broker who could type a brokerage name into a form could join a competitor's pipeline.
+
+`applications.broker_firm_id` is stamped once at submission and never recalculated. Deriving it from
+the submitter's *current* firm means a broker changing brokerage drags their old deals into the new
+firm's pipeline and out of the old one's.
+
+Broker roles are a separate axis from CRM staff access and grant no view of the book.
+`lib/crm/access.ts` decides who is Funded Capital; `lib/broker/scope.ts` decides what a broker sees
+inside their own firm. Keep the two gates independent so a bug in one cannot become a bug in both.
+
 Full architecture: `docs/lending-os.md`. Decisions already locked, do not relitigate:
 
 - **Postgres on Neon + Drizzle.** Clerk stays for auth. Deploy-on-push unchanged.
@@ -212,6 +241,10 @@ transitions at minimum.
 - **Vercel functions cap at 300s** on every plan. Nothing may block that long.
 - **Vercel MCP cannot reach runtime logs** — the only team it sees returns an empty project list, so
   `[api/lead]` log diagnosis has to happen in the Vercel dashboard by hand.
+- **`vercel env pull .env.local` overwrites the file, it does not merge.** Local dev uses Clerk DEV
+  keys that Vercel does not hold, so the pull deletes them and points local dev at live Clerk users.
+  Always pull to `.env.vercel` and merge with `scripts/merge-env.mjs` — that is what `fc-db.bat` and
+  `npm run db:pull-env` do. Both used to run the destructive form; fixed 21 Sep 2026.
 - `info@fundedcapital.com` is correct. **`inquire@fundedcapital.com` does not exist** and still
   appears in older documents.
 

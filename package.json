@@ -11,7 +11,7 @@
     "test": "node scripts/check.mjs --fast",
     "check": "node scripts/check.mjs",
     "check:fast": "node scripts/check.mjs --fast",
-    "db:pull-env": "vercel env pull .env.local",
+    "db:pull-env": "vercel env pull .env.vercel --yes && node scripts/merge-env.mjs",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },

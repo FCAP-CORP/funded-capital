@@ -91,6 +91,28 @@ export const participantRoleEnum = pgEnum("participant_role", [
   "broker",
 ]);
 
+/**
+ * Broker portal roles. Deliberately NOT the same axis as CRM staff access —
+ * `lib/crm/access.ts` decides who is Funded Capital, this decides what someone
+ * sees inside their own brokerage. Nothing here grants any view of the book.
+ *
+ *   member — their own submissions only
+ *   lead   — every deal at their firm, and may work them
+ *   owner  — same as lead today; kept separate so the firm's principal is
+ *            identifiable when leads and owners need to diverge
+ */
+export const brokerRoleEnum = pgEnum("broker_role", [
+  "owner",
+  "lead",
+  "member",
+]);
+
+/** Used for both firms and the people in them: one switch that cuts access. */
+export const brokerStatusEnum = pgEnum("broker_status", [
+  "active",
+  "suspended",
+]);
+
 export const activityKindEnum = pgEnum("activity_kind", [
   "email_in", "email_out", "call", "sms_in", "sms_out",
   "note", "field_change", "stage_change", "automation", "form_submission",
@@ -245,6 +267,25 @@ export const applications = pgTable("applications", {
   borrowerMessage: text("borrower_message"),
   notes: text("notes"),
 
+  /**
+   * Who filed it, when a broker did. Null for a website or BiggerPockets lead
+   * that came to Funded Capital directly — and that null is what keeps house
+   * leads out of every broker's view, so it is meaningful, not just absent.
+   *
+   * A Clerk user id rather than a contact id: it must match the session on the
+   * request, and a contact row can be merged or re-created underneath it.
+   */
+  submittedByUserId: text("submitted_by_user_id"),
+
+  /**
+   * The firm it was submitted UNDER, stamped once at submission and never
+   * recalculated. Deriving it from the submitter's current firm instead would
+   * mean a broker changing brokerage silently drags their old deals into the
+   * new firm's pipeline — and out of the old one's, where the people who worked
+   * them still need to see them.
+   */
+  brokerFirmId: uuid("broker_firm_id").references(() => brokerFirms.id, { onDelete: "set null" }),
+
   legacySource: text("legacy_source"),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -253,6 +294,9 @@ export const applications = pgTable("applications", {
   stageIdx: index("applications_stage_idx").on(t.stage),
   sourceIdx: index("applications_lead_source_idx").on(t.leadSource),
   submittedIdx: index("applications_submitted_at_idx").on(t.submittedAt),
+  /** Both sides of every broker-scoped query. Without these the portal scans. */
+  submitterIdx: index("applications_submitted_by_idx").on(t.submittedByUserId),
+  brokerFirmIdx: index("applications_broker_firm_idx").on(t.brokerFirmId),
 }));
 
 /* ----------------------------------------------------------- participants */
@@ -333,3 +377,79 @@ export type Application = typeof applications.$inferSelect;
 export type NewApplication = typeof applications.$inferInsert;
 export type Property = typeof properties.$inferSelect;
 export type NewProperty = typeof properties.$inferInsert;
+
+/* ------------------------------------------------------------ broker firms */
+
+/**
+ * A brokerage that sends Funded Capital deals.
+ *
+ * This is the first table that makes the database multi-tenant, and every rule
+ * about who may read across it lives in `lib/broker/scope.ts` — tested there,
+ * and nowhere else, so there is exactly one place to audit.
+ *
+ * Firms are created by Luis in the CRM, never by self-service. A broker signing
+ * up gets a `broker_users` row with a null firm and waits to be linked, which is
+ * what stops someone typing a competitor's brokerage name into a form and
+ * joining their pipeline.
+ */
+export const brokerFirms = pgTable("broker_firms", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+
+  /** Suspending a firm cuts everyone in it, without unpicking the people. */
+  status: brokerStatusEnum("status").notNull().default("active"),
+
+  /** Luis's own notes on the relationship. Never shown in the broker portal. */
+  notes: text("notes"),
+
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  nameIdx: index("broker_firms_name_idx").on(t.name),
+}));
+
+/* ------------------------------------------------------------ broker users */
+
+/**
+ * One row per person who has signed into the broker portal.
+ *
+ * The row exists from their first sign-in, BEFORE they belong to anywhere:
+ * `firmId` stays null until Luis links them. That unassigned state is the whole
+ * queue he works from, so it is a normal value here and not an error — see the
+ * matching note in lib/broker/scope.ts.
+ *
+ * `clerkUserId` is the join to the session and the only field a request is
+ * allowed to be scoped by. Nothing here is ever read from the browser.
+ */
+export const brokerUsers = pgTable("broker_users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+
+  /** From the session, never from a request body. */
+  clerkUserId: text("clerk_user_id").notNull(),
+
+  /** Lowercased at write time so it matches `contacts.email` lookups. */
+  email: text("email").notNull(),
+  name: text("name"),
+  phone: text("phone"),
+
+  /** Null until assigned. See the table docblock. */
+  firmId: uuid("firm_id").references(() => brokerFirms.id, { onDelete: "set null" }),
+  role: brokerRoleEnum("role").notNull().default("member"),
+  status: brokerStatusEnum("status").notNull().default("active"),
+
+  /** Luis's notes on this broker. Never shown in the portal. */
+  notes: text("notes"),
+
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  /**
+   * One row per Clerk user, enforced by the database rather than by the code
+   * that upserts it. Two rows for one person would mean two different answers
+   * to "what may they see", and whichever query ran first would win.
+   */
+  clerkIdx: uniqueIndex("broker_users_clerk_user_id_key").on(t.clerkUserId),
+  firmIdx: index("broker_users_firm_idx").on(t.firmId),
+  emailIdx: index("broker_users_email_idx").on(t.email),
+}));

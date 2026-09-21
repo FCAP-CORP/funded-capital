@@ -17,8 +17,11 @@
  * the label fails this suite instead of reaching production.
  */
 
-import { stageEnum, leadSourceEnum, productEnum } from "../db/schema";
-import { STAGE_LABEL, STAGE_ORDER, GATE_STAGES, PRODUCT_LABEL, SOURCE_LABEL } from "./view";
+import { stageEnum, leadSourceEnum, productEnum, brokerRoleEnum, brokerStatusEnum } from "../db/schema";
+import {
+  STAGE_LABEL, STAGE_ORDER, GATE_STAGES, PRODUCT_LABEL, SOURCE_LABEL,
+  BROKER_ROLE_LABEL, BROKER_ROLE_SHORT, BROKER_STATUS_LABEL,
+} from "./view";
 
 let pass = 0, fail = 0;
 const check = (name: string, cond: boolean, detail: string) => {
@@ -69,7 +72,20 @@ bothWays("product", productEnum.enumValues, Object.keys(PRODUCT_LABEL));
 console.log("\n=== 3. Lead sources ===");
 bothWays("lead source", leadSourceEnum.enumValues, Object.keys(SOURCE_LABEL));
 
-console.log("\n=== 4. The two escape hatches stay escape hatches ===");
+console.log("\n=== 4. Broker roles and statuses ===");
+// Same guard, higher stakes: an unlabelled broker role is a role Luis cannot
+// pick in the firm screen, and a role the UI invents is one the database throws
+// on — mid-assignment, after he has already told a brokerage they are set up.
+bothWays("broker role", brokerRoleEnum.enumValues, Object.keys(BROKER_ROLE_LABEL));
+bothWays("broker role short name", brokerRoleEnum.enumValues, Object.keys(BROKER_ROLE_SHORT));
+bothWays("broker status", brokerStatusEnum.enumValues, Object.keys(BROKER_STATUS_LABEL));
+check(
+  "every broker role label says what it can SEE",
+  brokerRoleEnum.enumValues.every((r) => /sees/i.test(BROKER_ROLE_LABEL[r] ?? "")),
+  "each label states its visibility",
+);
+
+console.log("\n=== 5. The two escape hatches stay escape hatches ===");
 // `unknown` renders as a dash on purpose: an unclassified lead must look
 // unclassified, not like a product called "Unknown" that nobody sells.
 check("unknown product renders as a dash", PRODUCT_LABEL.unknown === "—", PRODUCT_LABEL.unknown);

@@ -22,8 +22,11 @@ const url = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
 
 if (!url) {
   throw new Error(
-    "No database URL found. Run `vercel env pull .env.local` to fetch the " +
-    "credentials Vercel created when the Neon database was connected."
+    "No database URL found. Double-click fc-db.bat to fetch the " +
+    "credentials Vercel created when the Neon database was connected.\n\n" +
+    "Do NOT run `vercel env pull .env.local` — it OVERWRITES the file rather " +
+    "than merging, so every local-only key in it is lost. The refresh script " +
+    "pulls to a scratch file, merges, and deletes the scratch."
   );
 }
 
