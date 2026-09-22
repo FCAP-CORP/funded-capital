@@ -227,6 +227,16 @@ transitions at minimum.
   — it sends the statements in one request inside a real Postgres transaction. Anything that must
   commit together (a `stage_transitions` row and the `applications.stage` cache, above all) goes
   through `db.batch`.
+- **`neon(url).query(text)` does not exist here.** `@neondatabase/serverless` is pinned at 0.10.4,
+  where `neon()` returns a tagged-template function carrying only `.transaction` — `.query()` arrived
+  in a later major. To run raw SQL (a migration file, say), go through drizzle:
+  `drizzle(neon(url)).execute(sql.raw(statement))`. `scripts/apply-migration.mjs` is the reference.
+  Calling the non-existent method fails with *"sql.query is not a function"* at the first statement.
+- **A dry run proves nothing about the database path.** `--dry-run` skips every line that touches the
+  driver, so a script can dry-run perfectly and still die on its first real statement — this happened
+  twice in a row on migration 0001. To test the real path without real credentials, run it for
+  actual against a bogus Neon host: reaching *"password authentication failed"* proves the statement
+  was built, sent and rejected by a server. Anything earlier than that is a bug in the script.
 - **Row shapes passed to the CRM grid must be `type` aliases, not `interface`s.** TypeScript gives a
   type alias an implicit index signature and an interface none, so only the alias form satisfies the
   grid's `Record<string, unknown>` constraint. Tidying `PipelineRow` back into an interface breaks

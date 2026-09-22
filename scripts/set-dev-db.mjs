@@ -75,11 +75,11 @@ console.log(`
  * nothing happened". The iterator ends cleanly instead and we can say so.
  */
 const rl = createInterface({ input: stdin });
-const lines = rl[Symbol.asyncIterator]();
+const stdinLines = rl[Symbol.asyncIterator]();
 
 async function ask(prompt) {
   stdout.write(prompt);
-  const { value, done } = await lines.next();
+  const { value, done } = await stdinLines.next();
   if (done) {
     stdout.write("\n");
     fail("No input was received, so nothing was changed. Run it again and paste the string when prompted.");

@@ -24,9 +24,13 @@ loadEnv({ path: join(process.cwd(), ".env") });
 const EXPECTED_TABLES = [
   "contacts", "entities", "properties", "applications",
   "participants", "stage_transitions", "activities", "documents",
+  // Phase 2a. Absent until migration 0001 has been applied to this branch,
+  // which is itself useful information: it says which branch you are on.
+  "broker_firms", "broker_users",
 ];
 const EXPECTED_ENUMS = [
   "stage", "lead_source", "product", "participant_role", "activity_kind",
+  "broker_role", "broker_status",
 ];
 
 const OUT_DIR = join(process.cwd(), ".fc-check");
