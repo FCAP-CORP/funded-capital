@@ -21,7 +21,13 @@ yarn-debug.log*
 yarn-error.log*
 
 # local env files
+# `.env.local*` (not `.env*.local`) so SUFFIXED copies are caught too:
+# .env.local.before-dev-branch is written by scripts/set-dev-db.mjs and holds
+# the production database credentials this machine used before the dev-branch
+# switch. The older pattern required the name to END in `.local`, so that file
+# was not ignored and was one `git add -A` away from being published.
 .env*.local
+.env.local*
 .env
 
 # Vercel credential pull scratch file. NOT matched by the patterns above —

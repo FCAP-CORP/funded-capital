@@ -227,6 +227,24 @@ transitions at minimum.
   — it sends the statements in one request inside a real Postgres transaction. Anything that must
   commit together (a `stage_transitions` row and the `applications.stage` cache, above all) goes
   through `db.batch`.
+- **`scripts/merge-env.mjs` NEVER replaces a key it already finds.** It only adds
+  missing ones. That makes `fc-refresh-env.bat` unable to do the one thing its header
+  promises — refresh credentials after a Neon password rotation. It prints "REFRESHING
+  DATABASE CREDENTIALS", keeps the stale password, and reports the keys as "left
+  untouched". This is why the first production migration failed with *"password
+  authentication failed for user 'neondb_owner'"* on 22 Sep 2026. **Still unfixed**: the
+  naive fix (always replace) would silently move a laptop off the Neon dev branch and
+  back onto production the next time `fc-db.bat` runs, so it needs an explicit mode and
+  a warning, not a one-line change.
+- **Production migrations go through `fc-migrate-prod.bat`,** which pulls CURRENT
+  credentials from Vercel into a scratch `.env.vercel` and deletes it afterwards.
+  Never rely on `.env.local.before-dev-branch` for this — it is a snapshot from the
+  moment of the dev-branch switch and goes stale at the next rotation.
+- **A brand-new page or API route that 404s locally is a stale `.next` cache,** not a
+  missing file. Next's dev server was serving a route manifest from before the route
+  existed — `/api/broker/consent-status` 404'd while `/api/my-submissions` worked and
+  the production build compiled both. `fc-dev-clean.bat` clears the cache and restarts.
+  A suspiciously fast "Ready in 481ms" is the tell.
 - **`neon(url).query(text)` does not exist here.** `@neondatabase/serverless` is pinned at 0.10.4,
   where `neon()` returns a tagged-template function carrying only `.transaction` — `.query()` arrived
   in a later major. To run raw SQL (a migration file, say), go through drizzle:

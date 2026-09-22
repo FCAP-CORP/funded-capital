@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
   Check,
@@ -16,7 +16,10 @@ import {
   PartyPopper,
   AlertTriangle,
 } from "lucide-react";
-import { RATE_CONFIG, fmtUsd, type ProductKey } from "@/lib/pricing";
+import {
+  RATE_CONFIG, fmtUsd, LOAN_PURPOSE_OPTIONS, isRefiPurpose, MAX_PORTFOLIO_PROPERTIES,
+  type ProductKey, type LoanPurpose,
+} from "@/lib/pricing";
 import { docChecklistFor } from "@/lib/portalData";
 
 const steps = [
@@ -26,6 +29,20 @@ const steps = [
   { id: 4, label: "Documents", icon: Upload },
   { id: 5, label: "Review", icon: Check },
 ];
+
+type PropertyRow = {
+  address: string; value: string; rehabBudget: string; arv: string;
+  sunkCosts: string; estimatedPayoff: string; monthlyRent: string;
+  annualTaxes: string; annualInsurance: string; annualHoa: string;
+};
+
+const blankRow = (): PropertyRow => ({
+  address: "", value: "", rehabBudget: "", arv: "",
+  sunkCosts: "", estimatedPayoff: "", monthlyRent: "",
+  annualTaxes: "", annualInsurance: "", annualHoa: "",
+});
+
+const rowHasContent = (r: PropertyRow) => Object.values(r).some((v) => v.trim() !== "");
 
 const products = Object.values(RATE_CONFIG.products);
 
@@ -64,23 +81,91 @@ export default function ApplyClient() {
 
   const [form, setForm] = useState({
     product: "dscr" as ProductKey,
+    purpose: "purchase" as LoanPurpose,
     borrower: "",
     entity: "",
     email: "",
     phone: "",
     fico: "",
-    propertyAddress: "",
     loanAmount: "",
-    propertyValue: "",
     notes: "",
   });
+
+  /**
+   * Consent is asked ONCE, so the form has to know whether this broker has
+   * already given it. `null` means "not yet known" — the checkbox stays hidden
+   * until the server answers, rather than flashing in and out.
+   *
+   * The wording comes from the server too (lib/consent.ts), so what is shown
+   * here and what is stored can never drift apart.
+   */
+  /**
+   * The property schedule. One row is an ordinary deal; more than one is a
+   * portfolio. Held as strings because that is what the inputs produce — the
+   * server parses once, in lib/broker/record.ts, rather than every layer
+   * guessing at number formats.
+   */
+  const [isPortfolio, setIsPortfolio] = useState(false);
+  const [schedule, setSchedule] = useState<PropertyRow[]>([blankRow()]);
+
+  const [consentPrompt, setConsentPrompt] = useState<{ text: string } | null>(null);
+  const [smsConsent, setSmsConsent] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/broker/consent-status")
+      .then((r) => r.json())
+      .then((d: { consented?: boolean; text?: string | null }) => {
+        if (cancelled) return;
+        if (d && d.consented === false && d.text) setConsentPrompt({ text: d.text });
+      })
+      .catch(() => { /* stay hidden — never show a box we cannot record */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  /**
+   * The same input means two different things, so it is named for what it is.
+   * A purchase is measured against PRICE, a refinance against today's VALUE,
+   * and the server files the figure under whichever the purpose says. Asking
+   * for "property value / purchase price" left that ambiguous and the deal was
+   * measured against the wrong denominator.
+   */
+  const valueLabel = form.purpose === "purchase" ? "Purchase price" : "As-is value";
+
+  /**
+   * WHICH FIELDS A PROPERTY NEEDS depends on the product family and the
+   * purpose, exactly as the portfolio pricer already decides it. Copying those
+   * rules rather than inventing new ones means a broker is asked for the same
+   * things here as on the pricing screen — and that what they type can actually
+   * be priced.
+   */
+  const family = RATE_CONFIG.products[form.product].family;
+  const isBridgeFamily = family === "bridge";
+  const isGU = form.product === "new_construction";
+  const isRefi = isRefiPurpose(form.purpose);
+
+  const budgetLabel = isRefi
+    ? (isGU ? "Remaining construction" : "Remaining rehab")
+    : (isGU ? "Construction budget" : "Rehab budget");
+
+  const perPropertyValueLabel = isGU ? "Land / purchase" : valueLabel;
+
+  const filled = schedule.filter(rowHasContent);
+  const scheduleTotal = filled.reduce((sum, r) => sum + (Number(r.value) || 0), 0);
+
+  const updateRow = (i: number, patch: Partial<PropertyRow>) =>
+    setSchedule((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  const addRow = () =>
+    setSchedule((rows) => (rows.length >= MAX_PORTFOLIO_PROPERTIES ? rows : [...rows, blankRow()]));
+  const removeRow = (i: number) =>
+    setSchedule((rows) => (rows.length <= 1 ? rows : rows.filter((_, idx) => idx !== i)));
 
   const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
 
   const canNext =
     (step === 1 && !!form.product) ||
     (step === 2 && !!form.borrower && !!form.email && !!form.fico) ||
-    (step === 3 && !!form.propertyAddress && !!form.loanAmount && !!form.propertyValue) ||
+    (step === 3 && !!schedule[0]?.address && !!form.loanAmount && !!schedule[0]?.value) ||
     step === 4 ||
     step === 5;
 
@@ -96,21 +181,24 @@ export default function ApplyClient() {
     setSubmitting(true);
     setError(null);
     const product = RATE_CONFIG.products[form.product].label;
-    const submissionName = `${form.borrower || "Borrower"} - ${form.propertyAddress || "Property"} - ${new Date().toLocaleDateString()}`
+    const submissionName = `${form.borrower || "Borrower"} - ${schedule[0]?.address || "Property"} - ${new Date().toLocaleDateString()}`
       .replace(/[\\/:*?"<>|]/g, "-")
       .slice(0, 120);
     const summary = [
       `New broker application`,
       ``,
       `Program: ${product}`,
+      `Loan purpose: ${LOAN_PURPOSE_OPTIONS.find((o) => o.key === form.purpose)?.label ?? form.purpose}`,
       `Borrower: ${form.borrower}`,
       `Entity: ${form.entity || "—"}`,
       `Email: ${form.email}`,
       `Phone: ${form.phone || "—"}`,
       `Estimated FICO: ${form.fico}`,
-      `Property: ${form.propertyAddress}`,
+      `Deal type: ${isPortfolio ? `Portfolio (${filled.length} properties)` : "Single property"}`,
+      `Property: ${schedule[0]?.address ?? ""}`,
       `Requested loan: ${form.loanAmount ? fmtUsd(+form.loanAmount) : "—"}`,
-      `Property value: ${form.propertyValue ? fmtUsd(+form.propertyValue) : "—"}`,
+      `${isPortfolio ? "Total " + valueLabel.toLowerCase() : valueLabel}: ${scheduleTotal ? fmtUsd(scheduleTotal) : "—"}`,
+      ...(isPortfolio ? filled.map((r, i) => `  ${i + 1}. ${r.address || "(no address)"} — ${r.value ? fmtUsd(+r.value) : "—"}`) : []),
       `Documents attached: ${files.length}`,
       form.notes ? `\nNotes:\n${form.notes}` : "",
     ].join("\n");
@@ -124,16 +212,24 @@ export default function ApplyClient() {
           summary,
           application: {
             program: product,
+            purpose: form.purpose,
             borrower: form.borrower,
             entity: form.entity,
             email: form.email,
             phone: form.phone,
             fico: form.fico,
-            propertyAddress: form.propertyAddress,
+            propertyAddress: schedule[0]?.address ?? "",
             loanAmount: form.loanAmount,
-            propertyValue: form.propertyValue,
+            propertyValue: isPortfolio ? String(scheduleTotal || "") : (schedule[0]?.value ?? ""),
             notes: form.notes,
           },
+          // The broker's OWN consent. Deliberately outside `application`, which
+          // is borrower data forwarded to Drive — this is about the broker.
+          smsConsent,
+          // The schedule the server actually files. `application` above stays a
+          // flat summary because that is what Drive receives.
+          properties: filled,
+          isPortfolio,
           files: files.map((f) => ({ name: f.name, mimeType: f.mimeType, data: f.data })),
         }),
       });
@@ -184,7 +280,9 @@ export default function ApplyClient() {
                 setSubmitted(false);
                 setStep(1);
                 setFiles([]);
-                setForm({ ...form, borrower: "", entity: "", email: "", phone: "", fico: "", propertyAddress: "", loanAmount: "", propertyValue: "", notes: "" });
+                setForm({ ...form, purpose: "purchase", borrower: "", entity: "", email: "", phone: "", fico: "", loanAmount: "", notes: "" });
+                setSchedule([blankRow()]);
+                setIsPortfolio(false);
               }}
             >
               Submit Another
@@ -249,15 +347,154 @@ export default function ApplyClient() {
               <TextField label="Phone (optional)" value={form.phone} onChange={(v) => set("phone", v)} />
             </div>
             <TextField label="Estimated FICO" type="number" value={form.fico} onChange={(v) => set("fico", v)} />
+
+            {consentPrompt && (
+              <label className="flex gap-3 items-start rounded-lg border border-slate-200 bg-slate-50 p-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={smsConsent}
+                  onChange={(e) => setSmsConsent(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 shrink-0 accent-gold-500"
+                />
+                <span className="text-xs leading-relaxed text-slate-600">
+                  {consentPrompt.text}
+                </span>
+              </label>
+            )}
           </div>
         )}
 
         {step === 3 && (
           <div className="space-y-4">
             <h2 className="font-semibold text-slate-900">Property &amp; loan</h2>
-            <TextField label="Property address" value={form.propertyAddress} onChange={(v) => set("propertyAddress", v)} />
+
+            <div>
+              <span className="block text-sm font-medium text-slate-700 mb-1.5">Loan purpose</span>
+              <div className="grid grid-cols-3 gap-2">
+                {LOAN_PURPOSE_OPTIONS.map((o) => (
+                  <button
+                    key={o.key}
+                    type="button"
+                    onClick={() => set("purpose", o.key)}
+                    className={`rounded-lg border px-3 py-2 text-sm transition-colors ${
+                      form.purpose === o.key
+                        ? "border-gold-500 bg-gold-500/10 text-navy-900 font-medium"
+                        : "border-slate-200 text-slate-600 hover:border-slate-300"
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <span className="block text-sm font-medium text-slate-700 mb-1.5">Deal type</span>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { key: false, label: "Single property" },
+                  { key: true, label: `Portfolio (up to ${MAX_PORTFOLIO_PROPERTIES})` },
+                ].map((o) => (
+                  <button
+                    key={String(o.key)}
+                    type="button"
+                    onClick={() => setIsPortfolio(o.key)}
+                    className={`rounded-lg border px-3 py-2 text-sm transition-colors ${
+                      isPortfolio === o.key
+                        ? "border-gold-500 bg-gold-500/10 text-navy-900 font-medium"
+                        : "border-slate-200 text-slate-600 hover:border-slate-300"
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* One loan, however many properties secure it. */}
             <TextField label="Requested loan amount" type="number" prefix="$" value={form.loanAmount} onChange={(v) => set("loanAmount", v)} />
-            <TextField label="Property value / purchase price" type="number" prefix="$" value={form.propertyValue} onChange={(v) => set("propertyValue", v)} />
+
+            {schedule.map((row, i) => (
+              <div
+                key={i}
+                className={isPortfolio ? "rounded-xl border border-slate-200 p-4 space-y-3" : "space-y-3"}
+              >
+                {isPortfolio && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Property {i + 1}
+                    </span>
+                    {schedule.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeRow(i)}
+                        className="text-slate-400 hover:text-red-600"
+                        aria-label={`Remove property ${i + 1}`}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <TextField label="Property address" value={row.address} onChange={(v) => updateRow(i, { address: v })} />
+
+                {/*
+                  Which fields appear follows the portfolio pricer exactly:
+                  bridge-family products need budget and ARV, DSCR-family need
+                  rent and carrying costs, and a refinance needs the payoff.
+                  Asking for anything else is noise a broker has to skip past.
+                */}
+                {isBridgeFamily ? (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <TextField label={perPropertyValueLabel} type="number" prefix="$" value={row.value} onChange={(v) => updateRow(i, { value: v })} />
+                      <TextField label={budgetLabel} type="number" prefix="$" value={row.rehabBudget} onChange={(v) => updateRow(i, { rehabBudget: v })} />
+                      <TextField label="ARV" type="number" prefix="$" value={row.arv} onChange={(v) => updateRow(i, { arv: v })} />
+                    </div>
+                    {isRefi && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <TextField label="Estimated payoff" type="number" prefix="$" value={row.estimatedPayoff} onChange={(v) => updateRow(i, { estimatedPayoff: v })} />
+                        <TextField label="Sunk costs (soft + hard)" type="number" prefix="$" value={row.sunkCosts} onChange={(v) => updateRow(i, { sunkCosts: v })} />
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <TextField label={perPropertyValueLabel} type="number" prefix="$" value={row.value} onChange={(v) => updateRow(i, { value: v })} />
+                      <TextField label="Monthly rent" type="number" prefix="$" value={row.monthlyRent} onChange={(v) => updateRow(i, { monthlyRent: v })} />
+                      <TextField label="Annual taxes" type="number" prefix="$" value={row.annualTaxes} onChange={(v) => updateRow(i, { annualTaxes: v })} />
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <TextField label="Annual insurance" type="number" prefix="$" value={row.annualInsurance} onChange={(v) => updateRow(i, { annualInsurance: v })} />
+                      <TextField label="Annual HOA" type="number" prefix="$" value={row.annualHoa} onChange={(v) => updateRow(i, { annualHoa: v })} />
+                      {isRefi && (
+                        <TextField label="Estimated payoff" type="number" prefix="$" value={row.estimatedPayoff} onChange={(v) => updateRow(i, { estimatedPayoff: v })} />
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+
+            {isPortfolio && (
+              <div className="flex items-center justify-between pt-1">
+                <button
+                  type="button"
+                  onClick={addRow}
+                  disabled={schedule.length >= MAX_PORTFOLIO_PROPERTIES}
+                  className="text-sm font-medium text-gold-700 hover:text-gold-600 disabled:text-slate-300 disabled:cursor-not-allowed"
+                >
+                  + Add property
+                  {schedule.length >= MAX_PORTFOLIO_PROPERTIES && ` (max ${MAX_PORTFOLIO_PROPERTIES})`}
+                </button>
+                <span className="text-sm text-slate-500 tabular-nums">
+                  {filled.length} propert{filled.length === 1 ? "y" : "ies"} ·{" "}
+                  <span className="font-medium text-navy-900">{scheduleTotal ? fmtUsd(scheduleTotal) : "—"}</span>
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -308,14 +545,16 @@ export default function ApplyClient() {
             <h2 className="font-semibold text-slate-900 mb-4">Review &amp; submit</h2>
             <dl className="divide-y divide-slate-100 text-sm">
               <Row k="Program" v={RATE_CONFIG.products[form.product].label} />
+              <Row k="Loan purpose" v={LOAN_PURPOSE_OPTIONS.find((o) => o.key === form.purpose)?.label ?? form.purpose} />
               <Row k="Borrower" v={form.borrower || "—"} />
               <Row k="Entity" v={form.entity || "—"} />
               <Row k="Email" v={form.email || "—"} />
               <Row k="Phone" v={form.phone || "—"} />
               <Row k="FICO" v={form.fico || "—"} />
-              <Row k="Property" v={form.propertyAddress || "—"} />
+              <Row k="Deal type" v={isPortfolio ? `Portfolio — ${filled.length} propert${filled.length === 1 ? "y" : "ies"}` : "Single property"} />
+              <Row k="Property" v={schedule[0]?.address || "—"} />
               <Row k="Loan amount" v={form.loanAmount ? fmtUsd(+form.loanAmount) : "—"} />
-              <Row k="Property value" v={form.propertyValue ? fmtUsd(+form.propertyValue) : "—"} />
+              <Row k={isPortfolio ? `Total ${valueLabel.toLowerCase()}` : valueLabel} v={scheduleTotal ? fmtUsd(scheduleTotal) : "—"} />
               <Row k="Documents" v={`${files.length} attached`} />
             </dl>
             {error && (

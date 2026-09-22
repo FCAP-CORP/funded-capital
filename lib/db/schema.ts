@@ -218,6 +218,20 @@ export const properties = pgTable("properties", {
   arvStressed: numeric("arv_stressed", { precision: 14, scale: 2 }),
 
   monthlyRent: numeric("monthly_rent", { precision: 12, scale: 2 }),
+
+  /**
+   * The rest of what portfolio pricing needs per property, named to match
+   * `PortfolioProperty` in lib/pricing.ts so the two cannot drift.
+   *
+   * `sunkCosts` and `estimatedPayoff` are refinance-only; `annual*` are the
+   * DSCR carrying costs. All nullable: a Fix & Flip property has no rent, and a
+   * purchase has no payoff.
+   */
+  annualTaxes: numeric("annual_taxes", { precision: 12, scale: 2 }),
+  annualInsurance: numeric("annual_insurance", { precision: 12, scale: 2 }),
+  annualHoa: numeric("annual_hoa", { precision: 12, scale: 2 }),
+  sunkCosts: numeric("sunk_costs", { precision: 14, scale: 2 }),
+  estimatedPayoff: numeric("estimated_payoff", { precision: 14, scale: 2 }),
   lienPosition: integer("lien_position"),
 
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -253,6 +267,30 @@ export const applications = pgTable("applications", {
   ltarv: numeric("ltarv", { precision: 6, scale: 4 }),
   ltv: numeric("ltv", { precision: 6, scale: 4 }),
   bindingRatio: text("binding_ratio"),
+
+  /**
+   * A portfolio is a STRUCTURE, not a product: lib/pricing.ts prices up to ten
+   * properties on one loan across all three programs, so a portfolio can be
+   * DSCR, Fix & Flip or Bridge. Modelling it as a fifth product would have left
+   * a Fix & Flip portfolio with nowhere to go.
+   *
+   * "DSCR Portfolio" as a programme name is therefore a REPORTING category —
+   * product = dscr AND isPortfolio — not a stored value.
+   */
+  isPortfolio: boolean("is_portfolio").notNull().default(false),
+  /** How many properties the broker actually submitted. */
+  propertyCount: integer("property_count"),
+
+  /**
+   * purchase | rate_term_refi | cash_out_refi — the keys from
+   * LOAN_PURPOSE_OPTIONS in lib/pricing.ts, validated on the way in.
+   *
+   * It decides which number the borrower was asked for, and therefore which
+   * leverage ratio binds: a purchase is measured against PRICE (LTC), a
+   * refinance against today's VALUE (LTV). Storing the purpose is what makes
+   * `bindingRatio` interpretable after the fact.
+   */
+  loanPurpose: text("loan_purpose"),
 
   exitStrategy: text("exit_strategy"),
   timeline: text("timeline"),
@@ -440,6 +478,19 @@ export const brokerUsers = pgTable("broker_users", {
   /** Luis's notes on this broker. Never shown in the portal. */
   notes: text("notes"),
 
+  /**
+   * The BROKER'S OWN consent to be contacted — never a borrower's.
+   *
+   * Captured once, on their first submission, and not asked again. The version
+   * records which exact wording they saw (lib/consent.ts), so an older record
+   * stays attributable to the language in force at the time.
+   *
+   * Consent flows inbound only: a STOP to Quo or an unsubscribe is
+   * authoritative, and nothing in the CRM may re-grant what a broker revoked.
+   */
+  smsConsentAt: timestamp("sms_consent_at", { withTimezone: true }),
+  smsConsentVersion: text("sms_consent_version"),
+
   firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -452,4 +503,32 @@ export const brokerUsers = pgTable("broker_users", {
   clerkIdx: uniqueIndex("broker_users_clerk_user_id_key").on(t.clerkUserId),
   firmIdx: index("broker_users_firm_idx").on(t.firmId),
   emailIdx: index("broker_users_email_idx").on(t.email),
+}));
+
+
+/* ------------------------------------------------- application_properties */
+
+/**
+ * The properties on one application, in order.
+ *
+ * `applications.propertyId` stays as the SUBJECT property — the one the grid
+ * shows and every existing query already joins on. This table is what lets a
+ * portfolio carry the other nine without breaking any of that: a single-property
+ * deal has one row here and the same id on the application, so the two never
+ * disagree.
+ *
+ * Shaped like `participants` on purpose. That is the established way this schema
+ * attaches many things to an application, and a second pattern for the same idea
+ * is how a model stops being understandable.
+ */
+export const applicationProperties = pgTable("application_properties", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  applicationId: uuid("application_id").notNull().references(() => applications.id, { onDelete: "cascade" }),
+  propertyId: uuid("property_id").notNull().references(() => properties.id, { onDelete: "cascade" }),
+  /** 0-based, as the broker entered them. Order is meaningful on a schedule. */
+  position: integer("position").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  uniq: uniqueIndex("application_properties_app_property_key").on(t.applicationId, t.propertyId),
+  appIdx: index("application_properties_application_idx").on(t.applicationId),
 }));
