@@ -141,5 +141,31 @@ check("no membership sees none", forNobody.length === 0, "0 rows");
 check("nothing from another firm leaked", !forOwner.includes("app_3"), "app_3 absent");
 check("no house lead leaked", !forOwner.includes("app_4") && !forMember.includes("app_4"), "app_4 absent");
 
+console.log("\n=== 10. The scope LABEL an API reports must agree with the DATA ===");
+/**
+ * app/api/broker/pipeline/route.ts reports a `scope` string to the dashboard.
+ * It used to re-derive the rule instead of asking queryScope, and the copy left
+ * out `status` — so a suspended broker was told "firm" over an empty list.
+ * These lock the mapping the route now uses.
+ */
+const labelFor = (v: BrokerViewer | null) => {
+  const k = queryScope(v).kind;
+  return k === "firm-or-own" ? "firm" : k === "own" ? "own" : "none";
+};
+check("owner at a firm reads firm", labelFor(marylen) === "firm", labelFor(marylen));
+check("lead at a firm reads firm", labelFor(jasson) === "firm", labelFor(jasson));
+check("member reads own", labelFor(processing) === "own", labelFor(processing));
+check(
+  "unassigned OWNER reads own, not firm — they are in no firm yet",
+  labelFor(unassignedOwner) === "own",
+  labelFor(unassignedOwner),
+);
+check(
+  "SUSPENDED owner reads none, never firm",
+  labelFor({ ...marylen, status: "suspended" }) === "none",
+  labelFor({ ...marylen, status: "suspended" }),
+);
+check("no viewer reads none", labelFor(null) === "none", labelFor(null));
+
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);
