@@ -1,7 +1,8 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
 import { AlertTriangle, CalendarClock, CheckCircle2, Undo2 } from "lucide-react";
-import { getBook, isPortalAdmin } from "@/lib/revenueShare.server";
+import { getAdminState, getBook, isPortalAdmin, isWriteConfigured } from "@/lib/revenueShare.server";
+import AdminActions from "./AdminActions";
 import { formatDate, isPaidOff, money, statusStyle, todayIso } from "@/lib/revenueShare";
 import { Figure, PageHeader, Panel, PortalMessage, StatusPill } from "../ui";
 
@@ -30,6 +31,44 @@ export default function ProgramBookPage() {
     <Suspense fallback={<ProgramBookLoading />}>
       <ProgramBook />
     </Suspense>
+  );
+}
+
+/**
+ * The action panel, streamed separately.
+ *
+ * It needs its own round trip to the sheet, and the book's figures should not
+ * be held back waiting for it — the page paints, then the buttons arrive.
+ * Renders nothing at all when the write path is unconfigured, so the portal
+ * behaves exactly as before until the endpoint and its secret exist.
+ */
+async function AdminPanel() {
+  if (!isWriteConfigured()) return null;
+  const state = await getAdminState();
+  if (!state.ok) {
+    if (state.reason === "not_found") return null;
+    return (
+      <div className="mb-8 rounded-lg border border-amber-200 bg-amber-50 px-5 py-4">
+        <p className="text-sm font-bold text-amber-900">Program actions unavailable</p>
+        <p className="mt-1 text-sm text-amber-800">
+          The figures below are still accurate — only the buttons are missing.
+        </p>
+        {state.detail && (
+          <p className="mt-2 break-words font-mono text-[11px] leading-relaxed text-amber-900/80">
+            {state.detail}
+          </p>
+        )}
+      </div>
+    );
+  }
+  return <AdminActions state={state.data} />;
+}
+
+function AdminPanelLoading() {
+  return (
+    <div className="mb-8 h-40 animate-pulse rounded-lg border border-slate-200 bg-white" aria-busy="true">
+      <span className="sr-only">Loading program actions…</span>
+    </div>
   );
 }
 
@@ -199,6 +238,10 @@ async function ProgramBook() {
           </div>
         ))}
       </div>
+
+      <Suspense fallback={<AdminPanelLoading />}>
+        <AdminPanel />
+      </Suspense>
 
       <Panel
         title="Participation Roster"

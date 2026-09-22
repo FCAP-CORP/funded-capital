@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { currentUser } from "@clerk/nextjs/server";
 import type {
+  AdminState,
   BookSummary,
   LoggedPayment,
   Participation,
@@ -246,3 +247,136 @@ async function loadBook(): Promise<FetchOutcome<BookPacket>> {
 }
 
 export const getBook = cache(loadBook);
+
+/* ------------------------------------------------------------------ */
+/* Writes — the admin action path                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Sends an action to the Apps Script write endpoint.
+ *
+ * Deliberately separate from callScript(): different secret, different HTTP
+ * method, never cached, and no retry. A read that fails twice costs nothing;
+ * a write that fails halfway and is retried could log a payment run twice.
+ * The Apps Script side takes a lock and refuses duplicates, but the honest
+ * answer to an uncertain write is to say so rather than to try again.
+ *
+ * The secret travels in the body rather than the query string so it cannot
+ * land in an access log. Nothing here is callable from the browser: the module
+ * imports @clerk/nextjs/server, which Next refuses to bundle into a client
+ * component, and every caller gates on isPortalAdmin() first.
+ */
+async function callWrite(
+  payload: Record<string, unknown>
+): Promise<FetchOutcome<{ message: string; [key: string]: unknown }>> {
+  const url = process.env.PARTICIPANT_WEBAPP_URL;
+  const secret = process.env.PARTICIPANT_WEBAPP_WRITE_SECRET;
+  if (!url || !secret) return { ok: false, reason: "unconfigured" };
+
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      redirect: "follow",
+      cache: "no-store",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ ...payload, secret }),
+    });
+
+    const text = await res.text();
+    if (!res.ok) {
+      return { ok: false, reason: "unavailable", detail: `HTTP ${res.status} ${res.statusText}` };
+    }
+
+    let data: { ok?: boolean; error?: string; detail?: string; message?: string };
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // Apps Script answers with an HTML page when the deployment is stale.
+      const head = text.replace(/\s+/g, " ").slice(0, 160);
+      return {
+        ok: false,
+        reason: "unavailable",
+        detail:
+          "The endpoint answered with a web page instead of data — the deployment " +
+          `is probably not serving doPost yet. Redeploy with a NEW VERSION. (${head})`,
+      };
+    }
+
+    if (!data.ok) {
+      return {
+        ok: false,
+        reason: data.error === "unauthorized" ? "unconfigured" : "unavailable",
+        detail: data.detail || data.error || "The write was refused.",
+      };
+    }
+
+    return { ok: true, data: { ...data, message: data.message ?? "Done." } };
+  } catch (err) {
+    return {
+      ok: false,
+      reason: "unavailable",
+      detail: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+    };
+  }
+}
+
+/** True when the write path is configured. Drives whether the panel renders. */
+export function isWriteConfigured(): boolean {
+  return Boolean(process.env.PARTICIPANT_WEBAPP_URL && process.env.PARTICIPANT_WEBAPP_WRITE_SECRET);
+}
+
+export type { AdminState, AwaitingCapital, OutstandingRun } from "./revenueShare";
+
+/**
+ * What the admin panel needs, computed by the sheet rather than here.
+ *
+ * Asking the Apps Script means one definition of "outstanding" — the same one
+ * the spreadsheet menu uses. Deriving it a second time in TypeScript would be
+ * two implementations of a money rule that must agree, and they would not stay
+ * agreeing for long.
+ */
+export async function getAdminState(): Promise<FetchOutcome<AdminState>> {
+  if (!(await isPortalAdmin())) return { ok: false, reason: "not_found" };
+  const result = await callWrite({ action: "state" });
+  if (!result.ok) return result;
+  const d = result.data as unknown as AdminState;
+  return {
+    ok: true,
+    data: {
+      today: d.today ?? "",
+      initiatedThrough: d.initiatedThrough ?? "",
+      outstanding: Array.isArray(d.outstanding) ? d.outstanding : [],
+      awaitingCapital: Array.isArray(d.awaitingCapital) ? d.awaitingCapital : [],
+    },
+  };
+}
+
+/**
+ * Every admin write goes through here, so the permission check cannot be
+ * forgotten at a call site. Returns not_found rather than forbidden for the
+ * same reason the admin page 404s: never confirm the route exists.
+ */
+async function adminWrite(
+  payload: Record<string, unknown>
+): Promise<FetchOutcome<{ message: string }>> {
+  if (!(await isPortalAdmin())) return { ok: false, reason: "not_found" };
+  const result = await callWrite(payload);
+  if (!result.ok) return result;
+  return { ok: true, data: { message: String(result.data.message) } };
+}
+
+export function logPaymentRun(period: string, sent: string) {
+  return adminWrite({ action: "log_run", period, sent });
+}
+export function markRunInitiated(date: string) {
+  return adminWrite({ action: "mark_initiated", date });
+}
+export function clearRunInitiated() {
+  return adminWrite({ action: "clear_initiated" });
+}
+export function markLoanPaidOff(key: string, date: string) {
+  return adminWrite({ action: "mark_paid_off", key, date });
+}
+export function recordCapitalReturned(id: string, date: string) {
+  return adminWrite({ action: "capital_returned", id, date });
+}

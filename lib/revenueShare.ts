@@ -726,3 +726,38 @@ export function summarizeBook(
     capitalReturnOverdueCount,
   };
 }
+
+/* ------------------------------------------------------------------ */
+/* Admin panel shapes                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * These live here rather than in revenueShare.server.ts so the client
+ * component can import them without naming the server module at all. A bare
+ * `import type` is erased at compile time and would have been safe, but "the
+ * browser file does not reference the module holding the secret" is a property
+ * worth being able to check by grep rather than by reasoning about erasure.
+ */
+
+/** One period with payments that have come due and are not yet logged. */
+export interface OutstandingRun {
+  due: string;
+  total: number;
+  rows: Array<{ id: string; name: string; amount: number }>;
+}
+
+/** A paid-off participation whose capital has not gone back yet. */
+export interface AwaitingCapital {
+  id: string;
+  name: string;
+  capital: number;
+  payoff: string;
+  returnDue: string;
+}
+
+export interface AdminState {
+  today: string;
+  initiatedThrough: string;
+  outstanding: OutstandingRun[];
+  awaitingCapital: AwaitingCapital[];
+}

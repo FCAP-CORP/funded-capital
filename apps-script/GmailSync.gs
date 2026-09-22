@@ -20,7 +20,7 @@
  *       CRM_SYNC_SECRET  (the same value set in Vercel)
  *       CRM_SELF_ADDRESSES  luis@fundedcapital.com,processing@fundedcapital.com,info@fundedcapital.com
  *  3. Run installTrigger() once from the editor and approve the Gmail scope.
- *  4. Run backfill() once to load the existing history.
+ *  4. Run startBackfill() once. It loads the history on its own and stops when done.
  *
  * ---------------------------------------------------------------------------
  */
@@ -157,31 +157,63 @@ function syncGmailToCrm() {
 }
 
 /**
- * One-time history load.
+ * One-time history load. RESUMABLE — run it repeatedly until it says DONE.
  *
- * Walks backwards a month at a time so no single run approaches the execution
- * limit. Re-running is free — every row is deduplicated server-side — so if it
- * times out, just run it again.
+ * WHY WEEKLY WINDOWS AND A CURSOR:
+ *
+ * The first version walked a month at a time and relied on MAX_THREADS_PER_RUN
+ * to stay inside the execution limit. That cap is per search, so any month with
+ * more than 300 threads was silently truncated — the busiest months, the ones
+ * with the most borrower correspondence, would have lost the most. Re-running
+ * would have re-walked the same windows and missed the same mail, and the
+ * report would have looked healthy throughout.
+ *
+ * That is precisely the failure this whole feature exists to prevent: a system
+ * that quietly answers "no contact" when it simply never looked. So the backfill
+ * now walks a week at a time, saves its position after every window, and stops
+ * cleanly before Apps Script kills it. Run it again and it picks up where it
+ * left off. Every row is deduplicated server-side, so an overlapping re-run
+ * costs nothing but time.
  */
-function backfill() {
-  var self = selfAddresses_();
-  var monthsBack = 18;
-  var totals = { inserted: 0, duplicates: 0, unmatched: 0 };
+var BACKFILL_PROP_CURSOR = 'CRM_BACKFILL_CURSOR';
+var BACKFILL_WINDOW_SECONDS = 7 * 24 * 60 * 60;
+var BACKFILL_MONTHS = 18;
 
-  for (var month = 0; month < monthsBack; month++) {
-    var end = new Date();
-    end.setMonth(end.getMonth() - month);
-    var start = new Date(end);
-    start.setMonth(start.getMonth() - 1);
+/** Stop before Apps Script's six-minute kill, so the cursor gets saved. */
+var BACKFILL_BUDGET_MS = 4 * 60 * 1000;
+
+function backfill() {
+  var props = PropertiesService.getScriptProperties();
+  var self = selfAddresses_();
+  var startedAt = Date.now();
+
+  var oldestBound = Math.floor(Date.now() / 1000) - BACKFILL_MONTHS * 30 * 24 * 60 * 60;
+
+  // The cursor is the END of the next window; we walk backwards from now.
+  var cursor = parseInt(props.getProperty(BACKFILL_PROP_CURSOR), 10);
+  if (isNaN(cursor)) cursor = Math.floor(Date.now() / 1000);
+
+  var totals = { windows: 0, messages: 0, inserted: 0, duplicates: 0, unmatched: 0 };
+
+  while (cursor > oldestBound) {
+    if (Date.now() - startedAt > BACKFILL_BUDGET_MS) {
+      props.setProperty(BACKFILL_PROP_CURSOR, String(cursor));
+      Logger.log('PAUSED (time limit) — reached back to ' + new Date(cursor * 1000).toDateString());
+      Logger.log(JSON.stringify(totals));
+      totals.done = false;
+      return totals;
+    }
+
+    var windowStart = cursor - BACKFILL_WINDOW_SECONDS;
 
     var query = '(in:inbox OR in:sent)'
-      + ' after:' + Math.floor(start.getTime() / 1000)
-      + ' before:' + Math.floor(end.getTime() / 1000)
+      + ' after:' + windowStart
+      + ' before:' + cursor
       + ' -category:promotions -category:social -category:updates -category:forums'
       + ' -in:chats -in:draft';
 
     var messages = collectMessages_(query);
-    Logger.log('Month -' + month + ': ' + messages.length + ' messages');
+    totals.messages += messages.length;
 
     for (var i = 0; i < messages.length; i += BATCH_SIZE) {
       var result = postBatch_(messages.slice(i, i + BATCH_SIZE), self);
@@ -189,10 +221,86 @@ function backfill() {
       totals.duplicates += result.duplicates || 0;
       totals.unmatched += result.unmatchedCount || 0;
     }
+
+    // Saved AFTER the window is fully accepted. A throw above leaves the cursor
+    // where it was, so the window is retried rather than skipped.
+    cursor = windowStart;
+    props.setProperty(BACKFILL_PROP_CURSOR, String(cursor));
+    totals.windows++;
+    Logger.log('Week ending ' + new Date((windowStart + BACKFILL_WINDOW_SECONDS) * 1000).toDateString()
+      + ': ' + messages.length + ' messages, ' + totals.inserted + ' rows so far');
   }
 
-  Logger.log('Backfill complete: ' + JSON.stringify(totals));
+  Logger.log('BACKFILL DONE. ' + JSON.stringify(totals));
+  totals.done = true;
   return totals;
+}
+
+/* ------------------------------------------------- hands-off backfill ---- */
+
+var BACKFILL_TRIGGER = 'runBackfillStep';
+
+/**
+ * Start the catch-up and walk away.
+ *
+ * The backfill has to stop every few minutes because Apps Script kills any
+ * single run at six. Rather than making a person sit and click Run a dozen
+ * times — which is how a half-finished history happens, and a half-finished
+ * history is worse than none because it looks complete — this installs a
+ * temporary trigger that continues every five minutes and REMOVES ITSELF the
+ * moment the walk reaches the end.
+ */
+function startBackfill() {
+  stopBackfill();
+  ScriptApp.newTrigger(BACKFILL_TRIGGER).timeBased().everyMinutes(5).create();
+  Logger.log('Backfill started. It will keep going on its own and stop when finished.');
+  Logger.log('Run backfillStatus() any time to see how far back it has reached.');
+  runBackfillStep();
+}
+
+/** What the trigger calls. Cleans up after itself. */
+function runBackfillStep() {
+  var result = backfill();
+  if (result && result.done) {
+    stopBackfill();
+    Logger.log('Backfill finished — the repeating trigger has been removed.');
+  }
+}
+
+/** Remove the temporary backfill trigger. Safe to call any time. */
+function stopBackfill() {
+  var triggers = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === BACKFILL_TRIGGER) {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+}
+
+/** How far back the catch-up has reached. */
+function backfillStatus() {
+  var cursor = parseInt(
+    PropertiesService.getScriptProperties().getProperty(BACKFILL_PROP_CURSOR), 10);
+  var oldestBound = Math.floor(Date.now() / 1000) - BACKFILL_MONTHS * 30 * 24 * 60 * 60;
+
+  if (isNaN(cursor)) {
+    Logger.log('Not started yet.');
+    return;
+  }
+  if (cursor <= oldestBound) {
+    Logger.log('FINISHED — history loaded back to ' + new Date(cursor * 1000).toDateString());
+    return;
+  }
+  var total = Math.floor(Date.now() / 1000) - oldestBound;
+  var doneSoFar = Math.floor(Date.now() / 1000) - cursor;
+  Logger.log('In progress — reached back to ' + new Date(cursor * 1000).toDateString()
+    + ' (' + Math.round((doneSoFar / total) * 100) + '% of the way)');
+}
+
+/** Start the history load over from today. Safe — nothing duplicates. */
+function resetBackfill() {
+  PropertiesService.getScriptProperties().deleteProperty(BACKFILL_PROP_CURSOR);
+  Logger.log('Backfill cursor cleared. The next backfill() run starts from today.');
 }
 
 /** Run once from the editor. Safe to re-run; it replaces any existing trigger. */
