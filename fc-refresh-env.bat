@@ -11,6 +11,11 @@ REM
 REM  Your Clerk dev keys and everything else in .env.local are
 REM  preserved. Only the database keys are replaced.
 REM
+REM  IF THIS MACHINE IS ON A NEON DEV BRANCH it will REFUSE and
+REM  change nothing - replacing would move local development
+REM  back onto production. Use fc-use-dev-db.bat instead to
+REM  re-copy the dev branch credentials from Neon.
+REM
 REM  It does NOT touch the schema and does NOT deploy.
 REM  Safe to run again at any time.
 REM ==========================================================
@@ -37,12 +42,15 @@ if errorlevel 1 (
 
 echo.
 echo  ============================================================
-echo    MERGING ONLY THE DATABASE KEYS
+echo    REPLACING THE DATABASE KEYS
 echo  ============================================================
-node scripts\merge-env.mjs
+REM --replace is the whole point of this script. Without it the merge
+REM only ADDS missing keys and leaves a stale password in place, which
+REM is what silently broke the first production migration on 22 Sep 2026.
+node scripts\merge-env.mjs --replace
 if errorlevel 1 (
   echo.
-  echo    ^>^> The merge failed. Your .env.local was NOT changed.
+  echo    ^>^> Nothing was changed. See the message above.
   goto cleanup
 )
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
-import { recordBrokerApplication, type BrokerPropertyInput } from "@/lib/broker/record";
+import { recordBrokerApplication, recordDriveFolder, type BrokerPropertyInput } from "@/lib/broker/record";
 import { CONSENT_VERSION } from "@/lib/consent";
 
 /**
@@ -189,6 +189,14 @@ export async function POST(request: Request) {
     if (crmApplicationId) {
       console.error("[submit-application] DRIVE FAILED BUT CRM RECORDED:", crmApplicationId);
     }
+  }
+
+  // Now that Drive has reported a folder, attach it to the CRM record so the
+  // broker dashboard can offer a Documents link. Awaited rather than
+  // fire-and-forget: a serverless function can be frozen the moment it
+  // responds, and a dangling promise would simply never run.
+  if (data.ok && data.folder && crmApplicationId) {
+    await recordDriveFolder(crmApplicationId, data.folder);
   }
 
   // The response shape the portal already expects is unchanged. The CRM is an

@@ -227,15 +227,17 @@ transitions at minimum.
   — it sends the statements in one request inside a real Postgres transaction. Anything that must
   commit together (a `stage_transitions` row and the `applications.stage` cache, above all) goes
   through `db.batch`.
-- **`scripts/merge-env.mjs` NEVER replaces a key it already finds.** It only adds
-  missing ones. That makes `fc-refresh-env.bat` unable to do the one thing its header
-  promises — refresh credentials after a Neon password rotation. It prints "REFRESHING
-  DATABASE CREDENTIALS", keeps the stale password, and reports the keys as "left
-  untouched". This is why the first production migration failed with *"password
-  authentication failed for user 'neondb_owner'"* on 22 Sep 2026. **Still unfixed**: the
-  naive fix (always replace) would silently move a laptop off the Neon dev branch and
-  back onto production the next time `fc-db.bat` runs, so it needs an explicit mode and
-  a warning, not a one-line change.
+- **`scripts/merge-env.mjs` has two modes, and the difference matters.** Default adds
+  only MISSING database keys and never replaces — that is what `fc-db.bat` wants, and it
+  is what keeps a machine on the Neon dev branch when credentials are pulled. `--replace`
+  overwrites them, and is what `fc-refresh-env.bat` uses after a password rotation.
+  Until 22 Sep 2026 the replace mode did not exist, so the refresh script kept the stale
+  password and reported it as "left untouched"; the first production migration failed on
+  those credentials with *"password authentication failed for user 'neondb_owner'"*.
+  `--replace` REFUSES when `.env.local` points at a different endpoint from the one
+  Vercel holds, because replacing would move local development off the dev branch and
+  back onto production. On a dev branch, rotate by re-copying from Neon with
+  `fc-use-dev-db.bat` instead.
 - **Production migrations go through `fc-migrate-prod.bat`,** which pulls CURRENT
   credentials from Vercel into a scratch `.env.vercel` and deletes it afterwards.
   Never rely on `.env.local.before-dev-branch` for this — it is a snapshot from the

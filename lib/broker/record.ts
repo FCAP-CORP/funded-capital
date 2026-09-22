@@ -20,7 +20,7 @@
 
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import * as schema from "../db/schema";
 import { normalisePhone } from "../phone";
 import { clean, parseMoney, leverage } from "../migrate/transform";
@@ -652,5 +652,38 @@ export async function recordBrokerApplication(
     return { ok: true, applicationId, contactId, brokerUserId, firmId };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Attach the Drive folder to the submission, once the intake reports it.
+ *
+ * WHY IT IS A SECOND WRITE: the CRM write and the Drive upload run in
+ * parallel, deliberately — a Drive failure must not cost us the record of the
+ * deal. But that means the folder URL does not exist yet when the application
+ * row is written. Without this the broker dashboard loses its "Documents" link,
+ * which the Google Sheet it replaces always had.
+ *
+ * Never throws. A missing link is a small loss; a failed submission is not.
+ */
+export async function recordDriveFolder(applicationId: string, folder: string): Promise<void> {
+  if (!applicationId || !folder) return;
+  try {
+    const url = process.env.DATABASE_URL;
+    if (!url) return;
+    const db = drizzle(neon(url), { schema });
+
+    // Merge into the existing metadata rather than replacing it — the row
+    // already carries the broker, the firm and the file count.
+    await db.update(schema.activities)
+      .set({
+        metadata: sql`jsonb_set(coalesce(${schema.activities.metadata}, '{}'::jsonb), '{driveFolder}', to_jsonb(${folder}::text), true)`,
+      })
+      .where(and(
+        eq(schema.activities.applicationId, applicationId),
+        eq(schema.activities.kind, "form_submission"),
+      ));
+  } catch (err) {
+    console.error("[broker/record] could not attach the Drive folder:", err);
   }
 }
