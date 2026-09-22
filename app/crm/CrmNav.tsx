@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { GitBranch, Users, LogOut, Menu, X } from "lucide-react";
+import { GitBranch, Users, Building2, LogOut, Menu, X } from "lucide-react";
 import { useUser, SignOutButton } from "@clerk/nextjs";
 
 /**
@@ -18,6 +18,7 @@ import { useUser, SignOutButton } from "@clerk/nextjs";
 const links = [
   { label: "Pipeline", href: "/crm", icon: GitBranch },
   { label: "Contacts", href: "/crm/contacts", icon: Users },
+  { label: "Brokers", href: "/crm/brokers", icon: Building2 },
 ];
 
 export default function CrmNav() {

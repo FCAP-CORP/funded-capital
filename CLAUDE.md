@@ -162,6 +162,26 @@ it enforces that are easy to get wrong:
 the submitter's *current* firm means a broker changing brokerage drags their old deals into the new
 firm's pipeline and out of the old one's.
 
+**Firms and assignment live in `/crm/brokers`** (Phase 2d). `lib/broker/admin.ts` holds the pure
+rules and is covered by `admin.regress.ts`; `lib/broker/admin.server.ts` holds the reads and writes
+and every function in it calls `assertCrmStaff()` itself. Four things there are deliberate:
+
+- **A deal is attached to a broker by hand, one at a time.** There is no auto-claim on email match
+  at sign-in and no bulk button. An email address is not an authentication factor, and each
+  attachment grants a specific person sight of a specific borrower's file.
+- **A deal with no `broker` participant can never be claimed.** Website and BiggerPockets leads have
+  none, so they are outside the set the claim query can return — a structural guarantee rather than
+  a careful UI.
+- **A broker with no firm cannot claim anything.** Attaching first would stamp a null
+  `broker_firm_id` permanently, so the deal would show on that one person's dashboard and stay
+  invisible to their colleagues forever, including after they are assigned. Assign, then attach.
+- **`claimDeal` re-reads the row and re-runs `canClaimDeal` before writing**, and the UPDATE carries
+  its own `IS NULL` conditions, so two clicks arriving together cannot both succeed.
+
+`lib/broker/provision.ts` creates a `broker_users` row on a broker's first visit to the portal
+(skipped for staff). Before it existed a row was only created by a SUBMISSION, so the people most
+in need of linking — the ones waiting to be let in — were the ones Luis could not see.
+
 Broker roles are a separate axis from CRM staff access and grant no view of the book.
 `lib/crm/access.ts` decides who is Funded Capital; `lib/broker/scope.ts` decides what a broker sees
 inside their own firm. Keep the two gates independent so a bug in one cannot become a bug in both.
@@ -221,6 +241,20 @@ transitions at minimum.
   put everything that reads live data inside a `<Suspense>` boundary, which makes that subtree
   dynamic on its own. `app/crm/page.tsx` is the reference. This does not show up in `npm run
   typecheck`; only the production build catches it.
+- **`await params` must happen INSIDE the `<Suspense>` boundary, not in the page function.**
+  Same root cause as the `dynamic` rule above: under `cacheComponents: true`, touching
+  `params`, `searchParams`, `cookies()` or `headers()` outside a boundary makes the whole
+  route unprerenderable and the build fails with *"Next.js encountered uncached or runtime
+  data during prerendering"*. Pass the params PROMISE down to the async component inside the
+  boundary and await it there. `app/crm/brokers/[id]/page.tsx` is the reference. The typecheck
+  passes either way; only the production build catches it.
+- **The root layout is what makes every `/crm` route prerenderable.** `app/layout.tsx` wraps
+  `<ClerkProvider dynamic>` in `<Suspense fallback={null}>`. Without that wrapper, any page
+  under a layout that calls `currentUser()` — which is every `/crm` page, via
+  `lib/crm/access.ts` — fails the build with the same prerender error, even though the page
+  itself is written correctly. Worth knowing when reproducing a build in a scratch app: a
+  stubbed root layout will produce a failure that does not exist in this repo. That exact
+  false alarm cost a round trip on 22 Sep 2026.
 - **`db.transaction()` does not work.** `lib/db` uses Drizzle's `neon-http` driver, which talks to
   Postgres over HTTP and throws `No transactions support in neon-http driver` at runtime. It
   compiles and builds clean, so nothing catches it until the first write. Use **`db.batch([...])`**
@@ -242,6 +276,26 @@ transitions at minimum.
   credentials from Vercel into a scratch `.env.vercel` and deletes it afterwards.
   Never rely on `.env.local.before-dev-branch` for this — it is a snapshot from the
   moment of the dev-branch switch and goes stale at the next rotation.
+- **Do not `revalidatePath` a PPR route from a server action on a different route.**
+  Every page under `/crm` is a static shell plus a `<Suspense>` boundary. Calling
+  `revalidatePath("/crm")` from an action invoked on `/crm/brokers/[id]` left the entire
+  `/crm` subtree serving its shell forever — heading and sidebar painted, the streamed half
+  never arrived. HTTP 200, no console error, no server error: it simply looked like a page
+  stuck loading. The same database was answering an API route normally at the time, which is
+  the check that separates this from a database problem. Revalidate only the route the action
+  was called from; a page that shows nothing the action changed does not need revalidating at
+  all. The in-memory cache clears on a dev-server restart, so a restart that fixes it is the
+  confirmation.
+- **`/crm` 404s on localhost unless `CRM_STAFF_EMAILS` is set in `.env.local` by hand.**
+  `scripts/merge-env.mjs` copies only DATABASE keys across from Vercel (`WANTED` in that
+  file), so the staff allowlist has never come down with an env pull. Production has the
+  variable, local development does not, and `lib/crm/access.ts` fails closed — so every
+  `/crm` route returns 404 rather than an error, for the owner included. That is the gate
+  working, not a bug, and it is why `/crm` had only ever been used live. `fc-fix-local-crm.bat`
+  adds the line. Next reads `.env.local` once at startup, so the dev server must be restarted
+  after. Diagnosis tell: the 404 page's TITLE is the route's own metadata ("Brokers | Funded
+  Capital Lending OS") when the route exists and `notFound()` fired, versus a bare
+  "404: This page could not be found." when the route itself is missing.
 - **A brand-new page or API route that 404s locally is a stale `.next` cache,** not a
   missing file. Next's dev server was serving a route manifest from before the route
   existed — `/api/broker/consent-status` 404'd while `/api/my-submissions` worked and

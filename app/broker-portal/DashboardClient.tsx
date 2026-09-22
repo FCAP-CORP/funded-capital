@@ -73,7 +73,12 @@ const quickActions = [
 
 export default function DashboardClient() {
   const { user } = useUser();
-  const firstName = user?.firstName || user?.fullName?.split(" ")[0] || "there";
+  /**
+   * Clerk has no first name for anyone who signed up with an email address
+   * alone, which is most brokers. "Welcome back, there" was the result. When
+   * there is no name to use, the greeting simply ends.
+   */
+  const firstName = user?.firstName || user?.fullName?.split(" ")[0] || null;
   const [deals, setDeals] = useState<Deal[] | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   /** "firm" when this broker is an owner or lead and sees colleagues' deals. */
@@ -103,7 +108,7 @@ export default function DashboardClient() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Welcome back, {firstName}</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{firstName ? `Welcome back, ${firstName}` : "Welcome back"}</h1>
           <p className="text-slate-500 text-sm mt-1">{user?.primaryEmailAddress?.emailAddress || "Broker Portal"}</p>
         </div>
         <div className="flex gap-3">

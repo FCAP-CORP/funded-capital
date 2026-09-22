@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
+import { currentUser } from "@clerk/nextjs/server";
+import { isCrmStaff } from "@/lib/crm/access";
+import { ensureBrokerUser } from "@/lib/broker/provision";
 import { resolveBrokerViewer } from "@/lib/broker/viewer";
 import { getBrokerPipeline } from "@/lib/broker/queries";
+import { queryScope } from "@/lib/broker/scope";
 import { brokerStage, isOpenForBroker, isFundedForBroker } from "@/lib/broker/stageView";
 import { PRODUCT_LABEL, label } from "@/lib/crm/view";
 
@@ -21,13 +25,39 @@ import { PRODUCT_LABEL, label } from "@/lib/crm/view";
 export async function GET() {
   const viewer = await resolveBrokerViewer();
 
-  // No broker record yet means they have never submitted anything, so there is
-  // genuinely nothing to show — not an error, and not a reason to invent a scope.
+  /**
+   * No broker record means this is someone's first visit to the portal.
+   *
+   * Their row is created here, unassigned, so they appear in Luis's queue and
+   * can be linked to a firm. Creating the row grants NOTHING — an unassigned
+   * broker sees their own submissions and nothing else, and they have none yet.
+   * It only makes them visible, which is the thing that was missing: a broker
+   * used to be invisible until their first submission, so the people waiting to
+   * be let in were precisely the ones nobody could see.
+   *
+   * Staff are skipped. Luis opening the broker portal should not put him in his
+   * own queue.
+   */
   if (!viewer) {
-    return NextResponse.json({
+    const empty = NextResponse.json({
       ok: true, deals: [], scope: "none",
       stats: { active: 0, waitingOnYou: 0, pipelineValue: 0, funded: 0 },
     });
+
+    if (await isCrmStaff()) return empty;
+
+    const user = await currentUser();
+    if (!user) return empty;
+
+    await ensureBrokerUser(
+      user.id,
+      user.primaryEmailAddress?.emailAddress,
+      user.fullName,
+    );
+
+    // Still empty either way — a brand-new broker has filed nothing. The row
+    // matters for the next screen Luis looks at, not for this response.
+    return empty;
   }
 
   const deals = await getBrokerPipeline(viewer);
@@ -65,8 +95,23 @@ export async function GET() {
     funded: deals.filter((d) => isFundedForBroker(d.stage)).length,
   };
 
-  // Owners and leads see their whole firm; everyone else sees their own desk.
-  const scope = viewer.firmId && (viewer.role === "owner" || viewer.role === "lead") ? "firm" : "own";
+  /**
+   * The scope LABEL comes from the same decision the QUERY used.
+   *
+   * This line used to re-derive it — `viewer.firmId && (role === "owner" ||
+   * role === "lead")` — which is the rule from scope.ts written out a second
+   * time, and the second copy was already wrong: it ignores `status`, so a
+   * SUSPENDED broker got back `scope: "firm"` alongside an empty list. The data
+   * was right (queryScope refuses them) but the label contradicted it, and a
+   * dashboard reading the label would have said "showing your whole firm" over
+   * nothing at all.
+   *
+   * Caught in a browser on 22 Sep 2026 by suspending a broker and watching the
+   * response. CLAUDE.md already says no query may re-derive the scoping rule
+   * inline; a label derived from it is the same rule and the same hazard.
+   */
+  const kind = queryScope(viewer).kind;
+  const scope = kind === "firm-or-own" ? "firm" : kind === "own" ? "own" : "none";
 
   return NextResponse.json({ ok: true, deals: view, stats, scope });
 }
