@@ -422,9 +422,3 @@ export async function countUnassignedBrokers(): Promise<number> {
     .where(isNull(brokerUsers.firmId));
   return Number(rows[0]?.n ?? 0);
 }
-
-/** Kept so the contacts import is used where a firm's people are listed. */
-export async function listBrokersAtFirm(firmId: string): Promise<BrokerQueueRow[]> {
-  const all = await listBrokers();
-  return all.filter((b) => b.firmId === firmId);
-}

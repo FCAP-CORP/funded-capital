@@ -257,6 +257,23 @@ Follow that pattern for new suites. Anything touching money, consent, or borrowe
 before it ships — that means the pricing engine, the consent gate, webhook dedup, and stage
 transitions at minimum.
 
+**`lib/crm/guards.regress.ts` fails the build if a staff-only surface is missing its guard.** It
+reads the source of every `/crm` page and layout, every `"use server"` export, and the staff-only
+`*.server.ts` modules, and asserts each one calls a staff assertion. It also asserts the INVERSE for
+`lib/broker/provision.ts`: that file runs as a broker, so an `assertCrmStaff()` added there — or an
+import of `admin.server`/`invites.server` — would lock every broker out of the portal behind a
+screen that looks exactly like a correct refusal.
+
+Write the guard, and this suite stops you forgetting it on the next page. Two things learned
+building it, both worth keeping:
+
+- It found real dead code on its first run (`listBrokersAtFirm`, exported and never called). Deleted.
+- Two of its first three failures were bugs in the TEST: it searched raw source for "admin.server"
+  and matched the comment in provision.ts that says it must never import admin.server. A substring
+  scan cannot tell a prohibition from a violation, so it parses import statements now. **A new
+  guard test is not trustworthy until you have removed a guard and watched it fail** — all three
+  directions were verified that way before it shipped.
+
 ---
 
 ## Known quirks — check here before debugging
