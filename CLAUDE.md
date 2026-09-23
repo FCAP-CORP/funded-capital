@@ -520,3 +520,41 @@ so "I cannot test SQL from here" is not true.
 `lib/db/queries.ts` still rely on their calling page having checked — that file is imported only by
 `/crm` pages today, but it is the same caller-gated pattern noted against `getBook()`, and it is
 worth closing the same way.
+
+### Marketing queue (Phase 3b)
+
+`/crm/marketing` exists because the blog engine was meant to publish daily, **stopped on 30 August
+2026, and nothing said so for twenty-four days.** A pipeline that stops produces no error; it
+produces nothing. So the first thing on the screen is how long each channel has been quiet, and the
+request form is underneath it — a "write me a post" button at the top would have made the real
+problem worse, not better.
+
+**The portal asks; it does not write.** A request inserts a row in `content_requests`. A scheduled
+Claude task reads the queue through `scripts/content-queue.ts`, does the work with the brand-voice
+and research skills that already exist, and writes back where the draft is. Nothing in the Next.js
+app calls a model — one definition of the voice rather than two, and no model API key in a
+public-facing service.
+
+- **Only the blog can publish itself.** A post is an MDX file and a push deploys it. LinkedIn has no
+  connector here and a Klaviyo template is not a send, so for those two "published" means *you sent
+  it*, and the form says so before you click. `requests.regress.ts` asserts `autoPublishes` stays
+  false for both — if that ever flips, something must actually be able to post, and nothing can.
+- **Blog cadence reads the MDX archive, not this table.** Reading it from `content_requests` would
+  report "no record yet" on day one despite fifty published posts. LinkedIn and email have no
+  archive, so they are measured from the portal and carry that caveat on the card.
+- **"Unknown" is its own level, not "stalled".** A channel with no recorded history is unmeasured.
+  Colouring it red teaches the reader to ignore red.
+- **No draft content in the table.** `draft_url` points at the Gmail draft, the Klaviyo template or
+  the MDX file. The portal stays a pipe — the same rule borrower documents follow.
+- **`in_progress` with no finish is surfaced.** A task that claims a job and dies leaves a row
+  looking busy forever; `stuckRequests` flags it after 6 hours and the retry keeps the brief.
+- **`scripts/content-queue.ts` imports the transition rules from `lib/marketing/requests.ts`** rather
+  than restating them, and **prints which database branch it is on every run.** `.env.local` points
+  at the DEV branch and the real queue is in production — a run against the wrong one looks exactly
+  like an empty queue, which is the same shape as the invitations-on-localhost trap.
+  `fc-content-queue-prod.bat` pulls production credentials to a scratch file and deletes it after.
+
+**Migration 0006 adds `content_requests` plus the `content_channel` and `content_status` enums.**
+`apply-migration.mjs` picks up any new `drizzle/*.sql` automatically, so `fc-migrate-dev.bat` and
+`fc-migrate-prod.bat` need no change — but **production must be migrated BEFORE the push**, or the
+deploy serves a page querying a table that is not there.

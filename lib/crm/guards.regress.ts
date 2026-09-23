@@ -133,6 +133,7 @@ console.log("\n=== 3. Staff-only server modules assert staff in every export ===
 const STAFF_ONLY_MODULES = [
   "lib/broker/admin.server.ts",
   "lib/broker/invites.server.ts",
+  "lib/marketing/requests.server.ts",
 ];
 
 for (const relPath of STAFF_ONLY_MODULES) {

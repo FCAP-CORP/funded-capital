@@ -54,7 +54,7 @@ const brokerHrefs = navHrefs(brokerNav);
 const crmLeak = brokerHrefs.filter((h) => h.startsWith("/crm"));
 check("no /crm href anywhere in a broker's rail", crmLeak.length === 0, crmLeak.join(", ") || "clean");
 check("...checked against a real list, not an empty one", brokerHrefs.length === 5, `${brokerHrefs.length} hrefs`);
-check("a staff rail carries both sections in full", navHrefs(staffNav).length === 9, `${navHrefs(staffNav).length} hrefs`);
+check("a staff rail carries both sections in full", navHrefs(staffNav).length === 10, `${navHrefs(staffNav).length} hrefs`);
 
 const emptyHrefs = navHrefs(emptyNav);
 check("an unentitled rail has no hrefs at all", emptyHrefs.length === 0, `${emptyHrefs.length}`);
@@ -82,6 +82,7 @@ const cases: [string, string | null][] = [
   ["/crm", "/crm"],
   ["/crm/contacts", "/crm/contacts"],
   ["/crm/brokers", "/crm/brokers"],
+  ["/crm/marketing", "/crm/marketing"],
   // A child route lights its parent. This is the case the old exact-match
   // exception in CrmNav existed to handle, now handled by the general rule.
   ["/crm/brokers/abc-123", "/crm/brokers"],

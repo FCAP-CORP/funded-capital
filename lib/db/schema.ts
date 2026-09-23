@@ -113,6 +113,41 @@ export const brokerStatusEnum = pgEnum("broker_status", [
   "suspended",
 ]);
 
+/**
+ * Marketing channels the portal can request content for.
+ *
+ * Deliberately three, and deliberately NOT a free-text field: each one has a
+ * different fulfilment path and a different definition of "published", and a
+ * channel nobody has written that path for would sit in the queue forever
+ * looking like a bug.
+ */
+export const contentChannelEnum = pgEnum("content_channel", [
+  "blog",
+  "linkedin",
+  "email",
+]);
+
+/**
+ * Where a request has got to.
+ *
+ *   requested   — Luis asked for it. Nothing has happened yet.
+ *   in_progress — a scheduled task has claimed it and is working.
+ *   drafted     — there is something to read, at draft_url.
+ *   published   — it is live (blog) or Luis sent it (LinkedIn, email).
+ *   failed      — fulfilment broke, and `error` says how. VISIBLE, not silent:
+ *                 a request that quietly stops is the exact failure this whole
+ *                 feature exists to prevent.
+ *   cancelled   — Luis changed his mind.
+ */
+export const contentStatusEnum = pgEnum("content_status", [
+  "requested",
+  "in_progress",
+  "drafted",
+  "published",
+  "failed",
+  "cancelled",
+]);
+
 export const activityKindEnum = pgEnum("activity_kind", [
   "email_in", "email_out", "call", "sms_in", "sms_out",
   "note", "field_change", "stage_change", "automation", "form_submission",
@@ -602,4 +637,58 @@ export const applicationProperties = pgTable("application_properties", {
 }, (t) => ({
   uniq: uniqueIndex("application_properties_app_property_key").on(t.applicationId, t.propertyId),
   appIdx: index("application_properties_application_idx").on(t.applicationId),
+}));
+
+/* -------------------------------------------------------- content_requests */
+
+/**
+ * A request for a blog post, a LinkedIn post or an email — and what became of it.
+ *
+ * THE PORTAL ASKS; IT DOES NOT WRITE. Nothing in this app calls a model. A row
+ * lands here, a scheduled Claude task picks it up, does the work with the brand
+ * voice and research skills that already exist, and writes back where the draft
+ * is. That keeps one definition of the brand voice instead of two, and keeps an
+ * API key out of the web app.
+ *
+ * NO DRAFT CONTENT IN THIS TABLE. `draft_url` points at the Gmail draft, the
+ * Klaviyo template or the MDX file; `draft_summary` is one line for the list.
+ * The portal stays a pipe, which is the same rule the document pipeline follows
+ * — storing the artefact here would make this a second, stale copy of something
+ * that is edited somewhere else.
+ */
+export const contentRequests = pgTable("content_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+
+  channel: contentChannelEnum("channel").notNull(),
+  /** What Luis typed. Verbatim — it is the brief, not a label. */
+  topic: text("topic").notNull(),
+  notes: text("notes"),
+
+  status: contentStatusEnum("status").notNull().default("requested"),
+
+  requestedBy: text("requested_by"),
+  requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+
+  /** Set when a task takes the job, so two tasks cannot both work one request. */
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  claimedBy: text("claimed_by"),
+
+  draftedAt: timestamp("drafted_at", { withTimezone: true }),
+  draftUrl: text("draft_url"),
+  draftSummary: text("draft_summary"),
+
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  publishedUrl: text("published_url"),
+
+  /** Why it failed, in words a non-developer can act on. */
+  error: text("error"),
+
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  statusIdx: index("content_requests_status_idx").on(t.status),
+  channelIdx: index("content_requests_channel_idx").on(t.channel),
+  requestedIdx: index("content_requests_requested_at_idx").on(t.requestedAt),
+  /** The cadence indicator reads this one on every page load. */
+  publishedIdx: index("content_requests_published_at_idx").on(t.publishedAt),
 }));

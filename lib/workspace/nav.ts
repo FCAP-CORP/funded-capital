@@ -52,6 +52,7 @@ export type NavIcon =
   | "pipeline"
   | "contacts"
   | "firms"
+  | "marketing"
   | "dashboard"
   | "pricing"
   | "portfolio"
@@ -97,6 +98,7 @@ const LENDING_OS_ITEMS: readonly NavItem[] = [
   { label: "Pipeline", href: "/crm", icon: "pipeline" },
   { label: "Contacts", href: "/crm/contacts", icon: "contacts" },
   { label: "Brokers", href: "/crm/brokers", icon: "firms" },
+  { label: "Marketing", href: "/crm/marketing", icon: "marketing" },
 ];
 
 const BROKER_ITEMS: readonly NavItem[] = [
