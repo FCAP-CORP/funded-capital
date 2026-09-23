@@ -12,15 +12,15 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "New Construction Loans — Up to 85% LTC, Ground-Up Financing | Funded Capital",
+  title: "New Construction Loans — Up to 90% of Cost, Ground-Up Financing | Funded Capital",
   description:
-    "Ground-up construction loans up to 85% LTC. Draw schedules, milestone funding. Rates from 8.75%. SFR, townhomes, small multifamily, ADUs. Apply in minutes.",
+    "Ground-up construction loans up to 90% of cost for experienced builders, 85% standard, plus a financed interest reserve. Draw schedules, milestone funding. Rates from 8.75%. SFR, townhomes, small multifamily, ADUs.",
 };
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
 const trustStats = [
-  { value: "Up to 85% LTC", label: "Loan-to-Cost" },
+  { value: "Up to 90%", label: "Loan-to-Full-Cost" },
   { value: "From 8.75%", label: "Interest Rate" },
   { value: "Draw Schedule Included", label: "Disbursement" },
   { value: "12–24 Month Terms", label: "Loan Term" },
@@ -67,11 +67,11 @@ const assetTypes = [
   },
 ];
 
-const rateTableHeaders = ["Project Size", "Max LTC", "Rate", "Draws", "Term"];
+const rateTableHeaders = ["Project Size", "Max Loan-to-Cost", "Rate", "Draws", "Term"];
 const rateTableRows = [
-  ["Up to $1M", "85% LTC", "From 8.75%", "Monthly", "12 mo"],
-  ["$1M–$5M", "85% LTC", "From 9.50%", "Milestone", "12–24 mo"],
-  ["$5M+", "85% LTC", "From 10.25%", "Negotiated", "Up to 24 mo"],
+  ["Up to $1M", "85–90%", "From 8.75%", "Monthly", "12 mo"],
+  ["$1M–$5M", "85–90%", "From 9.50%", "Milestone", "12–24 mo"],
+  ["$5M+", "85–90%", "From 10.25%", "Negotiated", "Up to 24 mo"],
 ];
 
 const faqs = [
@@ -94,6 +94,10 @@ const faqs = [
   {
     q: "What states do you lend in for new construction?",
     a: "We lend in 45 states nationwide. A few states are excluded due to licensing requirements. Contact a loan officer to confirm eligibility in your specific state before submitting an application.",
+  },
+  {
+    q: "How much of my project cost can you finance?",
+    a: "Most ground-up borrowers finance up to 85% of full cost — purchase price, any sunk costs, and the remaining construction budget. Builders with five or more completed ground-up projects reach 90%. On top of either figure, a further 5% of cost is available to finance the interest reserve, so an experienced builder can reach 95% of cost all-in with the reserve financed. Leverage is also limited by after-repair loan-to-value, and whichever cap is lower governs the deal. Final terms come from a term sheet, not from this page.",
   },
 ];
 
@@ -146,6 +150,14 @@ export default function NewConstructionLoansPage() {
               "text": "We lend in 45 states nationwide. A few states are excluded due to licensing requirements. Contact a loan officer to confirm eligibility in your specific state before submitting an application.",
             },
           },
+          {
+            "@type": "Question",
+            "name": "How much of my project cost can you finance?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Most ground-up borrowers finance up to 85% of full cost — purchase price, any sunk costs, and the remaining construction budget. Builders with five or more completed ground-up projects reach 90%. On top of either figure, a further 5% of cost is available to finance the interest reserve, so an experienced builder can reach 95% of cost all-in with the reserve financed. Leverage is also limited by after-repair loan-to-value, and whichever cap is lower governs the deal. Final terms come from a term sheet, not from this page.",
+            },
+          },
         ],
       },
       {
@@ -183,7 +195,7 @@ export default function NewConstructionLoansPage() {
               className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight"
             >
               New Construction Loans —{" "}
-              <span className="text-gold-500">Up to 85% LTC</span>, Ground-Up Financing
+              <span className="text-gold-500">Up to 90% of Cost</span>, Ground-Up Financing
             </h1>
             <p className="mt-6 text-lg text-slate-300 leading-relaxed max-w-2xl">
               Finance your ground-up development with flexible draw schedules and
@@ -201,7 +213,7 @@ export default function NewConstructionLoansPage() {
               </a>
             </div>
             <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2">
-              {["Up to 85% LTC", "Draw schedule included", "680+ credit score", "SFR, townhomes, multifamily"].map((item) => (
+              {["Up to 90% of cost for experienced builders", "Draw schedule included", "680+ credit score", "SFR, townhomes, multifamily"].map((item) => (
                 <span key={item} className="flex items-center gap-1.5 text-slate-400 text-sm">
                   <CheckCircle2 size={14} className="text-gold-500 shrink-0" />
                   {item}
