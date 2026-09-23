@@ -1,13 +1,15 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Building2, ChevronRight, CircleAlert } from "lucide-react";
+import { Building2, ChevronRight, CircleAlert, MailCheck } from "lucide-react";
 import { isCrmStaff } from "@/lib/crm/access";
 import { listBrokers, listFirms } from "@/lib/broker/admin.server";
+import { listInvites } from "@/lib/broker/invites.server";
+import { INVITE_STATUS_LABEL, inviteAgeDays, inviteStatus } from "@/lib/broker/invites";
 import { dealCountLabel, firmLabel } from "@/lib/broker/admin";
 import { BROKER_ROLE_LABEL, BROKER_STATUS_LABEL, label, money, shortDate } from "@/lib/crm/view";
 import { GridSkeleton } from "../Skeleton";
-import { NewFirmForm, StatusToggle } from "./Controls";
+import { InviteForm, NewFirmForm, RevokeInviteButton, StatusToggle } from "./Controls";
 
 /**
  * Brokers — firms, and the queue of people waiting to be put in one.
@@ -37,12 +39,21 @@ async function Brokers() {
   // user. See the same note in app/crm/page.tsx.
   if (!(await isCrmStaff())) notFound();
 
-  const [firms, brokers] = await Promise.all([listFirms(), listBrokers()]);
+  const [firms, brokers, invites] = await Promise.all([listFirms(), listBrokers(), listInvites()]);
+
+  const pendingInvites = invites.filter((i) => inviteStatus(i) === "pending");
 
   const unassigned = brokers.filter((b) => b.firmId === null);
 
   return (
     <>
+      {pendingInvites.length > 0 && (
+        <p className="mb-4 text-sm text-slate-600">
+          {pendingInvites.length} {pendingInvites.length === 1 ? "invitation is" : "invitations are"}{" "}
+          waiting to be used.
+        </p>
+      )}
+
       {unassigned.length > 0 && (
         <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
           <CircleAlert size={18} className="mt-0.5 shrink-0 text-amber-600" />
@@ -60,9 +71,85 @@ async function Brokers() {
         </div>
       )}
 
-      <div className="mb-8">
+      <div className="mb-6">
         <NewFirmForm />
       </div>
+
+      <div className="mb-8">
+        <InviteForm firms={firms.map((f) => ({ id: f.id, name: f.name }))} />
+      </div>
+
+      {/* ------------------------------------------------------- invitations */}
+      {invites.length > 0 && (
+        <section className="mb-10">
+          <h2 className="mb-1 text-sm font-semibold uppercase tracking-widest text-slate-500">
+            Invitations
+          </h2>
+          <p className="mb-3 max-w-3xl text-xs text-slate-500">
+            Nobody reaches the portal without one. Revoking blocks a future sign-in &mdash; it does
+            NOT remove access from someone who has already signed in. Suspend them on their broker
+            page for that.
+          </p>
+
+          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-widest text-slate-500">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Email</th>
+                  <th className="px-4 py-3 font-semibold">Firm</th>
+                  <th className="px-4 py-3 font-semibold">Role</th>
+                  <th className="px-4 py-3 font-semibold">Status</th>
+                  <th className="px-4 py-3 font-semibold">Invited</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {invites.map((i) => {
+                  const status = inviteStatus(i);
+                  const age = inviteAgeDays(i.invitedAt);
+                  return (
+                    <tr key={i.id} className={status === "revoked" ? "bg-slate-50/60" : undefined}>
+                      <td className="px-4 py-3 font-medium text-navy-900">
+                        {i.email}
+                        {i.note && <p className="mt-0.5 text-xs font-normal text-slate-500">{i.note}</p>}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{firmLabel(i.firmName)}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {label(BROKER_ROLE_LABEL, i.role)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={
+                            status === "accepted"
+                              ? "inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"
+                              : status === "revoked"
+                                ? "text-xs text-slate-500"
+                                : "rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800"
+                          }
+                        >
+                          {status === "accepted" && <MailCheck size={13} />}
+                          {INVITE_STATUS_LABEL[status]}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-500">
+                        {shortDate(i.invitedAt)}
+                        {status === "pending" && age !== null && age >= 7 && (
+                          <span className="ml-1 text-amber-600">&middot; {age}d</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {status !== "revoked" && (
+                          <RevokeInviteButton inviteId={i.id} accepted={status === "accepted"} />
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {/* ------------------------------------------------------------ firms */}
       <section className="mb-10">

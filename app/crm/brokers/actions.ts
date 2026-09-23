@@ -4,6 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { assertCrmStaff } from "@/lib/crm/access";
 import { isBrokerRole, isBrokerStatus } from "@/lib/broker/admin";
+import { createInvite, revokeInvite } from "@/lib/broker/invites.server";
 import {
   assignBroker,
   claimDeal,
@@ -170,6 +171,50 @@ export async function claimDealAction(
      * "/crm", and it was the first one after which every CRM page hung.
      */
     revalidatePath(`/crm/brokers/${brokerUserId}`);
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/* ------------------------------------------------------------- invitations */
+
+/**
+ * Invite a broker, with the firm and role decided up front.
+ *
+ * This is the control that makes the portal invitation-only in code rather than
+ * in a Clerk dashboard setting. It is also what lets a broker land already
+ * inside their firm instead of waiting in the unassigned queue.
+ */
+export async function inviteBrokerAction(
+  email: string,
+  firmId: string,
+  role: string,
+  note: string,
+): Promise<ActionResult> {
+  try {
+    const staffUserId = await requireStaff();
+    const res = await createInvite(email, firmId || null, role, note, staffUserId);
+    if (!res.ok) return res;
+    revalidatePath("/crm/brokers");
+    return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/**
+ * Revoke an invitation.
+ *
+ * Blocks a future sign-in only. Someone who already accepted has a broker row,
+ * and SUSPENDING that row is what cuts off access — the screen says so beside
+ * the button, because otherwise revoking reads as "locked out" and it is not.
+ */
+export async function revokeInviteAction(inviteId: string): Promise<ActionResult> {
+  try {
+    const staffUserId = await requireStaff();
+    await revokeInvite(inviteId, staffUserId);
+    revalidatePath("/crm/brokers");
     return { ok: true };
   } catch (err) {
     return fail(err);

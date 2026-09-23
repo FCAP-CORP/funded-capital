@@ -505,6 +505,77 @@ export const brokerUsers = pgTable("broker_users", {
   emailIdx: index("broker_users_email_idx").on(t.email),
 }));
 
+/* ---------------------------------------------------------- broker_invites */
+
+/**
+ * Who is allowed into the broker portal, decided before they arrive.
+ *
+ * TWO REASONS THIS TABLE EXISTS.
+ *
+ * The first is a lock. `app/sign-up` says "Invitation only" on the page, but
+ * the route is public in proxy.ts and the application enforces nothing — whether
+ * a stranger can register depends on a "restricted mode" toggle in the Clerk
+ * dashboard. That toggle may be on. The problem is that nobody can tell by
+ * reading this repository, the control lives outside version control, and one
+ * wrong click in a settings page opens the door with no trace. Clerk stays the
+ * outer lock; this is the inner one.
+ *
+ * The second is better. An invite CARRIES THE FIRM AND ROLE, so a broker lands
+ * already assigned and already able to see their colleagues' deals. Before this,
+ * every new broker sat in an unassigned queue waiting for Luis to notice. That
+ * queue is now the exception — someone who arrived another way — rather than the
+ * normal path.
+ *
+ * ONE INVITE PER ADDRESS. Re-inviting updates the existing row rather than
+ * stacking duplicates, so "is this person invited" always has one answer.
+ */
+export const brokerInvites = pgTable("broker_invites", {
+  id: uuid("id").primaryKey().defaultRandom(),
+
+  /** Lowercased at write time. The only thing an invite is ever matched on. */
+  email: text("email").notNull(),
+
+  /**
+   * Where they land. Null is legitimate and means "decide when they arrive" —
+   * they come in unassigned, exactly as before this table existed.
+   *
+   * `set null` on delete rather than cascade: deleting a firm must not silently
+   * delete the record that someone was invited.
+   */
+  firmId: uuid("firm_id").references(() => brokerFirms.id, { onDelete: "set null" }),
+  role: brokerRoleEnum("role").notNull().default("member"),
+
+  /** Luis's note on why. Never shown to the broker. */
+  note: text("note"),
+
+  /** Clerk id of the staff member who issued it. Audit, not decoration. */
+  invitedBy: text("invited_by"),
+  invitedAt: timestamp("invited_at", { withTimezone: true }).notNull().defaultNow(),
+
+  /**
+   * Stamped when the invite is consumed, together with WHICH Clerk account
+   * consumed it — so an invite is single-use and a forwarded link cannot be
+   * replayed by a second person.
+   */
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  acceptedByUserId: text("accepted_by_user_id"),
+
+  /**
+   * Revoking blocks a FUTURE sign-in. It does not remove access from someone
+   * who already accepted — by then a broker_users row exists and suspending
+   * that row is the control that cuts them off. The screen has to say so.
+   */
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  revokedBy: text("revoked_by"),
+
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  /** One invite per address, enforced by the database, not by the caller. */
+  emailKey: uniqueIndex("broker_invites_email_key").on(t.email),
+  firmIdx: index("broker_invites_firm_idx").on(t.firmId),
+}));
+
 
 /* ------------------------------------------------- application_properties */
 

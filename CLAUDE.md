@@ -131,8 +131,9 @@ resolves on, phone must pass E.164 normalisation, and consent is mirrored inboun
 **Access is an allowlist, and being signed in is never enough.** `CRM_STAFF_EMAILS` (falling back to
 `PARTICIPANT_ADMIN_EMAILS`) lists the staff addresses; `lib/crm/access.ts` is the only place that
 decides, it **fails closed** when unset, and a non-staff user gets a 404 rather than a 403 so the
-route does not advertise itself. The broker portal has open sign-up, so "any Clerk user" includes
-every registered broker — gating on `userId` alone would expose the whole borrower book. Every new
+route does not advertise itself. The broker portal is invitation-only as of 23 Sep 2026, but "any
+Clerk user" still includes every broker who holds an invitation — gating on `userId` alone would
+expose the whole borrower book. Every new
 `/crm` page and **every server action** carries its own check: an action is an addressable endpoint
 and a guard on the page does not cover it.
 
@@ -153,10 +154,11 @@ it enforces that are easy to get wrong:
 - **A null firm never matches a null firm.** Website and BiggerPockets leads have no
   `broker_firm_id`. A stray `null === null` hands every house lead to every broker in the system.
   Both null guards in `canViewApplication` are load-bearing.
-- **Unassigned is a normal state.** Brokers sign up themselves and get a `broker_users` row with a
-  null firm until Luis links them — that queue is how he works. They see their own submissions in
-  the meantime and nothing else. Firms are created by Luis in the CRM, never by self-service; a
-  broker who could type a brokerage name into a form could join a competitor's pipeline.
+- **Unassigned is still a normal state, but it is now the exception.** An invitation carries the
+  firm and role, so an invited broker lands already assigned. A null firm means someone arrived
+  another way, or was invited before Luis knew where to put them. They see their own submissions and
+  nothing else. Firms are created by Luis in the CRM, never by self-service; a broker who could type
+  a brokerage name into a form could join a competitor's pipeline.
 
 `applications.broker_firm_id` is stamped once at submission and never recalculated. Deriving it from
 the submitter's *current* firm means a broker changing brokerage drags their old deals into the new
@@ -178,9 +180,34 @@ and every function in it calls `assertCrmStaff()` itself. Four things there are 
 - **`claimDeal` re-reads the row and re-runs `canClaimDeal` before writing**, and the UPDATE carries
   its own `IS NULL` conditions, so two clicks arriving together cannot both succeed.
 
-`lib/broker/provision.ts` creates a `broker_users` row on a broker's first visit to the portal
-(skipped for staff). Before it existed a row was only created by a SUBMISSION, so the people most
-in need of linking — the ones waiting to be let in — were the ones Luis could not see.
+### Invitations — the portal is invitation-only IN CODE (Phase 2e)
+
+`app/sign-up` always said "Invitation only", but nothing in this repository enforced it: whether a
+stranger could register depended on a **restricted mode toggle in the Clerk dashboard** — a control
+outside version control that nobody could verify by reading the code, and that one wrong click
+opens with no trace. Clerk's setting is still the outer lock. `broker_invites` is the inner one.
+
+- **`app/broker-portal/layout.tsx` is the only door.** The check is in the LAYOUT, not the dashboard
+  page — putting it on the page would leave `/broker-portal/apply` and `/price` reachable by anyone
+  signed in. That hole was caught before shipping, not after.
+- **An invite carries the firm and role**, so a broker lands inside their firm on first sign-in and
+  sees their colleagues' deals immediately. That is the real value; the lock is the other half.
+- **An invite never moves an existing broker.** `shouldApplyInviteToExistingBroker()` returns false
+  and `admitBroker` throws if that ever changes. A stale invitation for a firm someone has left must
+  not be able to re-home them — an invite decides where a person STARTS, never where they end up.
+- **Single use, email-bound.** Acceptance stamps which Clerk account consumed it, and the UPDATE
+  carries `accepted_at IS NULL`, so a forwarded link cannot be replayed.
+- **Revoking blocks a future sign-in only.** Someone who already accepted has a `broker_users` row;
+  SUSPENDING that row is what cuts them off. The screen and the button tooltip both say so.
+- **Existing brokers are grandfathered** — anyone with a row keeps access, invitation or not.
+- **Invitations never expire on a timer.** `inviteAgeDays` exists to nudge Luis, nothing more. A
+  broker signing in three months late should get in, not hit a dead end neither of them understands.
+- **`admitBroker` fails CLOSED on a database error**, which refuses existing brokers too. Deliberate,
+  but not graceful — see the note in provision.ts before "improving" it.
+
+`lib/broker/invites.ts` holds the rules (pure, `invites.regress.ts`); `invites.server.ts` is
+staff-only issuing and revoking; `provision.ts` is the broker-facing acceptance and deliberately
+cannot import either of the staff modules.
 
 Broker roles are a separate axis from CRM staff access and grant no view of the book.
 `lib/crm/access.ts` decides who is Funded Capital; `lib/broker/scope.ts` decides what a broker sees
@@ -301,6 +328,23 @@ transitions at minimum.
   existed — `/api/broker/consent-status` 404'd while `/api/my-submissions` worked and
   the production build compiled both. `fc-dev-clean.bat` clears the cache and restarts.
   A suspiciously fast "Ready in 481ms" is the tell.
+- **A `.bat` that calls `npx` MUST use `call npx`,** or the window closes without running
+  anything after that line. `npx` on Windows is `npx.cmd` — a batch file — and one `.bat`
+  invoking another without `call` hands over control and never comes back, so the `pause`
+  at the end never runs and the error scrolls past in a window that shuts instantly.
+  `fc-check.bat` does not need this because `node` is an `.exe`. Symptom: "it opens and
+  closes immediately."
+- **A script under `scripts/` must load `.env.local` itself,** with
+  `loadEnv({ path: join(ROOT, ".env.local") })` before importing anything that reads
+  `DATABASE_URL` — `lib/db` throws at import time when it is unset. `migrate-crm.ts`,
+  `backfill-broker-sheet.ts` and `test-broker-submission.ts` all do this. A script tested by
+  passing `DATABASE_URL=... npx tsx ...` on the command line will appear to work and then
+  fail for the person double-clicking the `.bat`, because that is the one condition the test
+  never reproduced. Test scripts the way the `.bat` runs them: with nothing preset.
+- **A script that imports a `server-only` module needs `--conditions=react-server`.**
+  `server-only`'s default export throws by design; the `react-server` condition resolves it
+  to an empty file instead. `npx tsx --conditions=react-server scripts/x.ts` is how
+  `scripts/test-invites.ts` can call the real `admitBroker`.
 - **`neon(url).query(text)` does not exist here.** `@neondatabase/serverless` is pinned at 0.10.4,
   where `neon()` returns a tagged-template function carrying only `.transaction` — `.query()` arrived
   in a later major. To run raw SQL (a migration file, say), go through drizzle:

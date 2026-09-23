@@ -1,7 +1,4 @@
 import { NextResponse } from "next/server";
-import { currentUser } from "@clerk/nextjs/server";
-import { isCrmStaff } from "@/lib/crm/access";
-import { ensureBrokerUser } from "@/lib/broker/provision";
 import { resolveBrokerViewer } from "@/lib/broker/viewer";
 import { getBrokerPipeline } from "@/lib/broker/queries";
 import { queryScope } from "@/lib/broker/scope";
@@ -26,38 +23,19 @@ export async function GET() {
   const viewer = await resolveBrokerViewer();
 
   /**
-   * No broker record means this is someone's first visit to the portal.
+   * No broker record means they are not admitted to the portal.
    *
-   * Their row is created here, unassigned, so they appear in Luis's queue and
-   * can be linked to a firm. Creating the row grants NOTHING — an unassigned
-   * broker sees their own submissions and nothing else, and they have none yet.
-   * It only makes them visible, which is the thing that was missing: a broker
-   * used to be invisible until their first submission, so the people waiting to
-   * be let in were precisely the ones nobody could see.
-   *
-   * Staff are skipped. Luis opening the broker portal should not put him in his
-   * own queue.
+   * Admission is decided in app/broker-portal/page.tsx, which holds the
+   * invitation check and renders the gate screen. By the time a real broker's
+   * dashboard calls this, their row exists — so reaching here with no viewer
+   * means either a direct call to the endpoint or a race during sign-in.
+   * Either way the honest answer is an empty pipeline, not an error.
    */
   if (!viewer) {
-    const empty = NextResponse.json({
+    return NextResponse.json({
       ok: true, deals: [], scope: "none",
       stats: { active: 0, waitingOnYou: 0, pipelineValue: 0, funded: 0 },
     });
-
-    if (await isCrmStaff()) return empty;
-
-    const user = await currentUser();
-    if (!user) return empty;
-
-    await ensureBrokerUser(
-      user.id,
-      user.primaryEmailAddress?.emailAddress,
-      user.fullName,
-    );
-
-    // Still empty either way — a brand-new broker has filed nothing. The row
-    // matters for the next screen Luis looks at, not for this response.
-    return empty;
   }
 
   const deals = await getBrokerPipeline(viewer);

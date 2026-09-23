@@ -1,11 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Building2, Check, Loader2, Plus, ShieldOff, ShieldCheck, Link2 } from "lucide-react";
+import { Building2, Check, Loader2, Plus, ShieldOff, ShieldCheck, Link2, Send, Ban } from "lucide-react";
 import { BROKER_ROLES, ROLE_DESCRIPTION } from "@/lib/broker/admin";
 import type { BrokerRole, BrokerStatus } from "@/lib/broker/scope";
 import {
   assignBrokerAction,
+  inviteBrokerAction,
+  revokeInviteAction,
   claimDealAction,
   createFirmAction,
   setBrokerNotesAction,
@@ -293,5 +295,129 @@ export function NotesBox({ brokerUserId, initial }: { brokerUserId: string; init
       {saved && !pending && <p className="mt-1 text-xs text-emerald-600">Saved.</p>}
       <Err msg={error} />
     </div>
+  );
+}
+
+/* --------------------------------------------------------------- invites */
+
+export function InviteForm({ firms }: { firms: { id: string; name: string }[] }) {
+  const [email, setEmail] = useState("");
+  const [firmId, setFirmId] = useState("");
+  const [role, setRole] = useState<BrokerRole>("member");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+
+  const submit = () => {
+    setError(null);
+    setDone(null);
+    start(async () => {
+      const res: Result = await inviteBrokerAction(email, firmId, role, note);
+      if (res.ok) {
+        setDone(email.trim());
+        setEmail("");
+        setNote("");
+      } else {
+        setError(res.error);
+      }
+    });
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <p className="text-sm font-semibold text-navy-900 flex items-center gap-2">
+        <Send size={16} className="text-gold-600" /> Invite a broker
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        The portal is invitation only. Pick their firm and role now and they land inside it the
+        moment they sign in &mdash; no queue, nothing waiting on you to notice.
+      </p>
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="jasson@legacyhml.com"
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-gold-500 focus:outline-none"
+        />
+        <select
+          value={firmId}
+          onChange={(e) => setFirmId(e.target.value)}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-gold-500 focus:outline-none"
+        >
+          <option value="">No firm yet &mdash; decide later</option>
+          {firms.map((f) => (
+            <option key={f.id} value={f.id}>{f.name}</option>
+          ))}
+        </select>
+        <select
+          value={role}
+          onChange={(e) => setRole(e.target.value as BrokerRole)}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-gold-500 focus:outline-none"
+        >
+          {BROKER_ROLES.map((r) => (
+            <option key={r} value={r}>{r}</option>
+          ))}
+        </select>
+        <button
+          onClick={submit}
+          disabled={pending || !email.trim()}
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-navy-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+        >
+          {pending ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />}
+          Invite
+        </button>
+      </div>
+
+      <input
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder="Note (optional, never shown to the broker)"
+        className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-gold-500 focus:outline-none"
+      />
+
+      <p className="mt-2 text-xs text-slate-500">{ROLE_DESCRIPTION[role]}</p>
+      <Err msg={error} />
+      {done && (
+        <p className="mt-2 text-xs text-emerald-600">
+          Invited {done}. Send them the portal link yourself &mdash; this records the invitation, it
+          does not email them.
+        </p>
+      )}
+    </div>
+  );
+}
+
+export function RevokeInviteButton({ inviteId, accepted }: { inviteId: string; accepted: boolean }) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+
+  const revoke = () => {
+    setError(null);
+    start(async () => {
+      const res: Result = await revokeInviteAction(inviteId);
+      if (!res.ok) setError(res.error);
+    });
+  };
+
+  return (
+    <>
+      <button
+        onClick={revoke}
+        disabled={pending}
+        title={
+          accepted
+            ? "They have already signed in — revoking records the decision but does NOT remove their access. Suspend them on their broker page to do that."
+            : "Blocks this address from signing in"
+        }
+        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+      >
+        {pending ? <Loader2 size={13} className="animate-spin" /> : <Ban size={13} />}
+        Revoke
+      </button>
+      <Err msg={error} />
+    </>
   );
 }
