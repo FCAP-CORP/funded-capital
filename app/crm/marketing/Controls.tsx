@@ -75,9 +75,9 @@ export function RequestForm() {
       */}
       <p className="mt-2 text-xs text-slate-500">
         You get <span className="font-medium text-slate-700">{spec.produces}</span>.{" "}
-        {spec.autoPublishes
-          ? "It goes live on its own once you approve it."
-          : `Nothing goes out until you send it — "published" here means ${spec.publishedMeans}.`}
+        Nothing reaches anyone until you{" "}
+        <span className="font-medium text-slate-700">{spec.publishStep}</span> —
+        &ldquo;published&rdquo; here means {spec.publishedMeans}.
       </p>
 
       <textarea

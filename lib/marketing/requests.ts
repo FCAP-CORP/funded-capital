@@ -37,16 +37,22 @@ export interface ChannelSpec {
   /** What the fulfilment task actually produces. Shown in the UI verbatim. */
   produces: string;
   /**
-   * Whether the pipeline can put it live on its own.
+   * Whether anything here reaches the public without Luis.
    *
-   * ONLY THE BLOG CAN. A blog post is an MDX file in this repository, and a push
-   * deploys it. LinkedIn has no connector here, and a Klaviyo template is not a
-   * send — someone chooses the list and presses the button. Saying "published"
-   * for those would be the portal claiming credit for work still sitting in a
-   * draft folder, which is precisely the illusion that let the blog go quiet for
-   * twenty-four days.
+   * FALSE FOR ALL THREE, AND THAT IS THE INVARIANT. An earlier version of this
+   * file said the blog published itself, because a post is an MDX file and a
+   * push deploys it — but the push is `publish-blog.bat`, which is a person
+   * double-clicking something. Writing "it goes live on its own" into the form
+   * was a claim about a step that does not exist, which is the same species of
+   * error as a marketing screen reporting a silence it never checked.
+   *
+   * The test asserts this stays false everywhere. If it ever flips, something
+   * must genuinely be able to put content in front of borrowers unattended, and
+   * that is a decision to make on purpose rather than to discover.
    */
   autoPublishes: boolean;
+  /** The one thing Luis does to make it public. Named, so the form can say it. */
+  publishStep: string;
   /** What "published" means here, in the words the screen should use. */
   publishedMeans: string;
   /**
@@ -65,8 +71,9 @@ export interface ChannelSpec {
 export const CHANNEL_SPEC: Record<ContentChannel, ChannelSpec> = {
   blog: {
     label: "Blog",
-    produces: "an MDX post in the repository",
-    autoPublishes: true,
+    produces: "a draft post in the repository",
+    autoPublishes: false,
+    publishStep: "run publish-blog.bat",
     publishedMeans: "live on fundedcapital.com/blog",
     hasArchive: true,
     targetDays: 1,
@@ -75,6 +82,7 @@ export const CHANNEL_SPEC: Record<ContentChannel, ChannelSpec> = {
     label: "LinkedIn",
     produces: "a post and a carousel brief, in a Gmail draft",
     autoPublishes: false,
+    publishStep: "post it on LinkedIn",
     publishedMeans: "you posted it",
     hasArchive: false,
     targetDays: 7,
@@ -83,6 +91,7 @@ export const CHANNEL_SPEC: Record<ContentChannel, ChannelSpec> = {
     label: "Email",
     produces: "a draft template in Klaviyo",
     autoPublishes: false,
+    publishStep: "send it from Klaviyo",
     publishedMeans: "you sent it from Klaviyo",
     hasArchive: false,
     targetDays: 30,

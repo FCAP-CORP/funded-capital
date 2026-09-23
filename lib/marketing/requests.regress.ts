@@ -39,13 +39,17 @@ const hoursAgo = (n: number) => new Date(NOW.getTime() - n * 3_600_000).toISOStr
 
 /* ---------------------------------------------------------------- channels */
 
-console.log("\n=== 1. Only the blog can publish itself ===");
+console.log("\n=== 1. NOTHING reaches the public without Luis ===");
 
-check("blog auto-publishes", CHANNEL_SPEC.blog.autoPublishes, "yes");
-// If either of these ever flips to true, something must actually be able to post
-// on LinkedIn or send from Klaviyo — and nothing here can.
-check("LinkedIn does NOT", !CHANNEL_SPEC.linkedin.autoPublishes, "correct");
-check("email does NOT", !CHANNEL_SPEC.email.autoPublishes, "correct");
+// The invariant, and the reason it is a test rather than a comment: if one of
+// these ever flips to true, something must genuinely be able to publish
+// unattended. Nothing here can — the blog needs publish-blog.bat, LinkedIn has
+// no connector, and a Klaviyo template is not a send. An earlier version of this
+// file claimed the blog published itself; it does not.
+for (const c of CHANNELS) {
+  check(`  ${c} does not publish itself`, !CHANNEL_SPEC[c].autoPublishes, "correct");
+}
+check("every channel names the step that makes it public", CHANNELS.every((c) => CHANNEL_SPEC[c].publishStep.length > 5), CHANNELS.map((c) => CHANNEL_SPEC[c].publishStep).join(" / "));
 check("only the blog has an archive outside this table", CHANNELS.filter((c) => CHANNEL_SPEC[c].hasArchive).join(",") === "blog", CHANNELS.filter((c) => CHANNEL_SPEC[c].hasArchive).join(","));
 check("every channel says what it produces", CHANNELS.every((c) => CHANNEL_SPEC[c].produces.length > 5), "all present");
 check("every channel says what published means", CHANNELS.every((c) => CHANNEL_SPEC[c].publishedMeans.length > 5), "all present");
