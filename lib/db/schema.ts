@@ -359,6 +359,16 @@ export const applications = pgTable("applications", {
    */
   brokerFirmId: uuid("broker_firm_id").references(() => brokerFirms.id, { onDelete: "set null" }),
 
+  /**
+   * When this deal should surface on the dashboard again, and when that was
+   * decided. The set-at column is not redundant: the work queue voids a snooze
+   * if the borrower makes contact after it was taken, and without knowing when
+   * it was taken there is no way to tell which came first.
+   */
+  nextActionAt: timestamp("next_action_at", { withTimezone: true }),
+  nextActionSetAt: timestamp("next_action_set_at", { withTimezone: true }),
+  nextActionNote: text("next_action_note"),
+
   legacySource: text("legacy_source"),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -370,6 +380,7 @@ export const applications = pgTable("applications", {
   /** Both sides of every broker-scoped query. Without these the portal scans. */
   submitterIdx: index("applications_submitted_by_idx").on(t.submittedByUserId),
   brokerFirmIdx: index("applications_broker_firm_idx").on(t.brokerFirmId),
+  nextActionIdx: index("applications_next_action_at_idx").on(t.nextActionAt),
 }));
 
 /* ----------------------------------------------------------- participants */

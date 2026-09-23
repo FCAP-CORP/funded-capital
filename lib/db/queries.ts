@@ -1,6 +1,7 @@
 import "server-only";
 import { desc, sql as dsql, eq, type SQL, type AnyColumn } from "drizzle-orm";
 import { db } from "./index";
+import { CONTACT_KINDS } from "./contactKinds";
 import { activities, applications, contacts, participants, properties } from "./schema";
 import { assertCrmStaff } from "@/lib/crm/access";
 import type { DashboardApplication } from "@/lib/crm/dashboard";
@@ -32,14 +33,15 @@ import type { DashboardApplication } from "@/lib/crm/dashboard";
  * every untouched lead back under a reassuring "last contacted" date — which is
  * the illusion this column exists to destroy.
  */
+
 const LAST_CONTACT_AT = (contactId: SQL | AnyColumn) => dsql<Date | null>`(
   SELECT max(a.occurred_at) FROM ${activities} a
-  WHERE a.contact_id = ${contactId} AND a.kind IN ('email_in', 'email_out')
+  WHERE a.contact_id = ${contactId} AND a.kind IN ${CONTACT_KINDS}
 )`;
 
 const LAST_CONTACT_DIR = (contactId: SQL | AnyColumn) => dsql<string | null>`(
   SELECT a.kind FROM ${activities} a
-  WHERE a.contact_id = ${contactId} AND a.kind IN ('email_in', 'email_out')
+  WHERE a.contact_id = ${contactId} AND a.kind IN ${CONTACT_KINDS}
   ORDER BY a.occurred_at DESC LIMIT 1
 )`;
 
@@ -127,9 +129,9 @@ export async function getPipeline(): Promise<PipelineRow[]> {
       c.email,
       c.phone,
       (SELECT max(ac.occurred_at) FROM activities ac
-        WHERE ac.contact_id = c.contact_id AND ac.kind IN ('email_in','email_out')) AS last_contact_at,
+        WHERE ac.contact_id = c.contact_id AND ac.kind IN ${CONTACT_KINDS}) AS last_contact_at,
       (SELECT ac.kind FROM activities ac
-        WHERE ac.contact_id = c.contact_id AND ac.kind IN ('email_in','email_out')
+        WHERE ac.contact_id = c.contact_id AND ac.kind IN ${CONTACT_KINDS}
         ORDER BY ac.occurred_at DESC LIMIT 1) AS last_contact_direction
     FROM applications a
     LEFT JOIN properties pr ON pr.id = a.property_id
@@ -258,7 +260,7 @@ export async function getCounts(): Promise<CrmCounts> {
     .from(contacts)
     .where(dsql`NOT EXISTS (
       SELECT 1 FROM ${activities} a
-      WHERE a.contact_id = ${contacts.id} AND a.kind IN ('email_in', 'email_out')
+      WHERE a.contact_id = ${contacts.id} AND a.kind IN ${CONTACT_KINDS}
     )`);
 
   return {
@@ -313,14 +315,17 @@ export async function getDashboardApplications(): Promise<DashboardApplication[]
         (SELECT min(st.changed_at) FROM stage_transitions st
           WHERE st.application_id = a.id AND st.to_stage = 'funded')
       ) AS funded_at,
+      a.next_action_at,
+      a.next_action_set_at,
+      a.next_action_note,
       c.contact_id,
       c.first_name,
       c.last_name,
       c.email,
       (SELECT max(ac.occurred_at) FROM activities ac
-        WHERE ac.contact_id = c.contact_id AND ac.kind IN ('email_in','email_out')) AS last_contact_at,
+        WHERE ac.contact_id = c.contact_id AND ac.kind IN ${CONTACT_KINDS}) AS last_contact_at,
       (SELECT ac.kind FROM activities ac
-        WHERE ac.contact_id = c.contact_id AND ac.kind IN ('email_in','email_out')
+        WHERE ac.contact_id = c.contact_id AND ac.kind IN ${CONTACT_KINDS}
         ORDER BY ac.occurred_at DESC LIMIT 1) AS last_contact_direction
     FROM applications a
     LEFT JOIN LATERAL (
@@ -349,5 +354,8 @@ export async function getDashboardApplications(): Promise<DashboardApplication[]
     termSheetSignedAt: iso(r.term_sheet_signed_at),
     lastContactAt: iso(r.last_contact_at),
     lastContactDirection: str(r.last_contact_direction),
+    nextActionAt: iso(r.next_action_at),
+    nextActionSetAt: iso(r.next_action_set_at),
+    nextActionNote: str(r.next_action_note),
   }));
 }

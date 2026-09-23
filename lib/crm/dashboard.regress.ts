@@ -16,8 +16,12 @@ import {
   computeKpis,
   isOpen,
   needsWork,
+  isInboundDirection,
   queueReasonFor,
   queueSummary,
+  snoozeState,
+  snoozedItems,
+  snoozesBrokenByInbound,
   stageCounts,
   type DashboardApplication,
   type QueueReason,
@@ -51,6 +55,9 @@ function app(over: Partial<DashboardApplication> = {}): DashboardApplication {
     termSheetSignedAt: null,
     lastContactAt: daysAgo(1),
     lastContactDirection: "email_out",
+    nextActionAt: null,
+    nextActionSetAt: null,
+    nextActionNote: null,
     ...over,
   };
 }
@@ -302,6 +309,100 @@ check("a null contact id cannot be a duplicate", buildWorkQueue([
   app({ id: "n1", contactId: null, stageEnteredAt: daysAgo(1), lastContactAt: daysAgo(1), lastContactDirection: "email_out" }),
   app({ id: "n2", contactId: null, stageEnteredAt: daysAgo(1), lastContactAt: daysAgo(1), lastContactDirection: "email_out" }),
 ], QUEUE_DEFAULTS, NOW).length === 0, "not grouped by null");
+
+/* ------------------------------------------------------------- snoozing */
+
+console.log("\n=== 15. Snoozing takes work off the list without losing it ===");
+
+const inDays = (n: number): string => new Date(NOW.getTime() + n * 86_400_000).toISOString();
+
+// Baseline: this deal is genuinely work. Stalled 40 days, nobody has written.
+const stale = () => app({ id: "s1", stage: "lead", stageEnteredAt: daysAgo(40), submittedAt: daysAgo(40), createdAt: daysAgo(40), lastContactAt: daysAgo(40), lastContactDirection: "email_out", contactId: "solo" });
+
+check("without a snooze it is in the queue", buildWorkQueue([stale()], QUEUE_DEFAULTS, NOW).length === 1, "present");
+
+const snoozed = app({ ...stale(), nextActionAt: inDays(2), nextActionSetAt: daysAgo(0.5), nextActionNote: "Waiting on their contractor bid" });
+check("snoozed two days out, it leaves the queue", buildWorkQueue([snoozed], QUEUE_DEFAULTS, NOW).length === 0, "gone");
+check("queueReasonFor agrees it is not work yet", queueReasonFor(snoozed, { thresholds: QUEUE_DEFAULTS, duplicateContacts: new Set() }, NOW) === null, "null");
+
+const expired = app({ ...stale(), nextActionAt: daysAgo(1), nextActionSetAt: daysAgo(5) });
+check("a snooze that has run out returns it", buildWorkQueue([expired], QUEUE_DEFAULTS, NOW).length === 1, "back");
+check("and it comes back with its real reason", buildWorkQueue([expired], QUEUE_DEFAULTS, NOW)[0].reason === "stalled", buildWorkQueue([expired], QUEUE_DEFAULTS, NOW)[0].reason);
+
+const exactlyNow = app({ ...stale(), nextActionAt: NOW.toISOString(), nextActionSetAt: daysAgo(3) });
+check("due this exact second counts as due, not snoozed", !snoozeState(exactlyNow, NOW).snoozed, "due");
+
+console.log("\n=== 16. A snooze cannot bury someone who writes to you ===");
+
+// Snoozed four days ago; they wrote three days ago, which is both AFTER the
+// snooze and past the two-day awaiting-reply threshold.
+const wroteAfter = app({ ...stale(), nextActionAt: inDays(5), nextActionSetAt: daysAgo(4), lastContactAt: daysAgo(3), lastContactDirection: "email_in" });
+check("inbound email AFTER the snooze breaks it", !snoozeState(wroteAfter, NOW).snoozed, "surfaced");
+check("and it is flagged as broken by inbound", snoozeState(wroteAfter, NOW).brokenByInbound, "flagged");
+check("it is back in the queue", buildWorkQueue([wroteAfter], QUEUE_DEFAULTS, NOW).length === 1, "present");
+check("as awaiting_reply, the most urgent reason", buildWorkQueue([wroteAfter], QUEUE_DEFAULTS, NOW)[0].reason === "awaiting_reply", buildWorkQueue([wroteAfter], QUEUE_DEFAULTS, NOW)[0].reason);
+check("snoozesBrokenByInbound names it", snoozesBrokenByInbound([wroteAfter], NOW).join(",") === "s1", snoozesBrokenByInbound([wroteAfter], NOW).join(","));
+
+const wroteBefore = app({ ...stale(), nextActionAt: inDays(5), nextActionSetAt: daysAgo(1), lastContactAt: daysAgo(3), lastContactDirection: "email_in" });
+check("inbound email BEFORE the snooze does not break it", snoozeState(wroteBefore, NOW).snoozed, "still snoozed");
+check("because that is the mail you snoozed in response to", buildWorkQueue([wroteBefore], QUEUE_DEFAULTS, NOW).length === 0, "stays down");
+
+const weWroteAfter = app({ ...stale(), nextActionAt: inDays(5), nextActionSetAt: daysAgo(3), lastContactAt: daysAgo(1), lastContactDirection: "email_out" });
+check("OUR outbound email after the snooze does not break it", snoozeState(weWroteAfter, NOW).snoozed, "still snoozed");
+
+const textedAfter = app({ ...stale(), nextActionAt: inDays(5), nextActionSetAt: daysAgo(3), lastContactAt: daysAgo(1), lastContactDirection: "sms_in" });
+check("an inbound TEXT breaks it too, not just email", !snoozeState(textedAfter, NOW).snoozed, "surfaced");
+
+const noSetAt = app({ ...stale(), nextActionAt: inDays(5), nextActionSetAt: null, lastContactAt: daysAgo(1), lastContactDirection: "email_in" });
+check("no set-at recorded plus inbound fails towards surfacing", !snoozeState(noSetAt, NOW).snoozed, "surfaced");
+
+check("email_in is inbound", isInboundDirection("email_in"), "yes");
+check("sms_in is inbound", isInboundDirection("sms_in"), "yes");
+check("email_out is not inbound", !isInboundDirection("email_out"), "correct");
+check("null is not inbound", !isInboundDirection(null), "correct");
+check("the bare word in is not inbound", !isInboundDirection("in"), "correct");
+
+// A broken snooze does not invent urgency. It voids the decision and lets the
+// deal stand on its own merits — which may be "not work yet". Below, they wrote
+// only one day ago and the threshold is two, so the right answer is that this
+// appears on NEITHER list today and surfaces by itself tomorrow. Worth pinning:
+// the alternative, surfacing it with no reason to give, is how a work queue
+// fills up with rows nobody can act on.
+const brokenButNotYetDue = app({
+  id: "b1", stage: "lead", stageEnteredAt: daysAgo(3), submittedAt: daysAgo(3), createdAt: daysAgo(3),
+  contactId: "solo2", requestedAmount: "100000", name: "Too Soon", email: "t@example.com",
+  fundedAt: null, decisionedAt: null, termSheetIssuedAt: null, termSheetSignedAt: null,
+  lastContactAt: daysAgo(1), lastContactDirection: "email_in",
+  nextActionAt: inDays(5), nextActionSetAt: daysAgo(3), nextActionNote: null,
+});
+check("the snooze is void once they write", !snoozeState(brokenButNotYetDue, NOW).snoozed, "void");
+check("but a void snooze does not manufacture a reason", buildWorkQueue([brokenButNotYetDue], QUEUE_DEFAULTS, NOW).length === 0, "not work yet");
+check("and it is no longer counted as parked either", snoozedItems([brokenButNotYetDue], NOW).length === 0, "not parked");
+check("it surfaces on its own the next day", buildWorkQueue([brokenButNotYetDue], QUEUE_DEFAULTS, new Date(NOW.getTime() + 86_400_000)).length === 1, "appears");
+
+console.log("\n=== 17. Snoozed work stays visible ===");
+
+const lot = [
+  app({ ...stale(), id: "far", name: "Zoe", nextActionAt: inDays(9), nextActionSetAt: daysAgo(1), nextActionNote: "Chasing appraisal" }),
+  app({ ...stale(), id: "near", name: "Adam", nextActionAt: inDays(1), nextActionSetAt: daysAgo(1), nextActionNote: null }),
+  app({ ...stale(), id: "due", name: "Past", nextActionAt: daysAgo(2), nextActionSetAt: daysAgo(6) }),
+  app({ ...stale(), id: "open", name: "Never", nextActionAt: null }),
+];
+const parked = snoozedItems(lot, NOW);
+check("only the two still-future snoozes are listed", parked.length === 2, `${parked.length}`);
+check("soonest to return comes first", parked[0].applicationId === "near", parked.map((p) => p.applicationId).join(","));
+check("the note travels with it", parked[1].note === "Chasing appraisal", String(parked[1].note));
+check("an expired snooze is not listed as parked", !parked.some((p) => p.applicationId === "due"), "excluded");
+check("the queue and the parked list do not overlap", buildWorkQueue(lot, QUEUE_DEFAULTS, NOW).every((q) => !parked.some((p) => p.applicationId === q.applicationId)), "disjoint");
+check("everything is accounted for: 2 working + 2 parked", buildWorkQueue(lot, QUEUE_DEFAULTS, NOW).length + parked.length === 4, `${buildWorkQueue(lot, QUEUE_DEFAULTS, NOW).length} + ${parked.length}`);
+
+const fundedParked = app({ ...stale(), id: "f1", stage: "funded", nextActionAt: inDays(3), nextActionSetAt: daysAgo(1) });
+check("a funded loan is not parked work, it is not work", snoozedItems([fundedParked], NOW).length === 0, "excluded");
+
+console.log("\n=== 18. Bad snooze data does not throw ===");
+check("an unparseable snooze date is treated as no snooze", !snoozeState(app({ ...stale(), nextActionAt: "whenever" }), NOW).snoozed, "ignored");
+check("and the deal still surfaces normally", buildWorkQueue([app({ ...stale(), nextActionAt: "whenever" })], QUEUE_DEFAULTS, NOW).length === 1, "present");
+check("snoozedItems on an empty book does not throw", snoozedItems([], NOW).length === 0, "empty");
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

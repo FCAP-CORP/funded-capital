@@ -87,6 +87,13 @@ export interface DashboardApplication {
   /** Newest email either way, and which way. Null means never contacted. */
   lastContactAt: string | null;
   lastContactDirection: string | null;
+
+  /** When this deal should surface again. Null means it is not snoozed. */
+  nextActionAt: string | null;
+  /** When that decision was taken. Inbound contact after this beats the snooze. */
+  nextActionSetAt: string | null;
+  /** Why it was put down, shown when it comes back. */
+  nextActionNote: string | null;
 }
 
 const amount = (v: string | null | undefined): number => {
@@ -204,6 +211,62 @@ export function stageCounts(apps: DashboardApplication[]): StageCount[] {
 /* -------------------------------------------------------------- work queue */
 
 /**
+ * Did this contact come FROM the borrower?
+ *
+ * Deliberately broader than the test `awaiting_reply` uses, which looks only at
+ * email. A snooze is a decision made on the information available at the time,
+ * so anything the borrower sends afterwards — email or text — is newer
+ * information and outranks it. Erring wide here surfaces work; erring narrow
+ * buries a person who is actively trying to reach you. Those are not
+ * symmetrical mistakes.
+ */
+export function isInboundDirection(direction: string | null): boolean {
+  return typeof direction === "string" && direction.endsWith("_in");
+}
+
+export interface SnoozeState {
+  /** True when this deal should stay out of the queue right now. */
+  snoozed: boolean;
+  /** When it returns, if it is snoozed. */
+  until: string | null;
+  /** Set when a snooze existed but the borrower has since made contact. */
+  brokenByInbound: boolean;
+}
+
+/**
+ * Whether a deal is currently put down, and whether that decision still holds.
+ *
+ * A snooze is NOT a mute. It says "nothing to do until Thursday" — a claim
+ * about the future that stops being true the moment the borrower writes back.
+ * Without this, snoozing would be the one action on this screen that can make a
+ * live borrower disappear, which is the opposite of what the screen is for.
+ */
+export function snoozeState(
+  app: DashboardApplication,
+  now: Date = new Date(),
+): SnoozeState {
+  const until = time(app.nextActionAt);
+  if (until === null) return { snoozed: false, until: null, brokenByInbound: false };
+
+  // Already due, or overdue. Back in the queue on its own merits.
+  if (until <= now.getTime()) {
+    return { snoozed: false, until: app.nextActionAt, brokenByInbound: false };
+  }
+
+  if (isInboundDirection(app.lastContactDirection)) {
+    const heard = time(app.lastContactAt);
+    const setAt = time(app.nextActionSetAt);
+    // No set-at recorded: treat any inbound contact as newer. A row written
+    // before this column existed should fail towards surfacing the deal.
+    if (heard !== null && (setAt === null || heard > setAt)) {
+      return { snoozed: false, until: app.nextActionAt, brokenByInbound: true };
+    }
+  }
+
+  return { snoozed: true, until: app.nextActionAt, brokenByInbound: false };
+}
+
+/**
  * Why something is in the queue, in the order urgency actually runs.
  *
  * `awaiting_reply` is first and it is not a close call. It is the only reason
@@ -317,6 +380,7 @@ export function queueReasonFor(
   now: Date = new Date(),
 ): { reason: QueueReason; waitingDays: number } | null {
   if (!needsWork(app.stage)) return null;
+  if (snoozeState(app, now).snoozed) return null;
 
   const { thresholds: th } = opts;
 
@@ -393,4 +457,65 @@ export function buildWorkQueue(
 export function queueSummary(items: QueueItem[]): { reason: QueueReason; count: number }[] {
   const order: QueueReason[] = ["awaiting_reply", "term_sheet_cold", "duplicate", "stalled", "never_contacted"];
   return order.map((reason) => ({ reason, count: items.filter((i) => i.reason === reason).length }));
+}
+
+/* ------------------------------------------------------------------ */
+/* Snoozed work — visible, never hidden                                */
+/* ------------------------------------------------------------------ */
+
+export interface SnoozedItem {
+  applicationId: string;
+  contactId: string | null;
+  name: string;
+  stage: string;
+  /** When it comes back. */
+  until: string;
+  note: string | null;
+}
+
+/**
+ * Everything currently put down, soonest to return first.
+ *
+ * This exists so the dashboard can SAY how much is snoozed. A queue that can be
+ * emptied by snoozing, with no count of what was snoozed, is a queue that
+ * rewards hiding work — and this company already has one of those: 49 LinkedIn
+ * drafts with a single post to show for them. The number goes on the screen.
+ */
+export function snoozedItems(
+  apps: DashboardApplication[],
+  now: Date = new Date(),
+): SnoozedItem[] {
+  const out: SnoozedItem[] = [];
+  for (const app of apps) {
+    if (!needsWork(app.stage)) continue;
+    const s = snoozeState(app, now);
+    if (!s.snoozed || !s.until) continue;
+    out.push({
+      applicationId: app.id,
+      contactId: app.contactId,
+      name: app.name,
+      stage: app.stage,
+      until: s.until,
+      note: app.nextActionNote,
+    });
+  }
+  return out.sort((a, b) => {
+    const t = (time(a.until) ?? 0) - (time(b.until) ?? 0);
+    return t !== 0 ? t : a.name.localeCompare(b.name);
+  });
+}
+
+/**
+ * Deals whose snooze was overruled because the borrower got in touch.
+ *
+ * Worth naming separately on the screen. "You put this down and then they
+ * wrote" is a different and more urgent fact than "this came back on schedule".
+ */
+export function snoozesBrokenByInbound(
+  apps: DashboardApplication[],
+  now: Date = new Date(),
+): string[] {
+  return apps
+    .filter((a) => needsWork(a.stage) && snoozeState(a, now).brokenByInbound)
+    .map((a) => a.id);
 }
