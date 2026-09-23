@@ -46,3 +46,13 @@ next-env.d.ts
 
 # repo health check output (local diagnostic, read by Claude from disk)
 /.fc-check/
+
+# One-shot commit scripts. Each fc-commit-<thing>.bat exists to make ONE commit,
+# is run once, and then has no further use — keeping them would grow the repo
+# root by a file per feature forever. Durable tooling (fc-check, fc-db, fc-dev,
+# fc-migrate-*, fc-fix-local-crm and friends) IS tracked and belongs in git:
+# if this machine dies, those are what a new one needs on day one.
+fc-commit-*.bat
+
+# Scratch screenshots and working files from Claude sessions. Not repo material.
+/Claude outputs/
