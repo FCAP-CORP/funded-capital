@@ -176,6 +176,24 @@ const provision = readFileSync(join(ROOT, "lib", "broker", "provision.ts"), "utf
  * never import admin.server. A substring scan cannot tell a prohibition from a
  * violation. Parsing the import lines can.
  */
+/**
+ * Source with comments removed, for MUST-NOT-CONTAIN checks only.
+ *
+ * THE THIRD TIME THIS BUG HAS APPEARED. The suite's first run failed on the
+ * comment in provision.ts saying it must never import admin.server. That was
+ * fixed by parsing import statements. Today it failed again on the comment in
+ * queue.api.server.ts explaining why `assertCrmStaff()` cannot work there —
+ * the scan cannot tell an explanation from a call.
+ *
+ * Deliberately used for NEGATIVE checks only. Comment stripping is approximate
+ * (a `//` inside a string literal would confuse it), and an approximation that
+ * eats code makes a must-not-contain check STRICTER — a false alarm, which is
+ * cheap. Using it on a must-contain check could hide a missing guard, which is
+ * not. So the positive checks in sections 1 to 3 still read the raw source.
+ */
+const codeOnly = (src: string): string =>
+  src.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/(^|[^:])\/\/[^\n]*/g, "$1 ");
+
 const importsOf = (src: string): string[] =>
   [...src.matchAll(/^\s*import\s[\s\S]*?from\s+"([^"]+)"/gm)].map((m) => m[1]);
 
@@ -183,8 +201,8 @@ const importedPaths = importsOf(provision);
 const importsAny = (needle: string) => importedPaths.some((p) => p.includes(needle));
 check(
   "provision.ts does not assert staff",
-  !provision.includes("assertCrmStaff"),
-  provision.includes("assertCrmStaff") ? "**WOULD LOCK OUT EVERY BROKER**" : "clean",
+  !codeOnly(provision).includes("assertCrmStaff"),
+  codeOnly(provision).includes("assertCrmStaff") ? "**WOULD LOCK OUT EVERY BROKER**" : "clean",
 );
 check(
   "provision.ts does not import admin.server",
@@ -254,6 +272,14 @@ const NON_STAFF_SERVER_MODULES: Record<string, string> = {
    * is a separate change in a separate product area, not a drive-by edit.
    */
   "lib/revenueShare.server.ts": "separate allowlist: PARTICIPANT_ADMIN_EMAILS",
+
+  /**
+   * TOKEN-GUARDED, not staff-guarded. A scheduled task has no browser and no
+   * Clerk session, so `assertCrmStaff()` can never pass for it. This module has
+   * its own narrower guard (`assertQueueToken`) and its own narrower reach: it
+   * touches `content_requests` and nothing else. Section 6 checks both.
+   */
+  "lib/marketing/queue.api.server.ts": "token-guarded: the marketing queue API",
 };
 
 const exemptPaths = Object.keys(NON_STAFF_SERVER_MODULES);
@@ -304,10 +330,78 @@ for (const p of exemptPaths) {
   );
   check(
     `  ${p} does not assert staff`,
-    !src.includes("assertCrmStaff"),
-    src.includes("assertCrmStaff") ? "**WOULD THROW FOR EVERY BROKER**" : "clean",
+    !codeOnly(src).includes("assertCrmStaff"),
+    codeOnly(src).includes("assertCrmStaff") ? "**CALLS assertCrmStaff — IT WOULD THROW FOR ITS OWN CALLERS**" : "clean",
   );
 }
+
+/* ------------------------------------------- the token-guarded API surface */
+
+/**
+ * The one module that guards itself with a shared secret rather than a session.
+ *
+ * `proxy.ts` matches /api but does NOT list it as a guarded route, so Clerk
+ * lets every request through to the handler. That makes this module's own guard
+ * the only thing between the internet and the queue, and makes these three
+ * assertions worth more than their size.
+ */
+console.log("\n=== 6. The queue API guards itself, and cannot reach the book ===");
+
+const QUEUE_API = "lib/marketing/queue.api.server.ts";
+let queueSrc = "";
+try {
+  queueSrc = readFileSync(join(ROOT, QUEUE_API), "utf8");
+} catch {
+  check(QUEUE_API, false, "**FILE MISSING** — renamed? update this section");
+}
+
+if (queueSrc) {
+  const fns = exportedFunctions(queueSrc);
+  check(`${QUEUE_API} exports functions`, fns.length > 0, `${fns.length} exported`);
+  for (const fn of fns) {
+    const guarded = fn.body.includes("assertQueueToken(");
+    check(`  ${QUEUE_API} :: ${fn.name}`, guarded, guarded ? "asserts the token" : "**NO TOKEN CHECK**");
+  }
+
+  /*
+   * The blast radius, asserted rather than trusted to a comment.
+   *
+   * A token is a much weaker credential than a Clerk session on a staff
+   * allowlist, so the data it reaches has to stay small. If this module ever
+   * names applications, contacts or brokers, that is the mistake.
+   */
+  const FORBIDDEN_TABLES = ["applications", "contacts", "broker_users", "broker_firms", "participants", "documents"];
+  for (const table of FORBIDDEN_TABLES) {
+    const reaches = new RegExp(`\\b(FROM|JOIN|INTO|UPDATE)\\s+${table}\\b`, "i").test(queueSrc);
+    check(`  cannot reach ${table}`, !reaches, reaches ? "**QUERIES A STAFF-ONLY TABLE**" : "clean");
+  }
+  check(
+    "  ...and does query content_requests, so the test is not vacuous",
+    /\bFROM\s+content_requests\b/i.test(queueSrc),
+    "queries its own table",
+  );
+}
+
+/**
+ * A task may claim, draft and fail. It may NOT publish.
+ *
+ * Publishing is Luis pressing a button on every channel. An endpoint that let a
+ * bearer token mark something published would be a quiet way around the rule
+ * that nothing reaches the public unattended — which is the rule this whole
+ * feature is built on.
+ */
+const queueRoute = readFileSync(join(ROOT, "app", "api", "crm", "content-queue", "route.ts"), "utf8");
+const settable = /const TASK_STATUSES: readonly string\[\] = \[([^\]]*)\]/.exec(queueRoute)?.[1] ?? "";
+check(
+  "the API cannot set a request to published",
+  settable.length > 0 && !settable.includes("published"),
+  settable.trim() || "**COULD NOT PARSE TASK_STATUSES**",
+);
+check(
+  "...and it can set the three a task actually needs",
+  ["in_progress", "drafted", "failed"].every((s2) => settable.includes(s2)),
+  settable.trim(),
+);
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

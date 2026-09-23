@@ -56,3 +56,5 @@ fc-commit-*.bat
 
 # Scratch screenshots and working files from Claude sessions. Not repo material.
 /Claude outputs/
+
+.queue-token

@@ -614,3 +614,44 @@ From the CRM/dashboard brief. Recorded here so they are not relitigated:
 - Unchanged and non-negotiable: pricing is deterministic and auditable, formulas in code and versioned
   in git, **no AI-generated numbers in borrower-facing pricing**, every published rate claim cites a
   source.
+
+### The marketing queue API, and why the first fulfilment design never ran (23 Sep 2026)
+
+**The scheduled task never worked once.** Its first step ran `npx vercel env pull` and
+`npx tsx scripts/content-queue.ts` on Luis's machine — and **there is no tool in this environment
+that runs commands on his machine.** File tools yes (`device_list_dir`, `device_stage_files`,
+`device_commit_files`); a shell, no. Both runs ended in about a minute having done nothing.
+
+The instruction "END LOUDLY when you cannot do the job" worked exactly as written: the task said so
+clearly, **inside its own session**, where nobody was looking. That is the same silent failure this
+whole feature exists to prevent, rebuilt one level down. Writing a loud failure is not the same as
+routing it somewhere a person will see.
+
+**`/api/crm/content-queue` is the fix.** The portal already holds the database connection, so an
+outside agent talks to it over HTTP instead of needing a shell and production credentials.
+
+- **`proxy.ts` matches `/api` but does NOT list it as a guarded route**, so Clerk lets every request
+  reach the handler. The bearer token is the only thing between the internet and this data.
+- **It fails closed**, in the same shape as `lib/crm/access.ts`: `CONTENT_QUEUE_TOKEN` unset, or
+  shorter than 32 characters, admits nobody. That minimum is not style — it stops
+  `CONTENT_QUEUE_TOKEN=test`, set once while debugging, from being a live credential.
+- **Constant-time comparison over SHA-256 digests**, so neither length nor content leaks by timing.
+- **The blast radius is asserted, not promised.** `guards.regress.ts` §6 fails the build if
+  `queue.api.server.ts` ever queries `applications`, `contacts`, `broker_users`, `broker_firms`,
+  `participants` or `documents` — and checks it *does* query `content_requests`, so the test cannot
+  pass vacuously.
+- **A task may claim, draft and fail. It may NOT publish.** Also asserted. An endpoint that let a
+  bearer token mark something published would be a quiet way around the rule that nothing reaches
+  the public unattended.
+- **The token lives in `.queue-token`** (git-ignored) and in Vercel. Never in a task prompt, never in
+  chat. The daily task stages that file and reads it.
+
+**The guard suite's comment-matching bug appeared for the THIRD time** and is now fixed properly.
+It flagged the new module because a doc comment *explains* why `assertCrmStaff()` cannot work there.
+Negative checks now strip comments first via `codeOnly()`; positive checks still read raw source,
+because an approximation that eats code makes a must-not-contain check stricter (a false alarm,
+cheap) and a must-contain check weaker (a missed guard, not cheap).
+
+**One blog system, not two.** The 7am daily task now works the queue and keeps its device gate — the
+gate is why it has always worked. The three-times-daily marketing-queue task is disabled; it was
+built around a shell that does not exist.
