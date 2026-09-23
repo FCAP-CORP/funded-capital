@@ -54,6 +54,7 @@ const brokerHrefs = navHrefs(brokerNav);
 const crmLeak = brokerHrefs.filter((h) => h.startsWith("/crm"));
 check("no /crm href anywhere in a broker's rail", crmLeak.length === 0, crmLeak.join(", ") || "clean");
 check("...checked against a real list, not an empty one", brokerHrefs.length === 5, `${brokerHrefs.length} hrefs`);
+check("a staff rail carries both sections in full", navHrefs(staffNav).length === 9, `${navHrefs(staffNav).length} hrefs`);
 
 const emptyHrefs = navHrefs(emptyNav);
 check("an unentitled rail has no hrefs at all", emptyHrefs.length === 0, `${emptyHrefs.length}`);
@@ -75,6 +76,9 @@ check("a broker does not", brokerNav[0]?.note === undefined, String(brokerNav[0]
 console.log("\n=== 4. The longest matching link is the lit one ===");
 
 const cases: [string, string | null][] = [
+  // /crm/dashboard is a strict extension of /crm. Longest match keeps the
+  // Pipeline link from staying lit on the Dashboard, with no exception added.
+  ["/crm/dashboard", "/crm/dashboard"],
   ["/crm", "/crm"],
   ["/crm/contacts", "/crm/contacts"],
   ["/crm/brokers", "/crm/brokers"],
@@ -137,10 +141,12 @@ check("/broker-portal/apply is Broker", activeSection("/broker-portal/apply", st
 check("an unknown path has no group", activeSection("/about", staffNav) === null, String(activeSection("/about", staffNav)?.id));
 
 console.log("\n=== 9. The logo points at the home of the half you are using ===");
-check('from /crm/contacts -> "/crm"', homeHref("/crm/contacts", staffNav) === "/crm", homeHref("/crm/contacts", staffNav));
+// The section's FIRST item, which is the Dashboard — "home" for the Lending OS
+// is the screen that says what to do today, not the pipeline grid.
+check('from /crm/contacts -> "/crm/dashboard"', homeHref("/crm/contacts", staffNav) === "/crm/dashboard", homeHref("/crm/contacts", staffNav));
 check('from /broker-portal/price -> "/broker-portal"', homeHref("/broker-portal/price", staffNav) === "/broker-portal", homeHref("/broker-portal/price", staffNav));
 // Off-rail: fall back to the first section rather than to a broken link.
-check('from an unknown path -> first section', homeHref("/about", staffNav) === "/crm", homeHref("/about", staffNav));
+check('from an unknown path -> first section', homeHref("/about", staffNav) === "/crm/dashboard", homeHref("/about", staffNav));
 check('a broker off-rail -> "/broker-portal"', homeHref("/about", brokerNav) === "/broker-portal", homeHref("/about", brokerNav));
 check('an empty rail -> "/"', homeHref("/anything", emptyNav) === "/", homeHref("/anything", emptyNav));
 

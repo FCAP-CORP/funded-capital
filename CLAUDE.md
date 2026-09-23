@@ -450,7 +450,10 @@ sidebar contains.
   cannot light on `/crm/brokerage`. 46 tests in `nav.regress.ts`.
 - The rail is a flex column now, not a footer pinned with `position: absolute` — that was fine with
   three links and would have overlapped at eight.
-- `PortalNav` carried a dead branch for `/broker-portal/login`, a route that does not exist. Gone.
+- `PortalNav` carried `if (pathname === "/broker-portal/login") return null`. That route DOES exist
+  but is a bare `redirect("/broker-portal")`, so it throws before any child renders and the branch
+  could never fire. Gone. (Checked on the machine, not assumed — the Cowork container's mirror of
+  this repo is incomplete and does not contain every file.)
 
 **`guards.regress.ts` §5 is a census: every `lib/**/*.server.ts` must be classified** staff-only or
 explicitly exempt, with the reason in the source. `STAFF_ONLY_MODULES` was hand-maintained, so a new
@@ -459,3 +462,61 @@ failure. It found `lib/revenueShare.server.ts` unclassified on its first run —
 gates on `PARTICIPANT_ADMIN_EMAILS`, a separate allowlist), but note the open item recorded there:
 **`getBook()` does not check anything itself** and relies on its one caller to gate first. That is
 the pattern `/crm` abandoned deliberately. Worth fixing; separate change, separate product area.
+
+### Dashboard and the work queue (Phase 3a)
+
+`/crm/dashboard` is one screen, not two: a compact KPI strip, then the **work queue** as the body
+of the page, then the funnel shape. The order is the argument — a number saying "84 stalled"
+changes nothing about today; a list saying "these people are waiting, longest first" is a morning.
+
+`lib/crm/dashboard.ts` holds every rule, pure and covered by `dashboard.regress.ts` (69 tests,
+negative-tested in four directions). Five things there are deliberate:
+
+- **Open, servicing and terminal are three different things.** `isOpen` matches the Pipeline page
+  exactly (`NOT IN ('closed_lost','payoff')`) so the two screens can never disagree. `needsWork` is
+  narrower and excludes `funded/active/draw_cycle/extension` — a performing loan sitting quietly for
+  ninety days is a success, and a "needs attention" list full of successes gets ignored in a week.
+- **One deal, one reason.** Priority runs `awaiting_reply` → `term_sheet_cold` → `duplicate` →
+  `never_contacted` → `stalled`. An unanswered inbound email is first because it is the only one
+  where the borrower KNOWS they are being ignored. Listing a deal under all five reasons would
+  recreate the problem the screen exists to solve.
+- **A repeat investor is not a duplicate.** Two open applications for one contact is the borrower
+  this company wants most. A duplicate is two filings for the same contact within
+  `duplicateWindowDays` (7). Getting this wrong trains whoever reads the screen to ignore it.
+- **`fundedAt` is `COALESCE(applications.funded_at, first transition to 'funded')`.** Neither source
+  covers the whole book — legacy rows carry a date with no history, UI moves write a transition —
+  and preferring one silently undercounts half the book, which reads exactly like a bad month.
+- **Empty stages stay on the chart.** A book with everything in `lead` and nothing in underwriting
+  is not a chart with missing bars; the gap is the finding.
+
+The page has **zero client JavaScript** — bars are divs with a width percentage, no chart library —
+and every queue row carries a `mailto:` with the borrower's address already in it.
+
+### The Pipeline page was counting some deals twice (fixed 23 Sep 2026)
+
+`getPipeline` joined `participants` straight onto `applications`. The unique index there is
+application + contact + **role**, so one person holding two roles on their own deal (broker AND
+borrower — common for the brokers who submit their own files) produced TWO rows for one
+application. The grid showed the deal twice and, worse because nobody questions a total, the stats
+above it counted it twice.
+
+The live symptom on 23 Sep was **"OPEN FILES 135 / 130 all time"** — 135 open out of 130
+applications is impossible, and `$16,938,140` was inflated by the same deals. A number that cannot
+be true is the lucky case; the identical bug on a chart nobody cross-checks just reads as a good
+month.
+
+Both `getPipeline` and `getDashboardApplications` now use `LEFT JOIN LATERAL … LIMIT 1` to pick
+exactly one contact per application — the borrower when there is one, otherwise the earliest
+attachment, ordered so the choice is stable across reloads. Applications with no participant still
+render as "(unlinked)".
+
+**This was verified against a real Postgres 16**, not reasoned about: the schema was built from
+`drizzle/*.sql`, seeded with a contact holding two roles on one deal, and the old join reproduced
+the bug exactly (4 applications → 5 rows) before the new one returned 4. Worth repeating for any
+future query change — the container has `postgresql-16` installed and the migrations apply clean,
+so "I cannot test SQL from here" is not true.
+
+`getDashboardApplications` calls `assertCrmStaff()` itself. The older functions in
+`lib/db/queries.ts` still rely on their calling page having checked — that file is imported only by
+`/crm` pages today, but it is the same caller-gated pattern noted against `getBook()`, and it is
+worth closing the same way.

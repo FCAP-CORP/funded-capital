@@ -48,6 +48,7 @@ export type WorkspaceArea = "lending-os" | "broker";
  * adding the icon there and the build fails rather than rendering a hole.
  */
 export type NavIcon =
+  | "overview"
   | "pipeline"
   | "contacts"
   | "firms"
@@ -89,6 +90,10 @@ export interface WorkspaceEntitlement {
 }
 
 const LENDING_OS_ITEMS: readonly NavItem[] = [
+  // Dashboard first: it is the screen that says what to do today, and the
+  // Pipeline is where you go once you know. /crm stays the Pipeline's URL —
+  // nothing moved, the menu order simply reflects how the day starts.
+  { label: "Dashboard", href: "/crm/dashboard", icon: "overview" },
   { label: "Pipeline", href: "/crm", icon: "pipeline" },
   { label: "Contacts", href: "/crm/contacts", icon: "contacts" },
   { label: "Brokers", href: "/crm/brokers", icon: "firms" },

@@ -8,6 +8,7 @@ import {
   Building2,
   Calculator,
   FilePlus2,
+  GaugeCircle,
   GitBranch,
   Layers,
   LayoutDashboard,
@@ -51,6 +52,7 @@ import { activeHref, activeSection, homeHref, type NavIcon, type NavSection } fr
  */
 
 const ICONS: Record<NavIcon, React.ComponentType<{ size?: number }>> = {
+  overview: GaugeCircle,
   pipeline: GitBranch,
   contacts: Users,
   firms: Building2,

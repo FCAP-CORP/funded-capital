@@ -2,6 +2,8 @@ import "server-only";
 import { desc, sql as dsql, eq, type SQL, type AnyColumn } from "drizzle-orm";
 import { db } from "./index";
 import { activities, applications, contacts, participants, properties } from "./schema";
+import { assertCrmStaff } from "@/lib/crm/access";
+import type { DashboardApplication } from "@/lib/crm/dashboard";
 
 /**
  * Read queries for the CRM.
@@ -41,6 +43,22 @@ const LAST_CONTACT_DIR = (contactId: SQL | AnyColumn) => dsql<string | null>`(
   ORDER BY a.occurred_at DESC LIMIT 1
 )`;
 
+/**
+ * Reading raw rows back out of drizzle.
+ *
+ * The cast goes through `unknown` deliberately: `NeonHttpQueryResult` does not
+ * structurally overlap with a hand-written `{ rows: ... }`, so a direct `as` is
+ * a TS2352 error. Same pattern as lib/broker/admin.server.ts.
+ */
+type Row = Record<string, unknown>;
+const rowsOf = (r: unknown): Row[] => (r as { rows?: Row[] }).rows ?? (r as Row[]);
+const str = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
+const iso = (v: unknown): string | null => {
+  if (v === null || v === undefined) return null;
+  const d = v instanceof Date ? v : new Date(String(v));
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+};
+
 export type PipelineRow = {
   id: string;
   stage: string;
@@ -64,59 +82,92 @@ export type PipelineRow = {
   lastContactDirection: string | null;
 }
 
+/**
+ * ONE ROW PER APPLICATION. This is not a detail — it was a live defect.
+ *
+ * The previous version joined `participants` straight onto `applications`. A
+ * person may hold more than one role on the same deal (the unique index is
+ * application + contact + ROLE), and a broker who is also the borrower on their
+ * own file therefore produced TWO rows for one application. The grid showed the
+ * deal twice, and — worse, because nobody would question it — the stats above
+ * the grid counted it twice.
+ *
+ * That is how the Pipeline screen came to report "135 open files, 130 all
+ * time" on 23 Sep 2026: 135 is impossible when there are only 130 applications,
+ * and the requested-value total was inflated by the same six deals. A number
+ * that cannot be true is the lucky case; the same bug on a chart nobody
+ * cross-checks just reads as a good month.
+ *
+ * The LATERAL below picks exactly one contact per application — the borrower
+ * when there is one, otherwise whoever was attached first — so the multiplicity
+ * is fixed at the source rather than deduplicated by every caller in turn.
+ * `LEFT JOIN LATERAL ... ON true` keeps applications that have no participant
+ * at all; those still render as "(unlinked)", as they did before.
+ */
 export async function getPipeline(): Promise<PipelineRow[]> {
-  const rows = await db
-    .select({
-      id: applications.id,
-      stage: applications.stage,
-      product: applications.product,
-      leadSource: applications.leadSource,
-      channel: applications.channel,
-      firstName: contacts.firstName,
-      lastName: contacts.lastName,
-      email: contacts.email,
-      phone: contacts.phone,
-      contactId: contacts.id,
-      requestedAmount: applications.requestedAmount,
-      bindingRatio: applications.bindingRatio,
-      ltc: applications.ltc,
-      ltarv: applications.ltarv,
-      propertyAddress: properties.addressLine1,
-      submittedAt: applications.submittedAt,
-      stageEnteredAt: applications.stageEnteredAt,
-      notes: applications.notes,
-      borrowerMessage: applications.borrowerMessage,
-      lastContactAt: LAST_CONTACT_AT(contacts.id),
-      lastContactDirection: LAST_CONTACT_DIR(contacts.id),
-    })
-    .from(applications)
-    .leftJoin(participants, eq(participants.applicationId, applications.id))
-    .leftJoin(contacts, eq(contacts.id, participants.contactId))
-    .leftJoin(properties, eq(properties.id, applications.propertyId))
-    .orderBy(desc(applications.submittedAt), desc(applications.createdAt));
+  const result = await db.execute(dsql`
+    SELECT
+      a.id,
+      a.stage,
+      a.product,
+      a.lead_source,
+      a.channel,
+      a.requested_amount,
+      a.binding_ratio,
+      a.ltc,
+      a.ltarv,
+      a.submitted_at,
+      a.stage_entered_at,
+      a.notes,
+      a.borrower_message,
+      pr.address_line1        AS property_address,
+      c.contact_id,
+      c.first_name,
+      c.last_name,
+      c.email,
+      c.phone,
+      (SELECT max(ac.occurred_at) FROM activities ac
+        WHERE ac.contact_id = c.contact_id AND ac.kind IN ('email_in','email_out')) AS last_contact_at,
+      (SELECT ac.kind FROM activities ac
+        WHERE ac.contact_id = c.contact_id AND ac.kind IN ('email_in','email_out')
+        ORDER BY ac.occurred_at DESC LIMIT 1) AS last_contact_direction
+    FROM applications a
+    LEFT JOIN properties pr ON pr.id = a.property_id
+    LEFT JOIN LATERAL (
+      SELECT ct.id AS contact_id, ct.first_name, ct.last_name, ct.email, ct.phone
+      FROM participants p
+      JOIN contacts ct ON ct.id = p.contact_id
+      WHERE p.application_id = a.id
+      -- Borrower first; then oldest attachment, so the choice is stable across
+      -- reloads rather than whatever the planner happens to return.
+      ORDER BY (p.role = 'borrower') DESC, p.created_at ASC, ct.id ASC
+      LIMIT 1
+    ) c ON true
+    ORDER BY a.submitted_at DESC, a.created_at DESC
+  `);
 
-  return rows.map((r) => ({
-    id: r.id,
-    stage: r.stage,
-    product: r.product,
-    leadSource: r.leadSource,
-    channel: r.channel,
+  return rowsOf(result).map((r): PipelineRow => ({
+    id: String(r.id),
+    stage: String(r.stage),
+    product: String(r.product),
+    leadSource: String(r.lead_source),
+    channel: str(r.channel),
     // Pre-joined so the grid can search and sort one field rather than two.
-    name: [r.firstName, r.lastName].filter(Boolean).join(" ").trim() || "(unlinked)",
-    email: r.email,
-    phone: r.phone,
-    contactId: r.contactId,
-    requestedAmount: r.requestedAmount,
-    bindingRatio: r.bindingRatio,
-    ltc: r.ltc,
-    ltarv: r.ltarv,
-    propertyAddress: r.propertyAddress,
-    submittedAt: r.submittedAt ? r.submittedAt.toISOString() : null,
-    stageEnteredAt: r.stageEnteredAt ? r.stageEnteredAt.toISOString() : null,
-    notes: r.notes,
-    borrowerMessage: r.borrowerMessage,
-    lastContactAt: r.lastContactAt ? new Date(r.lastContactAt).toISOString() : null,
-    lastContactDirection: r.lastContactDirection,
+    name: [str(r.first_name), str(r.last_name)].filter(Boolean).join(" ").trim() || "(unlinked)",
+    email: str(r.email),
+    phone: str(r.phone),
+    contactId: str(r.contact_id),
+    requestedAmount: str(r.requested_amount),
+    bindingRatio: str(r.binding_ratio),
+    ltc: str(r.ltc),
+    ltarv: str(r.ltarv),
+    propertyAddress: str(r.property_address),
+    submittedAt: iso(r.submitted_at),
+    stageEnteredAt: iso(r.stage_entered_at),
+    notes: str(r.notes),
+    borrowerMessage: str(r.borrower_message),
+    lastContactAt: iso(r.last_contact_at),
+    lastContactDirection: str(r.last_contact_direction),
   }));
 }
 
@@ -218,4 +269,85 @@ export async function getCounts(): Promise<CrmCounts> {
     noApplication: Number(c.n) - Number(linked.n),
     openPipeline: Number(open.n),
   };
+}
+
+/* ------------------------------------------------------------- dashboard */
+
+/**
+ * Every application, shaped for `lib/crm/dashboard.ts`.
+ *
+ * ONE ROW PER APPLICATION, for the same reason `getPipeline` now is — a KPI
+ * built on multiplied rows is wrong in the direction that flatters you, and a
+ * work queue built on them lists the same borrower twice.
+ *
+ * THIS ONE ASSERTS STAFF ITSELF, unlike its neighbours in this file, which
+ * still rely on their calling page to have checked. It reads the whole book,
+ * including every borrower's email and what they asked for, so "the caller
+ * already checked" is not an assumption worth making for it. The older
+ * functions here are a separate cleanup, noted in CLAUDE.md.
+ */
+export async function getDashboardApplications(): Promise<DashboardApplication[]> {
+  await assertCrmStaff();
+
+  const result = await db.execute(dsql`
+    SELECT
+      a.id,
+      a.stage,
+      a.stage_entered_at,
+      a.submitted_at,
+      a.created_at,
+      a.requested_amount,
+      a.decisioned_at,
+      a.term_sheet_issued_at,
+      a.term_sheet_signed_at,
+      /*
+       * Funded date, from whichever source has it.
+       *
+       * funded_at is what the legacy migration wrote; stage_transitions is what
+       * the UI writes when a deal is moved. Neither covers the whole book on its
+       * own, and preferring one silently would undercount half of it -- which
+       * reads exactly like a bad month rather than like a missing join.
+       */
+      COALESCE(
+        a.funded_at,
+        (SELECT min(st.changed_at) FROM stage_transitions st
+          WHERE st.application_id = a.id AND st.to_stage = 'funded')
+      ) AS funded_at,
+      c.contact_id,
+      c.first_name,
+      c.last_name,
+      c.email,
+      (SELECT max(ac.occurred_at) FROM activities ac
+        WHERE ac.contact_id = c.contact_id AND ac.kind IN ('email_in','email_out')) AS last_contact_at,
+      (SELECT ac.kind FROM activities ac
+        WHERE ac.contact_id = c.contact_id AND ac.kind IN ('email_in','email_out')
+        ORDER BY ac.occurred_at DESC LIMIT 1) AS last_contact_direction
+    FROM applications a
+    LEFT JOIN LATERAL (
+      SELECT ct.id AS contact_id, ct.first_name, ct.last_name, ct.email
+      FROM participants p
+      JOIN contacts ct ON ct.id = p.contact_id
+      WHERE p.application_id = a.id
+      ORDER BY (p.role = 'borrower') DESC, p.created_at ASC, ct.id ASC
+      LIMIT 1
+    ) c ON true
+  `);
+
+  return rowsOf(result).map((r): DashboardApplication => ({
+    id: String(r.id),
+    stage: String(r.stage),
+    stageEnteredAt: iso(r.stage_entered_at),
+    submittedAt: iso(r.submitted_at),
+    createdAt: iso(r.created_at),
+    requestedAmount: str(r.requested_amount),
+    contactId: str(r.contact_id),
+    name: [str(r.first_name), str(r.last_name)].filter(Boolean).join(" ").trim() || "(unlinked)",
+    email: str(r.email),
+    fundedAt: iso(r.funded_at),
+    decisionedAt: iso(r.decisioned_at),
+    termSheetIssuedAt: iso(r.term_sheet_issued_at),
+    termSheetSignedAt: iso(r.term_sheet_signed_at),
+    lastContactAt: iso(r.last_contact_at),
+    lastContactDirection: str(r.last_contact_direction),
+  }));
 }
