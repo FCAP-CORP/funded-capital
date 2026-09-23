@@ -175,7 +175,10 @@ const provision = readFileSync(join(ROOT, "lib", "broker", "provision.ts"), "utf
  * never import admin.server. A substring scan cannot tell a prohibition from a
  * violation. Parsing the import lines can.
  */
-const importedPaths = [...provision.matchAll(/^\s*import\s[\s\S]*?from\s+"([^"]+)"/gm)].map((m) => m[1]);
+const importsOf = (src: string): string[] =>
+  [...src.matchAll(/^\s*import\s[\s\S]*?from\s+"([^"]+)"/gm)].map((m) => m[1]);
+
+const importedPaths = importsOf(provision);
 const importsAny = (needle: string) => importedPaths.some((p) => p.includes(needle));
 check(
   "provision.ts does not assert staff",
@@ -204,6 +207,106 @@ check(
   portalLayout.includes("admitBroker"),
   portalLayout.includes("admitBroker") ? "guarded" : "**NO ADMISSION CHECK**",
 );
+
+/* ------------------------------------------- every .server.ts is classified */
+
+/**
+ * The census, and the reason it exists.
+ *
+ * `STAFF_ONLY_MODULES` above is a hand-maintained list, which means the test it
+ * feeds is only as good as someone remembering to add to it. A new
+ * `something.server.ts` full of cross-firm queries would sail past section 3
+ * simply by not being mentioned — the suite would stay green while the thing it
+ * exists to catch walked in.
+ *
+ * So every `lib/**\/*.server.ts` must appear in one list or the other. Adding a
+ * server module now forces a decision, in a diff, about whether brokers may
+ * reach it. Not deciding is a build failure.
+ */
+console.log("\n=== 5. Every lib/**/*.server.ts is classified staff-only or not ===");
+
+/**
+ * Server modules that deliberately do NOT assert CRM staff — each with the
+ * reason written down, because an exemption without a reason is just a hole
+ * with a comment character in front of it.
+ */
+const NON_STAFF_SERVER_MODULES: Record<string, string> = {
+  /**
+   * Builds the sidebar, and EVERY BROKER calls it on every page of the portal.
+   * Asserting staff there would throw for all of them. It reads only this
+   * person's own `broker_users` row, through the same `resolveBrokerViewer` the
+   * portal already uses, and is asserted below not to reach the staff modules.
+   */
+  "lib/workspace/nav.server.ts": "broker-reachable: the sidebar",
+
+  /**
+   * A DIFFERENT PRODUCT WITH A DIFFERENT ALLOWLIST. The revenue-share portal
+   * gates on `PARTICIPANT_ADMIN_EMAILS` via its own `isPortalAdmin()`, not on
+   * `CRM_STAFF_EMAILS` — seeing the participant book and seeing the borrower
+   * pipeline are separate privileges and the lists are meant to diverge.
+   *
+   * NOTED, NOT ENDORSED: `getBook()` in that file does not check anything
+   * itself. Its own comment says callers must gate first, and today its one
+   * caller does. That is the pattern /crm deliberately abandoned — "the caller
+   * already checked" is an assumption, and the whole point of section 3 is that
+   * a module which can read every record asserts for itself. Worth fixing; it
+   * is a separate change in a separate product area, not a drive-by edit.
+   */
+  "lib/revenueShare.server.ts": "separate allowlist: PARTICIPANT_ADMIN_EMAILS",
+};
+
+const exemptPaths = Object.keys(NON_STAFF_SERVER_MODULES);
+
+const libServerFiles = walk(join(ROOT, "lib"))
+  .map(rel)
+  .filter((p) => p.endsWith(".server.ts"))
+  .sort();
+
+check("found some .server.ts modules", libServerFiles.length > 0, `${libServerFiles.length} files`);
+
+for (const p of libServerFiles) {
+  const staffOnly = STAFF_ONLY_MODULES.includes(p);
+  const exempt = exemptPaths.includes(p);
+  check(
+    `  ${p}`,
+    staffOnly || exempt,
+    staffOnly
+      ? "staff-only"
+      : exempt
+        ? NON_STAFF_SERVER_MODULES[p]
+        : "**UNCLASSIFIED** — add it to STAFF_ONLY_MODULES or NON_STAFF_SERVER_MODULES",
+  );
+}
+
+/**
+ * And the broker-reachable ones carry provision.ts's constraint too.
+ *
+ * A module every broker calls must not be able to import the modules that read
+ * and write every firm. Same rule as section 4, applied to the same list the
+ * census maintains, so a future exemption inherits the check automatically
+ * rather than needing someone to think of it.
+ */
+for (const p of exemptPaths) {
+  let src: string;
+  try {
+    src = readFileSync(join(ROOT, p), "utf8");
+  } catch {
+    check(`  ${p}`, false, "**FILE MISSING** — renamed? update NON_STAFF_SERVER_MODULES");
+    continue;
+  }
+  const imports = importsOf(src);
+  const reaches = imports.filter((i) => i.includes("admin.server") || i.includes("invites.server"));
+  check(
+    `  ${p} cannot reach the staff modules`,
+    reaches.length === 0,
+    reaches.length ? `**IMPORTS ${reaches.join(", ")}**` : `clean (${imports.length} imports checked)`,
+  );
+  check(
+    `  ${p} does not assert staff`,
+    !src.includes("assertCrmStaff"),
+    src.includes("assertCrmStaff") ? "**WOULD THROW FOR EVERY BROKER**" : "clean",
+  );
+}
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

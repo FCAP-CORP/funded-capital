@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { currentUser } from "@clerk/nextjs/server";
 import { isCrmStaff } from "@/lib/crm/access";
 import { admitBroker } from "@/lib/broker/provision";
-import PortalNav from "./PortalNav";
+import WorkspaceShell from "@/components/workspace/WorkspaceShell";
 import AccessGate from "./AccessGate";
 
 export const metadata: Metadata = {
@@ -49,12 +49,19 @@ async function Shell({ children }: { children: React.ReactNode }) {
     if (!outcome.admitted) return <AccessGate email={email} />;
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50 lg:flex">
-      <PortalNav />
-      <div className="flex-1 min-w-0">{children}</div>
-    </div>
-  );
+  /**
+   * The SAME shell the Lending OS renders. A broker sees only the broker
+   * section; Luis sees both and can cross between them without the address bar.
+   * `lib/workspace/nav.server.ts` decides which, from the two gates that
+   * already exist rather than from a third.
+   *
+   * It costs one indexed lookup of this person's `broker_users` row per page —
+   * the shell asks `resolveBrokerViewer()` itself rather than being handed the
+   * answer by `admitBroker` above. Deliberate: a shell that trusts what its
+   * caller tells it about the viewer is a shell that can be told the wrong
+   * thing.
+   */
+  return <WorkspaceShell>{children}</WorkspaceShell>;
 }
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {

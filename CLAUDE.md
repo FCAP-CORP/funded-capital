@@ -418,3 +418,44 @@ those run in-process and are lost when the session ends, so the task silently ne
 
 Do not add n8n, Make, or Zapier. They are also visual configs outside this repo and add a second
 runtime where business rules can hide.
+
+### One shell for both portals (Phase 2f)
+
+`/crm` and `/broker-portal` render inside the **same** frame:
+`components/workspace/WorkspaceShell.tsx` (server) + `WorkspaceNav.tsx` (client). It replaced
+`app/crm/CrmNav.tsx` and `app/broker-portal/PortalNav.tsx`, which were the same component twice with
+different arrays in them — and no way to get from one product to the other except the address bar.
+
+**URLs did not change.** Nothing moved, nothing redirects. The only thing that changed is what the
+sidebar contains.
+
+- **`lib/workspace/nav.ts` is a VIEW, not a gate, and must never become one.** A link missing from
+  the rail is missing from a menu; the person can still type the URL. The layouts, every page, every
+  server action and `lib/broker/scope.ts` are what actually stop anyone, exactly as before. Treat any
+  future comment claiming the nav protects something as a bug.
+- **The link list is computed on the server** (`nav.server.ts`) from the two gates that already
+  exist — `isCrmStaff()` and a `broker_users` row — never from a third. Links a broker is not
+  entitled to are not hidden with a class; they are not in the payload.
+- **`nav.server.ts` is broker-reachable**, so it asserts nothing about staff and may not import
+  `admin.server.ts` or `invites.server.ts`. Same constraint as `provision.ts`, asserted by
+  `guards.regress.ts` §5.
+- **Staff short-circuit:** `isCrmStaff()` true returns both sections without the broker lookup, so
+  this adds no database round trip to a CRM page. Luis has no `broker_users` row on purpose — one
+  would put him in his own unassigned queue.
+- **A suspended broker still gets the rail.** That matches the portal: `admitBroker` readmits anyone
+  with a row and suspension empties the dashboard through `scope.ts` rather than locking the door.
+  Change one half and the other has to move with it.
+- **Longest match lights the link.** `activeHref` replaced two hard-coded exceptions (`/crm` exact,
+  `/broker-portal/price` exact) with one rule, and matches on a segment boundary so `/crm/brokers`
+  cannot light on `/crm/brokerage`. 46 tests in `nav.regress.ts`.
+- The rail is a flex column now, not a footer pinned with `position: absolute` — that was fine with
+  three links and would have overlapped at eight.
+- `PortalNav` carried a dead branch for `/broker-portal/login`, a route that does not exist. Gone.
+
+**`guards.regress.ts` §5 is a census: every `lib/**/*.server.ts` must be classified** staff-only or
+explicitly exempt, with the reason in the source. `STAFF_ONLY_MODULES` was hand-maintained, so a new
+cross-firm module could sail past §3 simply by not being mentioned. Now not deciding is a build
+failure. It found `lib/revenueShare.server.ts` unclassified on its first run — correctly exempt (it
+gates on `PARTICIPANT_ADMIN_EMAILS`, a separate allowlist), but note the open item recorded there:
+**`getBook()` does not check anything itself** and relies on its one caller to gate first. That is
+the pattern `/crm` abandoned deliberately. Worth fixing; separate change, separate product area.

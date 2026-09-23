@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { isCrmStaff } from "@/lib/crm/access";
-import CrmNav from "./CrmNav";
+import WorkspaceShell from "@/components/workspace/WorkspaceShell";
 
 export const metadata: Metadata = {
   title: "Lending OS | Funded Capital",
@@ -17,13 +17,12 @@ export default async function CrmLayout({ children }: { children: React.ReactNod
    * choice is made on the participant admin route for the same reason. The
    * middleware has already sent signed-out visitors to /sign-in; this is the
    * second gate, and each page and server action carries its own as well.
+   *
+   * THIS LINE, NOT THE SIDEBAR, IS WHAT KEEPS BROKERS OUT. `WorkspaceShell`
+   * below decides which links a person is shown, which is a courtesy and not a
+   * control — see the header of lib/workspace/nav.ts. The gate is here.
    */
   if (!(await isCrmStaff())) notFound();
 
-  return (
-    <div className="min-h-screen bg-slate-50 lg:flex">
-      <CrmNav />
-      <div className="flex-1 min-w-0">{children}</div>
-    </div>
-  );
+  return <WorkspaceShell>{children}</WorkspaceShell>;
 }
