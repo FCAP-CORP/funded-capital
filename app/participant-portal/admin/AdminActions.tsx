@@ -146,16 +146,17 @@ function InitiatedFlag({ state }: { state: AdminState }) {
   return (
     <>
       <p className="mb-3 text-sm text-slate-600">
-        {state.initiatedThrough ? (
+        {state.initiatedCount > 0 ? (
           <>
-            Currently set to{" "}
             <strong className="font-semibold text-ink">
-              {formatDate(state.initiatedThrough)}
-            </strong>
-            . Unpaid payments due on or before it read &ldquo;Payment initiated&rdquo;.
+              {state.initiatedCount} payment{state.initiatedCount === 1 ? "" : "s"}
+            </strong>{" "}
+            currently show as &ldquo;Payment initiated&rdquo; to participants.
           </>
         ) : (
-          <>Not set. Payments read Due or Overdue based on their date alone.</>
+          <>
+            Nothing is flagged. Payments read Due or Overdue from their date alone.
+          </>
         )}
       </p>
 
@@ -164,18 +165,13 @@ function InitiatedFlag({ state }: { state: AdminState }) {
           <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">
             Sent on
           </span>
-          <input
-            type="date"
-            name="date"
-            defaultValue={state.initiatedThrough || state.today}
-            className={FIELD}
-          />
+          <input type="date" name="date" defaultValue={state.today} className={FIELD} />
         </label>
         <Submit label="Mark initiated" />
       </form>
       <Result result={markResult} />
 
-      {state.initiatedThrough && (
+      {state.initiatedCount > 0 && (
         <>
           <form action={clearAction} className="mt-3">
             <Submit label="Clear the flag" tone="quiet" />

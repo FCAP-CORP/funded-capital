@@ -757,7 +757,72 @@ export interface AwaitingCapital {
 
 export interface AdminState {
   today: string;
-  initiatedThrough: string;
+  /** How many scheduled payments the tracker currently marks INITIATED. */
+  initiatedCount: number;
   outstanding: OutstandingRun[];
   awaitingCapital: AwaitingCapital[];
+}
+
+/**
+ * What the admin panel needs, derived from the book the page already loaded.
+ *
+ * This used to ask the Apps Script, on the reasoning that one definition of
+ * "outstanding" is better than two. Measured, that cost 6 to 34 seconds on
+ * every Program Book load — the sheet had to re-read three tabs to answer a
+ * question the page was already holding the data for. Wrong trade.
+ *
+ * The two definitions cannot drift, because this one is not a reimplementation:
+ * a payment is loggable exactly when the schedule's own Status column says it
+ * is not PAID and its due date has arrived. That Status is computed by the
+ * sheet. We are reading its answer, not second-guessing it.
+ */
+export function deriveAdminState(
+  records: ParticipantRecord[],
+  schedule: ScheduledPayment[],
+  today = todayIso()
+): AdminState {
+  const byId = new Map(records.map((r) => [r.participantId, r]));
+
+  const groups = new Map<string, OutstandingRun>();
+  let initiatedCount = 0;
+
+  for (const raw of schedule) {
+    const holder = byId.get(raw.participantId);
+    if (!holder) continue;
+
+    const row = { ...raw, payoffDate: holder.payoffDate ?? "" };
+    const state = paymentState(row, today);
+    if (state === "initiated") initiatedCount += 1;
+
+    // Paid is history; ended means the loan repaid and this period is void;
+    // scheduled means it has not come due. Everything else is money owed that
+    // the Payment Log does not yet know about — which is what "log a run" means.
+    if (state !== "due" && state !== "overdue" && state !== "initiated") continue;
+
+    const due = String(row.dueDate).slice(0, 10);
+    const group = groups.get(due) ?? { due, total: 0, rows: [] };
+    group.rows.push({
+      id: raw.participantId,
+      name: holder.fullName?.trim() || holder.entityName?.trim() || raw.participantId,
+      amount: raw.scheduledAmount || 0,
+    });
+    group.total += raw.scheduledAmount || 0;
+    groups.set(due, group);
+  }
+
+  const outstanding = Array.from(groups.values()).sort((a, b) => a.due.localeCompare(b.due));
+  for (const run of outstanding) run.rows.sort((a, b) => a.id.localeCompare(b.id));
+
+  const awaitingCapital: AwaitingCapital[] = records
+    .filter((r) => isPaidOff(r) && !/^\d{4}-\d{2}-\d{2}$/.test(String(r.capitalReturned || "")))
+    .map((r) => ({
+      id: r.participantId,
+      name: r.fullName?.trim() || r.entityName?.trim() || r.participantId,
+      capital: r.capitalContributed || 0,
+      payoff: String(r.payoffDate || "").slice(0, 10),
+      returnDue: String(r.capitalReturnDue || "").slice(0, 10),
+    }))
+    .sort((a, b) => a.returnDue.localeCompare(b.returnDue));
+
+  return { today, initiatedCount, outstanding, awaitingCapital };
 }

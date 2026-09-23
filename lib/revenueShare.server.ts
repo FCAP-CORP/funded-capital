@@ -9,7 +9,12 @@ import type {
   ParticipantRecord,
   ScheduledPayment,
 } from "./revenueShare";
-import { summarizeBook, summarizeHolder, toParticipationView } from "./revenueShare";
+import {
+  deriveAdminState,
+  summarizeBook,
+  summarizeHolder,
+  toParticipationView,
+} from "./revenueShare";
 
 /**
  * Server-side access to the Revenue Share participant sheet.
@@ -280,6 +285,11 @@ async function callWrite(
       cache: "no-store",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ ...payload, secret }),
+      // Apps Script is a shared Google service and its response time is not
+      // ours to control — measured between 0.9s and 34s for the same call. A
+      // button that hangs indefinitely is worse than one that says it timed
+      // out, because the second at least tells you to go and check the sheet.
+      signal: AbortSignal.timeout(20000),
     });
 
     const text = await res.text();
@@ -303,15 +313,37 @@ async function callWrite(
     }
 
     if (!data.ok) {
+      // "unauthorized" has exactly one cause worth naming, and the generic word
+      // sent us looking in the wrong place once already.
+      if (data.error === "unauthorized") {
+        return {
+          ok: false,
+          reason: "unconfigured",
+          detail:
+            "The tracker rejected the write secret. PARTICIPANT_WEBAPP_WRITE_SECRET " +
+            "in Vercel does not match WRITE_SECRET in the Apps Script — check for " +
+            "quotes or a trailing space, and remember a changed variable only takes " +
+            "effect on the next deploy.",
+        };
+      }
       return {
         ok: false,
-        reason: data.error === "unauthorized" ? "unconfigured" : "unavailable",
+        reason: "unavailable",
         detail: data.detail || data.error || "The write was refused.",
       };
     }
 
     return { ok: true, data: { ...data, message: data.message ?? "Done." } };
   } catch (err) {
+    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
+      return {
+        ok: false,
+        reason: "unavailable",
+        detail:
+          "The tracker did not answer within 20 seconds. The change may or may not " +
+          "have been made — open the spreadsheet and check before trying again.",
+      };
+    }
     return {
       ok: false,
       reason: "unavailable",
@@ -328,27 +360,17 @@ export function isWriteConfigured(): boolean {
 export type { AdminState, AwaitingCapital, OutstandingRun } from "./revenueShare";
 
 /**
- * What the admin panel needs, computed by the sheet rather than here.
+ * What the admin panel needs.
  *
- * Asking the Apps Script means one definition of "outstanding" — the same one
- * the spreadsheet menu uses. Deriving it a second time in TypeScript would be
- * two implementations of a money rule that must agree, and they would not stay
- * agreeing for long.
+ * Reads the book — which the Program Book is loading anyway and which React
+ * cache() dedupes to a single sheet call — and derives the rest locally. No
+ * second round trip, so the panel costs the page nothing.
  */
 export async function getAdminState(): Promise<FetchOutcome<AdminState>> {
   if (!(await isPortalAdmin())) return { ok: false, reason: "not_found" };
-  const result = await callWrite({ action: "state" });
-  if (!result.ok) return result;
-  const d = result.data as unknown as AdminState;
-  return {
-    ok: true,
-    data: {
-      today: d.today ?? "",
-      initiatedThrough: d.initiatedThrough ?? "",
-      outstanding: Array.isArray(d.outstanding) ? d.outstanding : [],
-      awaitingCapital: Array.isArray(d.awaitingCapital) ? d.awaitingCapital : [],
-    },
-  };
+  const book = await getBook();
+  if (!book.ok) return book;
+  return { ok: true, data: deriveAdminState(book.data.participants, book.data.schedule) };
 }
 
 /**
