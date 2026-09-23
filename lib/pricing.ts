@@ -524,8 +524,26 @@ export const CAPS = {
   new_construction: {
     arltv: 0.7, // Tiers 1-3
     arltvTier4Plus: 0.75, // Tier 4+ (5+ completed builds) — Luis 2026-09-01
-    ltfc: 0.85, // construction dollars
-    ltfcWithIR: 0.9, // the extra 5% may fund the INTEREST RESERVE ONLY
+    /**
+     * CONSTRUCTION DOLLARS, Tiers 1-4. A financed interest reserve rides on top
+     * up to `ltfcWithIR`; that band funds the reserve only, never more build.
+     */
+    ltfc: 0.85,
+    ltfcWithIR: 0.9,
+    /**
+     * TIER 5 ONLY — 90% construction dollars, with the same 5% reserve band on
+     * top, so 95% all-in. Committee raised this on 30 July 2026 and the engine
+     * never learned it: until 23 Sep 2026 every tier was capped at 85%, so a
+     * Tier 5 builder was quoted $50,000 less on a $1M project than they
+     * qualified for, with no error and no way to notice from the output.
+     *
+     * The lesson is not "add a constant". It is that a committee decision that
+     * changes leverage has to land in THIS file, because this file is what the
+     * broker quotes from. A page said 85%, a memo said 90%, and the quote was
+     * the only one of the three anybody acted on.
+     */
+    ltfcTier5: 0.9,
+    ltfcWithIRTier5: 0.95,
   },
   dscr: { purchase: 0.8, cashOut: 0.75, minDscr: 1.05 },
 };
@@ -533,6 +551,30 @@ export const CAPS = {
 /** Max ARLTV on a Ground-Up deal at a given tier. Tier 4+ earns 75%. */
 export function guArltvCap(tier: number): number {
   return tier >= 4 ? CAPS.new_construction.arltvTier4Plus : CAPS.new_construction.arltv;
+}
+
+/**
+ * Max CONSTRUCTION-DOLLAR LTFC at a given tier. Tier 5 earns 90%, everyone
+ * else 85%.
+ *
+ * A function rather than a constant for the same reason `guArltvCap` is one:
+ * the moment a cap varies by tier, every call site that reads the flat constant
+ * is a place the rule can be got wrong quietly. There is now exactly one place
+ * to change it.
+ */
+export function guLtfcCap(tier: number): number {
+  return tier >= 5 ? CAPS.new_construction.ltfcTier5 : CAPS.new_construction.ltfc;
+}
+
+/**
+ * The ceiling a financed interest reserve may carry the TOTAL loan to — five
+ * points above the construction-dollar cap at every tier.
+ *
+ * That band funds the reserve and nothing else. It is not more build budget,
+ * and a borrower who is not financing a reserve never reaches it.
+ */
+export function guLtfcWithIrCap(tier: number): number {
+  return tier >= 5 ? CAPS.new_construction.ltfcWithIRTier5 : CAPS.new_construction.ltfcWithIR;
 }
 
 // ---------- Tier logic ----------
@@ -788,14 +830,17 @@ export function priceDeal(input: QuoteInput): QuoteResult {
     const initCap = initialAdvanceCap(product.key, tier, input.fico, input.permitsInHand ?? true);
 
     if (isGU) {
-      // LTFC is 85% of full cost for CONSTRUCTION DOLLARS. A financed interest
-      // reserve rides ON TOP, up to a further 5% of full cost — and that extra
-      // 5% funds the reserve only, never more build budget. This corrects the
-      // old rule, which swung the whole cap to 90% and let the extra 5% buy
-      // construction. Luis 2026-09-01.
-      const ltfcHardCap = CAPS.new_construction.ltfc * fullCost;
+      // LTFC caps CONSTRUCTION DOLLARS — 85% of full cost, or 90% at Tier 5. A
+      // financed interest reserve rides ON TOP, up to a further 5% of full cost,
+      // and that band funds the reserve only, never more build budget.
+      //
+      // Both legs are tier-aware as of 23 Sep 2026. They were flat before, which
+      // under-quoted every Tier 5 builder by five points of cost.
+      const ltfcCap = guLtfcCap(tier);
+      const ltfcWithIr = guLtfcWithIrCap(tier);
+      const ltfcHardCap = ltfcCap * fullCost;
       guIrHeadroom = input.financedInterestReserve
-        ? (CAPS.new_construction.ltfcWithIR - CAPS.new_construction.ltfc) * fullCost
+        ? (ltfcWithIr - ltfcCap) * fullCost
         : 0;
       const arltvCapPct = guArltvCap(tier);
       primaryRatio = ltfcVal;
@@ -811,12 +856,14 @@ export function priceDeal(input: QuoteInput): QuoteResult {
       // 90% band and the ARLTV cap. Previously only the 90% leg was checked,
       // which let a financed reserve push ARLTV past its cap with ok:true.
       financedReserveCeiling = arvVal > 0
-        ? Math.min(CAPS.new_construction.ltfcWithIR * fullCost, arltvCapPct * arvVal)
-        : CAPS.new_construction.ltfcWithIR * fullCost;
+        ? Math.min(ltfcWithIr * fullCost, arltvCapPct * arvVal)
+        : ltfcWithIr * fullCost;
       capMessage = describeCap([
         { label: `${(initCap * 100).toFixed(0)}% initial-advance cap`, value: initCap * costBasis + build },
         { label: `${(arltvCapPct * 100).toFixed(0)}% ARLTV`, value: arltvCapPct * arvVal },
-        { label: `${(CAPS.new_construction.ltfc * 100).toFixed(0)}% LTFC`, value: ltfcHardCap },
+        // The label reads the tier-aware cap, so a Tier 5 term sheet says
+        // "90% LTFC" rather than quietly showing 85% beside a 90% number.
+        { label: `${(ltfcCap * 100).toFixed(0)}% LTFC`, value: ltfcHardCap },
       ]);
     } else {
       primaryRatio = arltvVal;
@@ -1419,14 +1466,15 @@ export function pricePortfolio(input: PortfolioInput): PortfolioQuoteResult {
   const hbPct = Math.min(1, Math.max(0, input.holdbackPct ?? 1));
   const initialCapPct = isDscr ? 1 : initialAdvanceCap(product.key, tier, input.fico, input.permitsApproved);
   const arltvCapPct = isGU ? guArltvCap(tier) : CAPS.fix_and_flip.arltv;
-  // 85% of full cost for construction dollars. A financed interest reserve may
-  // ride on top up to a further 5% of full cost — reserve only, not build
-  // budget — so the hard cap on construction dollars stays 85%. Luis 2026-09-01.
-  const ltfcCapPct = CAPS.new_construction.ltfc;
-  // NOTE: deliberately no ltfcIrHeadroom here. The 85->90% band funds a financed
-  // interest reserve ONLY, and portfolio does not implement one, so the
-  // construction-dollar cap is a flat 85%. Adding the band back into the cap
-  // would let a portfolio advance 90% of cost in build money.
+  // Construction dollars: 85% of full cost, or 90% at Tier 5. Tier-aware as of
+  // 23 Sep 2026 — it was flat here too, so a Tier 5 portfolio was under-quoted
+  // by the same five points as a single property.
+  const ltfcCapPct = guLtfcCap(tier);
+  // NOTE: deliberately no reserve headroom here. The band above the
+  // construction-dollar cap funds a financed interest reserve ONLY, and
+  // portfolio does not implement one, so this stays the construction-dollar cap
+  // at whatever tier. Adding the band would let a portfolio advance the reserve
+  // band in build money.
 
   const breakdown: { label: string; value: number }[] = [];
   let sumAdj = 0;

@@ -84,5 +84,98 @@ const bench=priceDeal(gu({channel:"retail",fico:720,purchasePrice:40_000,constru
   loanPurpose:"rate_term_refi",financedInterestReserve:false}));
 check("Ground-Up rate card intact", bench.ratePct===9.69, `rate ${bench.ratePct}%  tier ${bench.tier}`);
 
+console.log("\n=== 11. Ground-Up LTFC is TIER-AWARE — Tier 5 earns 90% ===");
+/*
+ * The bug this section exists to prevent coming back.
+ *
+ * The committee raised Tier 5 Ground-Up to 90% LTFC on 30 July 2026. The engine
+ * stayed flat at 85% for every tier until 23 Sep, so a Tier 5 builder was
+ * quoted five points of cost less than they qualified for — with no error, no
+ * warning, and nothing in the output that looked wrong. A broker reading that
+ * term sheet had no way to know.
+ *
+ * The fixture is built so the LTFC leg BINDS at both tiers: the initial-advance
+ * leg (0.75 x cost basis + build) and the ARLTV leg are both set clear of it,
+ * so any change in the answer is the LTFC cap and nothing else.
+ */
+const tierDeal = (bucket: number, o: Partial<QuoteInput> = {}): QuoteInput => gu({
+  experienceBucket: bucket,
+  purchasePrice: 1_000_000,
+  constructionBudget: 4_000_000,   // full cost 5,000,000
+  sunkCosts: 0,
+  arv: 10_000_000,                 // 75% ARLTV = 7,500,000 — never binds
+  loanAmount: 9_000_000,           // ask for more than any cap allows
+  initialAdvancePct: 0.10,
+  financedInterestReserve: false,
+  ...o,
+});
+
+const t4 = priceDeal(tierDeal(3));   // bucket 3 -> Tier 4
+const t5 = priceDeal(tierDeal(4));   // bucket 4 -> Tier 5
+
+check("fixture really is Tier 4 and Tier 5", t4.tier === 4 && t5.tier === 5, `tiers ${t4.tier} / ${t5.tier}`);
+check("Tier 4 caps construction dollars at 85% of cost", t4.maxLoan === 4_250_000, usd(t4.maxLoan));
+check("Tier 5 caps construction dollars at 90% of cost", t5.maxLoan === 4_500_000, usd(t5.maxLoan));
+// The money. Five points of a $5M project.
+check("Tier 5 is offered $250,000 MORE than Tier 4", (t5.maxLoan ?? 0) - (t4.maxLoan ?? 0) === 250_000,
+  `${usd(t4.maxLoan)} -> ${usd(t5.maxLoan)}`);
+check("Tier 3 is still 85%, not promoted by accident", priceDeal(tierDeal(2)).maxLoan === 4_250_000, usd(priceDeal(tierDeal(2)).maxLoan));
+
+console.log("\n=== 12. The reserve band rides on top, and it is tier-aware too ===");
+/*
+ * MY FIRST VERSION OF THIS TEST WAS WRONG and it is worth recording why.
+ *
+ * I asked for $4.6M with a financed reserve and expected Tier 5 to allow it,
+ * because 4.6 is under the 95% all-in ceiling. It was blocked, correctly: the
+ * requested amount is the CONSTRUCTION loan, and the engine adds the financed
+ * reserve on top of it (section 1 proves loan = request + financedReserve). So
+ * $4.6M of construction does exceed Tier 5's 90% construction cap, and the
+ * engine was right while the test was wrong.
+ *
+ * The band is therefore tested where it actually lives: on the size of the
+ * financed reserve and the total it produces.
+ */
+const atCap = (bucket: number, ask: number) =>
+  priceDeal(tierDeal(bucket, { financedInterestReserve: true, interestReserveMonths: 12, loanAmount: ask }));
+
+const t4full = atCap(3, 4_250_000);  // exactly Tier 4's construction cap
+const t5full = atCap(4, 4_500_000);  // exactly Tier 5's construction cap
+
+check("Tier 4 at its construction cap still clears", t4full.ok === true,
+  t4full.blockers.map(b => b.reason)[0]?.slice(0, 80) ?? "allowed");
+check("Tier 5 at its construction cap still clears", t5full.ok === true,
+  t5full.blockers.map(b => b.reason)[0]?.slice(0, 80) ?? "allowed");
+
+// 5% of $5,000,000 full cost. The band is the same width at both tiers; what
+// moved is where it starts.
+check("Tier 4 reserve headroom stops at 5% of cost", t4full.financedReserve <= 250_000 + 1, usd(t4full.financedReserve));
+check("Tier 5 reserve headroom stops at 5% of cost", t5full.financedReserve <= 250_000 + 1, usd(t5full.financedReserve));
+check("Tier 4 all-in never passes 90% of cost", t4full.loanAmount <= 4_500_000 + 1, usd(t4full.loanAmount));
+check("Tier 5 all-in never passes 95% of cost", t5full.loanAmount <= 4_750_000 + 1, usd(t5full.loanAmount));
+// The band must never become build money at either tier.
+check("Tier 5 construction dollars stay at 90%",
+  t5full.loanAmount - t5full.financedReserve <= 4_500_000 + 1,
+  `loan ${usd(t5full.loanAmount)} less reserve ${usd(t5full.financedReserve)}`);
+// And the whole point: Tier 5's all-in beats Tier 4's.
+check("Tier 5 ends up with more money than Tier 4",
+  t5full.loanAmount > t4full.loanAmount,
+  `${usd(t4full.loanAmount)} -> ${usd(t5full.loanAmount)}`);
+
+console.log("\n=== 13. The blocker NAMES the tier's own cap ===");
+// A Tier 5 broker told "85% LTFC" beside a 90% number is how two months of
+// under-quoting would have been caught, and was not.
+const t4why = t4.blockers.map(b => b.reason).join(" | ");
+const t5why = t5.blockers.map(b => b.reason).join(" | ");
+check("Tier 4 is told 85% LTFC", /85% LTFC/.test(t4why), t4why.slice(0, 100) || "(no blockers)");
+check("Tier 5 is told 90% LTFC", /90% LTFC/.test(t5why), t5why.slice(0, 100) || "(no blockers)");
+check("...and Tier 5 is never told 85%", !/85% LTFC/.test(t5why), t5why.slice(0, 100) || "(no blockers)");
+
+console.log("\n=== 14. Portfolio honours the same tier rule ===");
+const pf4 = pricePortfolio({ ...pf(), experienceBucket: 3 } as PortfolioInput);
+const pf5 = pricePortfolio({ ...pf(), experienceBucket: 4 } as PortfolioInput);
+check("portfolio reports the tier", pf4.tier === 4 && pf5.tier === 5, `${pf4.tier} / ${pf5.tier}`);
+check("Tier 4 portfolio caps at 85% LTFC", pf4.ltfcCapPct === 0.85, String(pf4.ltfcCapPct));
+check("Tier 5 portfolio caps at 90% LTFC", pf5.ltfcCapPct === 0.9, String(pf5.ltfcCapPct));
+
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail>0?1:0);

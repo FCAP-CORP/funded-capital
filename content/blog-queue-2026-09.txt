@@ -1,0 +1,57 @@
+# Funded Capital — 30 blog topics, queued 23 September 2026
+#
+# Format:  channel | topic | notes
+# Lines starting with # are ignored. Edit or delete any line before queueing.
+#
+# HOW THESE WERE CHOSEN. Your 53 published posts skew heavily to Hard Money and
+# DSCR decision-stage content. Three clusters are thin against the programs you
+# actually offer, and one audience has almost nothing:
+#
+#   Multifamily      2 of 53   — a core program
+#   New Construction 4 of 53   — a core program
+#   Bridge           1 of 53
+#   Brokers          2 of 53   — and you are onboarding a firm THIS WEEK
+#
+# So the weighting is brokers first (Legacy HML goes live imminently and these
+# double as onboarding material), then the two thin program clusters, then
+# genuine gaps in the investor funnel. Nothing below duplicates an existing post.
+
+# ---- Brokers (8) — thinnest audience, and live business need right now -------
+blog | What a lender actually checks before issuing a broker term sheet, and how to package a file that clears first pass | Written for a broker's first submission. Reference the 2-hour term sheet. Use the document checklist post as the internal link.
+blog | The five things that stall a broker's deal after the term sheet is signed, and who owns each one | Conditions, insurance binder, title, appraisal access, entity docs. Say plainly which are the broker's job and which are ours.
+blog | How to price a fix and flip for a client in under five minutes without promising a rate | Walk the pricing tool's inputs. Rate ranges only. Never a guarantee.
+blog | Broker vs. correspondent vs. table funding: which one you are, and what it changes about getting paid | Business-purpose only. Do not stray into consumer mortgage licensing.
+blog | What to tell an investor client when the appraisal comes in under the ARV you quoted | The conversation script, plus the three structures that can still save the deal.
+blog | Reading a borrower's experience the way an underwriter does: what counts as a completed deal | Ties to the tier system without publishing the internal tier table.
+blog | The broker's guide to interest reserves: when financing one helps your client and when it costs them | Ground-Up focus. Reserve rides on top of the construction cap, never inside it.
+blog | Why a lender says no to a deal that looks fine on paper | Lien position, vacancy, contractor gaps, entity age. Honest and specific.
+
+# ---- New Construction (6) — core program, four posts ------------------------
+blog | Ground-Up leverage explained: LTFC, the interest reserve band, and what experience actually buys you | THE PRIORITY POST. Tier 5 reaches 90% of cost in construction dollars plus a further 5% for a financed reserve; Tiers 3 and 4 are 85% plus 5%. Ranges only, no tier table.
+blog | What a construction draw inspection actually looks at, and how to fail one less often | Practical. Photos, percentage-complete, lien waivers, timing between draws.
+blog | Lot basis is the whole deal: how to underwrite land before you commit to a build | Residual land value. Links to the spec home post rather than repeating it.
+blog | Contractor vetting for investors: the documents to collect before the first draw | Licence, insurance certificate, references, payment schedule, lien waiver process.
+blog | Permits, plans and the pre-construction file: what to have ready before you apply | Ties to the initial-advance difference between permits in hand and not.
+blog | Build-to-rent: financing a ground-up project you intend to hold, not sell | The DSCR takeout on a new build. Genuinely uncovered and it connects two programs.
+
+# ---- Multifamily (5) — core program, two posts ------------------------------
+blog | Underwriting a small multifamily deal: the five numbers that decide it | NOI, going-in and stabilised DSCR, cap rate, LTC. Worked example on a small building.
+blog | 5+ units vs. 2-4 units: why the financing changes completely at five doors | Commercial vs. residential underwriting. A common and genuinely confusing threshold.
+blog | Rent rolls and T-12s: what a lender reads in them and what makes one unreliable | Practical document literacy, and it is an easy first internal link from the multifamily guide.
+blog | How to stabilise a value-add apartment building on a bridge timeline | Lease-up pace, vacancy, and the exit refinance clock.
+blog | Mixed-use property financing for investors: where retail on the ground floor helps and where it hurts | Uncovered entirely. Miami-relevant.
+
+# ---- Exit, tax and structure (6) — funnel gaps ------------------------------
+blog | Your exit is underwritten too: how lenders assess sale versus refinance before they fund | Uncovered. Connects flip and DSCR content.
+blog | 1031 exchanges and hard money: what the timeline does to your financing | Flag clearly that this is not tax advice and the investor needs their CPA.
+blog | Partnership and JV structures for investor deals: what a lender needs from each partner | Guarantor question, UBO, entity docs. Links to the LLC post.
+blog | Cost segregation and depreciation on an investment property, in plain English | Not tax advice. Explain why it changes hold-versus-sell maths.
+blog | When to sell and when to refinance and hold: running both numbers before you commit | Decision framework, worked both ways.
+blog | What happens at payoff: the demand letter, the reconveyance and the timeline | Genuinely uncovered and every borrower reaches it eventually.
+
+# ---- Market and risk (5) -----------------------------------------------------
+blog | How rate moves actually reach an investor loan, and which ones do not | Treasury and SOFR versus posted bridge rates. Cite the source for every figure.
+blog | Insurance claims mid-rehab: what happens to your draw schedule when the roof goes | Follows the builders-risk post. Practical.
+blog | Reading a title commitment: the four exceptions that most often delay a close | Uncovered, and it is a top reason closes slip.
+blog | Florida investor markets beyond Miami: Tampa, Orlando and Jacksonville compared | You have Miami covered and nothing else. Cite current market data.
+blog | Buying investment property in an LLC you formed last week: what lenders do with a new entity | Entity seasoning. A very common first-timer blocker.

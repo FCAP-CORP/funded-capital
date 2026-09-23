@@ -18,13 +18,15 @@
  * by fc-content-queue-prod.bat) to work the production queue.
  *
  * Usage:
- *   npx tsx scripts/content-queue.ts list [--json] [--env <file>]
+ *   npx tsx scripts/content-queue.ts list  [--json] [--env <file>]
+ *   npx tsx scripts/content-queue.ts queue --file <path> [--dry-run]
  *   npx tsx scripts/content-queue.ts claim     <id> --by <who>
  *   npx tsx scripts/content-queue.ts drafted   <id> --url <url> [--summary <text>]
  *   npx tsx scripts/content-queue.ts failed    <id> --error <text>
  *   npx tsx scripts/content-queue.ts published <id> [--url <url>]
  */
 
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { config as loadEnv } from "dotenv";
 import { neon } from "@neondatabase/serverless";
@@ -34,6 +36,7 @@ import {
   CHANNEL_SPEC,
   STATUS_LABEL,
   canTransition,
+  validateRequest,
   type ContentChannel,
   type ContentStatus,
 } from "../lib/marketing/requests";
@@ -120,6 +123,68 @@ async function main() {
     process.exit(0);
   }
 
+  /* -- Bulk queue from a file. ------------------------------------------- *
+   *
+   * A file rather than command-line arguments because thirty topics is a thing
+   * you READ before you commit to it. The file is pipe-delimited so it opens in
+   * Notepad and a typo is obvious; blank lines and lines starting with # are
+   * ignored so it can carry its own headings.
+   *
+   *   channel | topic | notes
+   *
+   * Every row is validated with the SAME rules the web form uses, and a bad row
+   * stops the whole run BEFORE anything is inserted. Half a queue is worse than
+   * none: you cannot tell by looking which half made it.
+   */
+  if (command === "queue") {
+    const file = arg("file");
+    if (!file) {
+      console.error(`  "queue" needs --file pointing at a pipe-delimited list.\n`);
+      process.exit(1);
+    }
+
+    const raw = readFileSync(file, "utf8").split(/\r?\n/);
+    const rows: { channel: string; topic: string; notes: string | null }[] = [];
+    const problems: string[] = [];
+
+    raw.forEach((line, i) => {
+      const text = line.trim();
+      if (!text || text.startsWith("#")) return;
+      const [channel, topic, notes] = text.split("|").map((x) => (x ?? "").trim());
+      const check = validateRequest(channel, topic, notes || null);
+      if (!check.ok) {
+        problems.push(`  line ${i + 1}: ${check.error}\n    ${text.slice(0, 90)}`);
+        return;
+      }
+      rows.push({ channel: check.value.channel, topic: check.value.topic, notes: check.value.notes });
+    });
+
+    if (problems.length) {
+      console.error(`  ${problems.length} line(s) would not queue. NOTHING was inserted:\n`);
+      console.error(problems.join("\n") + "\n");
+      process.exit(1);
+    }
+
+    console.log(`  ${rows.length} to queue from ${file}:\n`);
+    for (const r of rows) console.log(`    ${CHANNEL_SPEC[r.channel as ContentChannel].label.padEnd(9)} ${r.topic}`);
+
+    if (has("dry-run")) {
+      console.log(`\n  DRY RUN — nothing was written.\n`);
+      process.exit(0);
+    }
+
+    let inserted = 0;
+    for (const r of rows) {
+      await db.execute(sql`
+        INSERT INTO content_requests (channel, topic, notes, requested_by)
+        VALUES (${r.channel}::content_channel, ${r.topic}, ${r.notes}, ${arg("by") ?? "bulk-queue"})
+      `);
+      inserted++;
+    }
+    console.log(`\n  Queued ${inserted}. The scheduled task takes one per run.\n`);
+    process.exit(0);
+  }
+
   if (!id) {
     console.error(`  "${command}" needs a request id. Run "list" first.\n`);
     process.exit(1);
@@ -144,7 +209,7 @@ async function main() {
   };
   const to = TARGET[command];
   if (!to) {
-    console.error(`  Unknown command "${command}". Use list, claim, drafted, failed or published.\n`);
+    console.error(`  Unknown command "${command}". Use list, queue, claim, drafted, failed or published.\n`);
     process.exit(1);
   }
 

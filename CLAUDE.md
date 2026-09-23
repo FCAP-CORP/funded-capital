@@ -523,9 +523,15 @@ worth closing the same way.
 
 ### Marketing queue (Phase 3b)
 
-`/crm/marketing` exists because the blog engine was meant to publish daily, **stopped on 30 August
-2026, and nothing said so for twenty-four days.** A pipeline that stops produces no error; it
-produces nothing. So the first thing on the screen is how long each channel has been quiet, and the
+`/crm/marketing` exists because the blog engine was meant to publish daily and **stopped on
+1 September 2026 — twenty-two days of silence that nothing reported.** A pipeline that stops
+produces no error; it produces nothing.
+
+*(Correction, same day: this was first written as "30 August, twenty-four days", from a summarised
+web fetch of /blog that silently dropped the two newest posts. The cadence card read the actual MDX
+files and said 22. **The code was right and the hand-checked number was wrong** — which is the whole
+argument for the card existing. The commit message still carries the wrong date; git history is not
+rewritten for this.)* So the first thing on the screen is how long each channel has been quiet, and the
 request form is underneath it — a "write me a post" button at the top would have made the real
 problem worse, not better.
 
@@ -535,10 +541,14 @@ and research skills that already exist, and writes back where the draft is. Noth
 app calls a model — one definition of the voice rather than two, and no model API key in a
 public-facing service.
 
-- **Only the blog can publish itself.** A post is an MDX file and a push deploys it. LinkedIn has no
-  connector here and a Klaviyo template is not a send, so for those two "published" means *you sent
-  it*, and the form says so before you click. `requests.regress.ts` asserts `autoPublishes` stays
-  false for both — if that ever flips, something must actually be able to post, and nothing can.
+- **Nothing reaches the public without Luis, on any channel.** `autoPublishes` is false for all
+  three and `requests.regress.ts` asserts it stays that way. The first version said the blog
+  published itself, because a post is an MDX file and a push deploys it — but the push is
+  `publish-blog.bat`, a person double-clicking something. `publishStep` names the one action that
+  makes each channel public ("run publish-blog.bat" / "post it on LinkedIn" / "send it from
+  Klaviyo") and the form says it before you click. If that flag ever flips, something must genuinely
+  be able to put content in front of borrowers unattended — a decision to make on purpose, not to
+  discover.
 - **Blog cadence reads the MDX archive, not this table.** Reading it from `content_requests` would
   report "no record yet" on day one despite fifty published posts. LinkedIn and email have no
   archive, so they are measured from the portal and carry that caveat on the card.
@@ -558,3 +568,49 @@ public-facing service.
 `apply-migration.mjs` picks up any new `drizzle/*.sql` automatically, so `fc-migrate-dev.bat` and
 `fc-migrate-prod.bat` need no change — but **production must be migrated BEFORE the push**, or the
 deploy serves a page querying a table that is not there.
+
+### Ground-Up LTFC is tier-aware (fixed 23 Sep 2026)
+
+The committee raised Tier 5 Ground-Up to **90% LTFC on construction dollars, with the usual 5%
+interest-reserve band on top — 95% all-in** on 30 July 2026. `lib/pricing.ts` never learned it. Every
+tier was capped at 85% until 23 September, so **a Tier 5 builder was quoted five points of cost less
+than they qualified for** — $250,000 on a $5M project — with no error, no warning, and nothing in the
+output a broker could have spotted.
+
+- `guLtfcCap(tier)` and `guLtfcWithIrCap(tier)` now decide it, mirroring `guArltvCap`. There is no
+  flat read of `CAPS.new_construction.ltfc` left anywhere; the only two references are inside those
+  two functions.
+- Tiers 1–4: 85% construction + 5% reserve band. **Tier 5: 90% + 5%.** The band is the same width at
+  every tier; what moved is where it starts. It funds a financed reserve and never build budget.
+- The blocker text reads the tier's own cap, so a Tier 5 broker is told "90% LTFC" rather than 85%.
+- Portfolio uses the same function. It was flat there too.
+- 19 new tests in `pricing.regress.ts` (12 → 31), negative-tested three ways: flattening the cap,
+  letting the band buy construction dollars, and promoting Tier 4 by mistake.
+
+**The lesson is not "add a constant."** A committee decision that changes leverage has to land in
+`lib/pricing.ts`, because that file is what the broker quotes from. A marketing page said 85%, a memo
+said 90%, and the quote was the only one of the three anybody acted on. The content calendar carried
+a note about the discrepancy across four consecutive runs and nobody closed it.
+
+**Still open:** `guLeverageAdj` adds +0.20% for LTFC ≥ 80% and does not distinguish 85% from 90%.
+Whether Tier 5's extra five points carries its own rate adjustment is a committee question, not
+something to infer.
+
+### Architecture decisions, 23 Sep 2026
+
+From the CRM/dashboard brief. Recorded here so they are not relitigated:
+
+- **Data layer stays Neon + Drizzle.** Supabase is the same Postgres with auth and storage bundled;
+  Clerk and Drive already own those, deliberately. Its row-level security would put "who can see this
+  borrower" in a *second* place alongside `lib/broker/scope.ts`, which is the failure this codebase is
+  built to avoid. Revisit only for realtime subscriptions or if Clerk is ever replaced.
+- **Adopting: shadcn/ui with Funded Capital brand tokens, TanStack Table, dnd-kit, Tremor.** The first
+  three carry little or no bundle cost. Tremor pulls Recharts (100KB+) for charts the dashboard
+  currently draws with divs — accepted knowingly, and it is the one that trades against Lighthouse.
+- **Treasury data already exceeds the brief.** `/api/treasury` reads `home.treasury.gov`'s own XML
+  feed — the primary source. FRED republishes it with a lag. No reason to switch.
+- **Notion for build tasks only**, never customer data. OpenRush, Exa/Firecrawl and Perplexity are
+  research and keyword tools; none is connected yet.
+- Unchanged and non-negotiable: pricing is deterministic and auditable, formulas in code and versioned
+  in git, **no AI-generated numbers in borrower-facing pricing**, every published rate claim cites a
+  source.
