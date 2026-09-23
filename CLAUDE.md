@@ -358,6 +358,17 @@ building it, both worth keeping:
   passing `DATABASE_URL=... npx tsx ...` on the command line will appear to work and then
   fail for the person double-clicking the `.bat`, because that is the one condition the test
   never reproduced. Test scripts the way the `.bat` runs them: with nothing preset.
+- **`tsx` DOES NOT TYPECHECK.** It strips types with esbuild and runs. A script that executes
+  perfectly under `npx tsx` can still fail `npm run typecheck` and the production build — and
+  because `tsconfig.json` includes `**/*.ts`, a broken script under `scripts/` blocks the BUILD,
+  not just its own execution. It does this even when the file is untracked, so `fc-check` can fail
+  on something Vercel has never seen. Always run `npx tsc --noEmit` after writing a script; running
+  it is not evidence.
+- **Casting a drizzle result needs to go through `unknown`.**
+  `NeonHttpQueryResult<Record<string, unknown>>` does not structurally overlap with a hand-written
+  `{ rows?: { n: number }[] }`, so a direct `as` is a TS2352 error. Use the `rowsOf` helper pattern
+  (`(r as { rows?: Row[] }).rows ?? (r as Row[])` with `Row = Record<string, unknown>`) and convert
+  fields with `Number()` / `String()` afterwards. `lib/broker/admin.server.ts` is the reference.
 - **A script that imports a `server-only` module needs `--conditions=react-server`.**
   `server-only`'s default export throws by design; the `react-server` condition resolves it
   to an empty file instead. `npx tsx --conditions=react-server scripts/x.ts` is how
