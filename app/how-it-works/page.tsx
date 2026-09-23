@@ -105,7 +105,7 @@ const faqs = [
   },
   {
     q: "Do you lend outside your listed states?",
-    a: "We lend in 44 states. Contact us to confirm availability in your market.",
+    a: "We lend in 45 states. Contact us to confirm availability in your market.",
   },
 ];
 

@@ -93,7 +93,7 @@ const faqs = [
   },
   {
     q: "What states do you lend in for new construction?",
-    a: "We lend in 44 states nationwide. A few states are excluded due to licensing requirements. Contact a loan officer to confirm eligibility in your specific state before submitting an application.",
+    a: "We lend in 45 states nationwide. A few states are excluded due to licensing requirements. Contact a loan officer to confirm eligibility in your specific state before submitting an application.",
   },
 ];
 
@@ -143,7 +143,7 @@ export default function NewConstructionLoansPage() {
             "name": "What states do you lend in for new construction?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "We lend in 44 states nationwide. A few states are excluded due to licensing requirements. Contact a loan officer to confirm eligibility in your specific state before submitting an application.",
+              "text": "We lend in 45 states nationwide. A few states are excluded due to licensing requirements. Contact a loan officer to confirm eligibility in your specific state before submitting an application.",
             },
           },
         ],

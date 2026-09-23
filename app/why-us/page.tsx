@@ -55,8 +55,8 @@ const differentiators = [
   {
     icon: Globe,
     title: "Nationwide Reach",
-    desc: "We lend in 44 states with a deep understanding of local markets. Whether you're investing in Miami or Minneapolis, we have the knowledge and licensing to close your deal.",
-    stat: "44 states",
+    desc: "We lend in 45 states with a deep understanding of local markets. Whether you're investing in Miami or Minneapolis, we have the knowledge and licensing to close your deal.",
+    stat: "45 states",
     statLabel: "Nationwide coverage",
   },
 ];

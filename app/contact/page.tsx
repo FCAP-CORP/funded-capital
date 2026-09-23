@@ -6,7 +6,7 @@ import ContactForm from "@/components/ContactForm";
 export const metadata: Metadata = {
   title: "Contact a Private Real Estate Lender — Funded Capital",
   description:
-    "Reach the Funded Capital team by phone, email, or form. Loan officers available Mon–Fri 8am–6pm ET. Miami, FL. Lending in 44 states.",
+    "Reach the Funded Capital team by phone, email, or form. Loan officers available Mon–Fri 8am–6pm ET. Miami, FL. Lending in 45 states.",
 };
 
 const contactInfo = [
