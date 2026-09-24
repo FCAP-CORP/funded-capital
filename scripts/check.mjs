@@ -15,7 +15,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import { readdirSync, mkdirSync, writeFileSync, existsSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, mkdirSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -161,10 +161,21 @@ console.log("");
    nobody ever has to open a terminal and run npm install by hand. */
 banner("1. DEPENDENCIES");
 const NODE_MODULES = join(ROOT, "node_modules");
-const REQUIRED = ["typescript", "tsx", "next"];
+// Every package package.json declares, not a fixed short list. With a fixed
+// list, a newly added library (e.g. @dnd-kit/core, 24 Sep 2026) was never
+// installed here, and the typecheck below failed on "Cannot find module" —
+// on the machine that had just pulled the change that added it.
+const declared = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+    return Object.keys({ ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) });
+  } catch {
+    return ["typescript", "tsx", "next"];
+  }
+})();
 const missing = !existsSync(NODE_MODULES)
   ? ["node_modules"]
-  : REQUIRED.filter((pkg) => !existsSync(join(NODE_MODULES, pkg)));
+  : declared.filter((pkg) => !existsSync(join(NODE_MODULES, pkg, "package.json")));
 
 if (missing.length > 0) {
   console.log(`  Missing: ${missing.join(", ")}`);
@@ -173,7 +184,7 @@ if (missing.length > 0) {
     advice: "If this failed, check the internet connection and that Node.js is installed.",
   });
 } else {
-  record("dependencies installed", "typescript, tsx and next all present", {
+  record("dependencies installed", `all ${declared.length} declared packages present`, {
     ok: true,
     seconds: "0.0",
     output: "",

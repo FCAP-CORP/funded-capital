@@ -541,7 +541,7 @@ if (crmActions) {
       n <= 1 ? `${n} refresh call${n === 1 ? "" : "s"}` : `**${n} REFRESH CALLS**`,
     );
   }
-  for (const name of ["setStage", "logContact", "setSnooze", "clearSnooze"]) {
+  for (const name of ["setStage", "markLost", "logContact", "setSnooze", "clearSnooze"]) {
     const s = starts.findIndex((x) => x.name === name);
     const body = s < 0 ? "" : code.slice(starts[s].at, s + 1 < starts.length ? starts[s + 1].at : undefined);
     check(
@@ -569,6 +569,34 @@ if (queueUi) {
     "...and HERE is /crm/dashboard",
     /const HERE = "\/crm\/dashboard"/.test(code),
     /const HERE = "\/crm\/dashboard"/.test(code) ? "yes" : "**WRONG OR MISSING**",
+  );
+}
+
+
+const BOARD_UI = "app/crm/board/PipelineBoard.tsx";
+let boardUi = "";
+try { boardUi = readFileSync(join(ROOT, BOARD_UI), "utf8"); }
+catch { check(BOARD_UI, false, "**FILE MISSING** — renamed? update this section"); }
+if (boardUi) {
+  const code = codeOnly(boardUi);
+  const calls = code.match(/\b(setStage|markLost)\(([^()]|\([^()]*\))*\)/g) ?? [];
+  const without = calls.filter((c) => !/HERE\)$/.test(c));
+  check(
+    "every board action call says it is on /crm/board",
+    calls.length >= 3 && without.length === 0,
+    without.length ? `**MISSING ROUTE: ${without.join(" | ")}**` : `${calls.length} calls, all pass HERE`,
+  );
+  check(
+    "...and HERE is /crm/board",
+    /const HERE = "\/crm\/board"/.test(code),
+    /const HERE = "\/crm\/board"/.test(code) ? "yes" : "**WRONG OR MISSING**",
+  );
+}
+if (crmActions) {
+  check(
+    "/crm/board is on the list of routes an action may refresh",
+    /CRM_ROUTES[^=]*=\s*\[[^\]]*"\/crm\/board"/.test(codeOnly(crmActions)),
+    /CRM_ROUTES[^=]*=\s*\[[^\]]*"\/crm\/board"/.test(codeOnly(crmActions)) ? "listed" : "**NOT LISTED**",
   );
 }
 

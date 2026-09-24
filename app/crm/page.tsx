@@ -5,6 +5,7 @@ import { getPipeline, getCounts } from "@/lib/db/queries";
 import { money, daysSince } from "@/lib/crm/view";
 import PipelineTable from "./PipelineTable";
 import { GridSkeleton, StatSkeleton } from "./Skeleton";
+import ViewToggle from "./ViewToggle";
 
 /**
  * Pipeline — the Lending OS home screen.
@@ -74,7 +75,7 @@ async function Pipeline() {
         <Stat
           label="Never contacted"
           value={String(counts.neverContacted)}
-          sub="no email either way"
+          sub="no call, text or email"
           tone={counts.neverContacted > 0 ? "warn" : "default"}
         />
         <Stat
@@ -92,11 +93,14 @@ async function Pipeline() {
 export default function PipelinePage() {
   return (
     <main className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-navy-900">Pipeline</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Every application in one place. Change a stage here and the history is written with it.
-        </p>
+      <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-navy-900">Pipeline</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Every application in one place. Change a stage here and the history is written with it.
+          </p>
+        </div>
+        <ViewToggle current="table" />
       </header>
 
       <Suspense fallback={<><StatSkeleton /><GridSkeleton /></>}>

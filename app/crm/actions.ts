@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { activities, applications, contacts, participants, stageTransitions } from "@/lib/db/schema";
 import { STAGE_LABEL } from "@/lib/crm/view";
 import { assertCrmStaff } from "@/lib/crm/access";
+import { parseLostReason } from "@/lib/crm/board";
 import {
   KIND_LABEL,
   isLoggableKind,
@@ -46,11 +47,76 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
  * back to the action's default rather than being passed to revalidatePath,
  * because a server action's arguments arrive from the browser.
  */
-export type CrmRoute = "/crm" | "/crm/dashboard";
-const CRM_ROUTES: readonly string[] = ["/crm", "/crm/dashboard"];
+export type CrmRoute = "/crm" | "/crm/dashboard" | "/crm/board";
+const CRM_ROUTES: readonly string[] = ["/crm", "/crm/dashboard", "/crm/board"];
 
 function revalidateFrom(from: unknown, fallback: CrmRoute): void {
   revalidatePath(typeof from === "string" && CRM_ROUTES.includes(from) ? from : fallback);
+}
+
+/**
+ * The one place a deal changes stage.
+ *
+ * Both a plain move and a lost drop come through here, so the history row and
+ * the cached stage column are written the same way every time. It does not
+ * refresh anything — each caller refreshes its own route, once.
+ *
+ * db.batch, NOT db.transaction: lib/db uses the neon-http driver, which throws
+ * "No transactions support in neon-http driver" the moment db.transaction() is
+ * called. It compiles cleanly, so the typecheck and the build both pass and the
+ * failure only appears the first time someone moves a deal. db.batch sends both
+ * statements in one request wrapped in a real Postgres transaction: the history
+ * row and the cached column commit together or neither does.
+ */
+async function moveStage(
+  applicationId: string,
+  toStage: string,
+  userId: string,
+  extra: { reason?: string; lostReason?: string } = {},
+): Promise<ActionResult> {
+  if (!(toStage in STAGE_LABEL)) return { ok: false, error: `unknown stage "${toStage}"` };
+
+  const [current] = await db
+    .select({ stage: applications.stage })
+    .from(applications)
+    .where(eq(applications.id, applicationId))
+    .limit(1);
+
+  if (!current) return { ok: false, error: "application not found" };
+  if (current.stage === toStage && extra.lostReason === undefined) return { ok: true }; // no phantom history
+
+  const now = new Date();
+  const stage = toStage as typeof current.stage;
+
+  if (current.stage === toStage) {
+    // Already lost; only the reason is being recorded or corrected.
+    await db
+      .update(applications)
+      .set({ lostReason: extra.lostReason, updatedAt: now })
+      .where(eq(applications.id, applicationId));
+    return { ok: true };
+  }
+
+  await db.batch([
+    db.insert(stageTransitions).values({
+      applicationId,
+      fromStage: current.stage,
+      toStage: stage,
+      changedAt: now,
+      changedBy: userId,
+      reason: extra.reason ?? "changed in the CRM",
+    }),
+    db
+      .update(applications)
+      .set({
+        stage,
+        stageEnteredAt: now,
+        updatedAt: now,
+        ...(extra.lostReason !== undefined ? { lostReason: extra.lostReason } : {}),
+      })
+      .where(eq(applications.id, applicationId)),
+  ]);
+  return { ok: true };
 }
 
 /**
@@ -69,45 +135,8 @@ export async function setStage(
 ): Promise<ActionResult> {
   try {
     const userId = await requireUser();
-    if (!(toStage in STAGE_LABEL)) return { ok: false, error: `unknown stage "${toStage}"` };
-
-    const [current] = await db
-      .select({ stage: applications.stage })
-      .from(applications)
-      .where(eq(applications.id, applicationId))
-      .limit(1);
-
-    if (!current) return { ok: false, error: "application not found" };
-    if (current.stage === toStage) return { ok: true }; // no-op, no phantom history
-
-    const now = new Date();
-
-    /**
-     * db.batch, NOT db.transaction.
-     *
-     * lib/db uses the neon-http driver, which talks to Postgres over HTTP and
-     * throws "No transactions support in neon-http driver" the moment
-     * db.transaction() is called. It compiles cleanly, so the typecheck and the
-     * build both pass and the failure only appears the first time someone moves
-     * a deal. db.batch sends both statements in one request wrapped in a real
-     * Postgres transaction, which is what this needs: the history row and the
-     * cached column commit together or neither does.
-     */
-    await db.batch([
-      db.insert(stageTransitions).values({
-        applicationId,
-        fromStage: current.stage,
-        toStage: toStage as typeof current.stage,
-        changedAt: now,
-        changedBy: userId,
-        reason: "changed in the CRM",
-      }),
-      db
-        .update(applications)
-        .set({ stage: toStage as typeof current.stage, stageEnteredAt: now, updatedAt: now })
-        .where(eq(applications.id, applicationId)),
-    ]);
-
+    const res = await moveStage(applicationId, toStage, userId);
+    if (!res.ok) return res;
     revalidateFrom(from, "/crm");
     return { ok: true };
   } catch (err) {
@@ -115,7 +144,37 @@ export async function setStage(
   }
 }
 
-/** Free-text notes on a deal. Trimmed; an empty box clears the field. */
+/**
+ * Close a deal as lost, and record why.
+ *
+ * The reason goes on the deal (applications.lost_reason, which existed from the
+ * first migration and was never written until this) AND on the history row, so
+ * a later question like "how many did we lose on rate this quarter?" can be
+ * answered from either. A lost deal with no reason teaches nothing, so the
+ * reason is required — the board asks before it calls this.
+ */
+export async function markLost(
+  applicationId: string,
+  choice: string,
+  note: string,
+  from: CrmRoute = "/crm/board",
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    const reason = parseLostReason(choice, note);
+    if (!reason.ok) return { ok: false, error: reason.error };
+    const res = await moveStage(applicationId, "closed_lost", userId, {
+      reason: `lost: ${reason.value}`,
+      lostReason: reason.value,
+    });
+    if (!res.ok) return res;
+    revalidateFrom(from, "/crm/board");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 export async function setApplicationNotes(applicationId: string, notes: string): Promise<ActionResult> {
   try {
     await requireUser();

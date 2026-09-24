@@ -335,6 +335,15 @@ building it, both worth keeping:
   shipped the day before refreshed both `/crm/dashboard` and `/crm`; the work-queue buttons would
   have frozen `/crm` on their first click. `lib/crm/guards.regress.ts` §8 fails the build if any
   action refreshes two routes or a dashboard button omits its route.
+  `/crm/board` was added to the list with the pipeline board; its drops pass their route too, and
+  §8 checks that as well.
+- **The pipeline board (`/crm/board`) is a view, not a second source of truth.** It moves deals
+  with the same `setStage` as the table, through one shared `moveStage()` in `app/crm/actions.ts`,
+  so every move writes its `stage_transitions` row. Funded asks for confirmation (Cancel has
+  focus); Closed – Lost requires a reason via `markLost`, which writes `applications.lost_reason`
+  — unused from the first migration until 24 Sep 2026 — and the transition's `reason`. The table's
+  stage dropdown can still close a deal without a reason; that gap is known. Only the seven fields a
+  card shows are sent to the browser. Rules and tests: `lib/crm/board.ts`.
 - **`/crm` 404s on localhost unless `CRM_STAFF_EMAILS` is set in `.env.local` by hand.**
   `scripts/merge-env.mjs` copies only DATABASE keys across from Vercel (`WANTED` in that
   file), so the staff allowlist has never come down with an env pull. Production has the
@@ -666,8 +675,15 @@ cheap) and a must-contain check weaker (a missed guard, not cheap).
 
 **Update 24 Sep 2026:** the device gate is also why the task produced nothing that morning — the
 laptop was asleep at 7:00 and the task was suspended (`device_absent`). The device-free path is
-built (draft into `draft_body`, pulled down by `fc-pull-drafts.bat`); the prompt switch is pending
-Luis's decision on where the queue token lives for a task that can't read his disk.
+built (draft into `draft_body`, pulled down by `fc-pull-drafts.bat`) and switched on the same day.
+The daily blog is now **`trig_01UWtAw89jQKtYPqoYshPWm4`**, a cloud-only scheduled task (not bound
+to any computer — a bound task is suspended as `device_absent` before its prompt even runs, so
+changing the prompt alone could never have fixed this). The old `trig_016uyqKsWzrAcUn9FhGdKYUf`
+is disabled and kept for its history. The task reads the queue token from Drive:
+`My Drive/Funded Capital - AI Agent System/00-private/content-queue-token.txt`, put there by
+`fc-queue-token-to-drive.bat`, which refuses to copy unless git confirms `00-private/` is ignored —
+that folder is itself a git repo that `backup-agent-system.bat` pushes to GitHub. Failures leave a
+Gmail DRAFT titled "Daily blog did not run: …" rather than a note in a session nobody opens.
 
 **One blog system, not two.** The 7am daily task now works the queue and keeps its device gate — the
 gate is why it has always worked. The three-times-daily marketing-queue task is disabled; it was
