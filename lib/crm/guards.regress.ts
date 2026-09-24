@@ -136,6 +136,9 @@ const STAFF_ONLY_MODULES = [
   "lib/marketing/requests.server.ts",
   // The record card's read: one borrower's whole file, consent state included.
   "lib/crm/record.server.ts",
+  // The dashboard's read: the whole book, every borrower's name and email,
+  // plus every open task due today.
+  "lib/crm/dashboard.server.ts",
 ];
 
 for (const relPath of STAFF_ONLY_MODULES) {
@@ -587,6 +590,42 @@ if (queueUi) {
     /const HERE = "\/crm\/dashboard"/.test(code) ? "yes" : "**WRONG OR MISSING**",
   );
 }
+
+/*
+ * Every OTHER client file on the dashboard, too (the redesign of 24 Sep 2026
+ * added the task checkboxes in DueTasks.tsx, which call toggleTask). Any .tsx
+ * in app/crm/dashboard that calls an action must pass HERE, and its HERE must
+ * be /crm/dashboard — so a new file there cannot quietly refresh /crm.
+ */
+const DASH_DIR = join(ROOT, "app", "crm", "dashboard");
+const DASH_ACTIONS =
+  /\b(setStage|markLost|logContact|setSnooze|clearSnooze|setApplicationNotes|setContactField|addTask|toggleTask|deleteTask)\(([^()]|\([^()]*\))*\)/g;
+let dashCalls = 0;
+for (const f of walk(DASH_DIR).filter((x) => x.endsWith(".tsx"))) {
+  const code = codeOnly(readFileSync(f, "utf8"));
+  const calls = code.match(DASH_ACTIONS) ?? [];
+  if (calls.length === 0) continue;
+  dashCalls += calls.length;
+  const without = calls.filter((c) => !/HERE\)$/.test(c));
+  check(
+    `${rel(f)}: every action call passes HERE`,
+    without.length === 0,
+    without.length ? `**MISSING ROUTE: ${without.join(" | ")}**` : `${calls.length} calls, all pass HERE`,
+  );
+  check(
+    `${rel(f)}: ...and its HERE is /crm/dashboard`,
+    /const HERE = "\/crm\/dashboard"/.test(code),
+    /const HERE = "\/crm\/dashboard"/.test(code) ? "yes" : "**WRONG OR MISSING HERE**",
+  );
+}
+const dashToggles = walk(DASH_DIR)
+  .filter((x) => x.endsWith(".tsx"))
+  .some((x) => /\btoggleTask\(/.test(codeOnly(readFileSync(x, "utf8"))));
+check(
+  "...and the scan found the row buttons AND the task checkboxes, so it is not vacuous",
+  dashCalls >= 7 && dashToggles,
+  `${dashCalls} calls${dashToggles ? ", toggleTask included" : " — **NO toggleTask FOUND**"}`,
+);
 
 
 const BOARD_UI = "app/crm/board/PipelineBoard.tsx";

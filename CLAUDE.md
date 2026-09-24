@@ -765,3 +765,28 @@ BiggerPockets file handles them, and nothing sent them to the CRM, so every BP l
   Deploy** — the BP trigger runs saved code; the website form's web-app deployment must not move.
 - Rules in `lib/leads/biggerpockets.ts` (137 tests); guards §10 pins the route's secret check and
   the tables it may write.
+
+### Dashboard redesign (24 Sep 2026)
+
+`/crm/dashboard` was rebuilt from an approved mockup. It supersedes parts of the Phase 3a notes
+above: the page now has three small client pieces (queue tabs, the "More" menu, task checkboxes),
+and its data comes from `lib/crm/dashboard.server.ts`, not `getDashboardApplications` (left in
+`lib/db/queries.ts`, unused).
+
+- **One round trip.** `getDashboardData(now)` asserts staff itself and sends the book and today's
+  tasks in one `db.batch`. Every number on the page is computed by `lib/crm/dashboardView.ts`
+  (pure, 128 tests) from that read and a single `now`.
+- **New York time everywhere:** greeting, date line, month-to-date, Funded YTD, 12 Monday–Sunday
+  weeks (DST-tested), tasks due today.
+- **Dates use `submittedAt ?? createdAt`, never `created_at` alone.** The legacy import stamped
+  `created_at` with the import day, so `created_at` would put the whole historic book into "last
+  30 days".
+- **Term sheets** use the first move into `term_sheet_issued`, falling back to the legacy
+  `term_sheet_issued_at` column — the same pattern as the funded date.
+- Charts are divs, no chart library and no client JS; each has a visually hidden table.
+- The queue's "More" menu renders its contents only while open (page HTML 879 KB → 410 KB).
+- `signedInUser` in `lib/crm/access.ts` caches Clerk's `currentUser()` per request so the greeting
+  reuses the staff check's lookup. It is NOT a gate.
+- Guard §8 scans every `.tsx` in `app/crm/dashboard` for action calls and requires `HERE`.
+- Known gap carried over: the stage select in the queue's More menu does not confirm Funded or ask
+  for a lost reason; the board and record card do.

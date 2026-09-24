@@ -53,8 +53,20 @@ function staffList(): string | undefined {
   return process.env.CRM_STAFF_EMAILS || process.env.PARTICIPANT_ADMIN_EMAILS;
 }
 
+/**
+ * The signed-in Clerk user, fetched once per request.
+ *
+ * `currentUser()` is a network call to Clerk's API every time it is called.
+ * The staff check below and anything that wants the person's name (the
+ * dashboard's greeting) share this one lookup instead of making two.
+ *
+ * NOT A GATE. It returns whoever is signed in, staff or not. Anything that
+ * decides access goes through `isCrmStaff()` / `assertCrmStaff()`.
+ */
+export const signedInUser = cache(() => currentUser());
+
 async function loadIsCrmStaff(): Promise<boolean> {
-  const user = await currentUser();
+  const user = await signedInUser();
   return emailAllowed(user?.primaryEmailAddress?.emailAddress, staffList());
 }
 
