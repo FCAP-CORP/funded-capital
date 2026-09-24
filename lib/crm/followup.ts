@@ -88,13 +88,28 @@ export interface SnoozePreset {
  * minute of Thursday you happened to click. A deal that returns at 4:47pm has
  * effectively been snoozed a day longer than you asked for.
  */
+/** Luis's calendar. A "tomorrow" that isn't his tomorrow is the wrong day. */
+export const BUSINESS_TIMEZONE = "America/New_York";
+
+/** Year, month and day of `now` on the business calendar. */
+function businessDay(now: Date): { y: number; m: number; d: number } {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: BUSINESS_TIMEZONE, year: "numeric", month: "numeric", day: "numeric",
+  }).formatToParts(now);
+  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+  return { y: get("year"), m: get("month"), d: get("day") };
+}
+
 export function snoozePresets(now: Date = new Date()): SnoozePreset[] {
+  // Count days on the NEW YORK calendar. Counting UTC days made "Tomorrow"
+  // mean the day after tomorrow for four hours every evening: at 9pm Eastern
+  // it is already tomorrow in UTC, so UTC+1 lands two New York days out.
+  const today = businessDay(now);
   const at = (days: number): string => {
-    const d = new Date(now.getTime());
-    d.setUTCDate(d.getUTCDate() + days);
-    d.setUTCHours(13, 0, 0, 0);
-    // Rolled onto a moment already past (clicking at 14:00 UTC and asking for
-    // "tomorrow" is fine, but "today at 13:00" is not) — push a day.
+    const d = new Date(Date.UTC(today.y, today.m - 1, today.d + days, 13, 0, 0, 0));
+    // A target already in the past can only happen for days = 0, which is not
+    // offered — but a preset must never be a moment that parseSnoozeDate
+    // would refuse, so push rather than trust that.
     if (d.getTime() <= now.getTime()) d.setUTCDate(d.getUTCDate() + 1);
     return d.toISOString();
   };

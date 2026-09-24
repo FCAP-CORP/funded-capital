@@ -661,11 +661,18 @@ export const applicationProperties = pgTable("application_properties", {
  * is. That keeps one definition of the brand voice instead of two, and keeps an
  * API key out of the web app.
  *
- * NO DRAFT CONTENT IN THIS TABLE. `draft_url` points at the Gmail draft, the
- * Klaviyo template or the MDX file; `draft_summary` is one line for the list.
- * The portal stays a pipe, which is the same rule the document pipeline follows
- * — storing the artefact here would make this a second, stale copy of something
- * that is edited somewhere else.
+ * `draft_url` points at the Gmail draft, the Klaviyo template or the MDX file;
+ * `draft_summary` is one line for the list.
+ *
+ * ONE EXCEPTION, AND IT IS A PIPE, NOT A VAULT: `draft_body` (migration 0008).
+ * A blog draft is an MDX file, and until 24 Sep 2026 the task delivered it by
+ * writing onto Luis's laptop — so a sleeping laptop at 7am meant no post. The
+ * draft now travels through here instead: the task posts it with the `drafted`
+ * transition, `scripts/pull-drafts.mjs` writes it into content/blog when Luis
+ * runs it, and from then on the MDX file is the only copy anyone edits. The
+ * column is a transit copy of marketing copy, validated by lib/marketing/draft.ts
+ * before it lands. Nothing about a borrower ever goes here; LinkedIn and email
+ * drafts still live in Gmail and Klaviyo.
  */
 export const contentRequests = pgTable("content_requests", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -687,6 +694,8 @@ export const contentRequests = pgTable("content_requests", {
   draftedAt: timestamp("drafted_at", { withTimezone: true }),
   draftUrl: text("draft_url"),
   draftSummary: text("draft_summary"),
+  /** Blog only: the full MDX, in transit to content/blog. See the note above. */
+  draftBody: text("draft_body"),
 
   publishedAt: timestamp("published_at", { withTimezone: true }),
   publishedUrl: text("published_url"),

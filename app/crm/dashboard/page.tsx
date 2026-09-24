@@ -1,19 +1,24 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { AlertTriangle, Clock, Copy, FileWarning, MailQuestion, UserX } from "lucide-react";
+import { AlertTriangle, Clock, Copy, FileWarning, MailQuestion, Reply, UserX } from "lucide-react";
 import { isCrmStaff } from "@/lib/crm/access";
 import { getDashboardApplications } from "@/lib/db/queries";
 import {
+  QUEUE_DEFAULTS,
   REASON_LABEL,
   buildWorkQueue,
   computeKpis,
   queueSummary,
+  snoozedItems,
+  snoozesBrokenByInbound,
   stageCounts,
-  type QueueItem,
   type QueueReason,
+  type SnoozedItem,
 } from "@/lib/crm/dashboard";
 import { STAGE_LABEL, ageLabel, label, money } from "@/lib/crm/view";
+import { nyDayLabel, putDownHeading, queueRows, type QueueRowView } from "@/lib/crm/queueView";
 import { GridSkeleton, StatSkeleton } from "../Skeleton";
+import { BringBackButton, QueueRowActions } from "./QueueRowActions";
 
 /**
  * Dashboard — the numbers, and then the work.
@@ -28,18 +33,27 @@ import { GridSkeleton, StatSkeleton } from "../Skeleton";
  * `cacheComponents: true` rejects route segment config outright, so the page is
  * a static shell and everything touching the database sits inside <Suspense>.
  *
- * PERFORMANCE: zero client JavaScript. Every row, badge and bar is server-
- * rendered HTML; the bars are divs with a width percentage, not a charting
- * library. The heading and the empty frame paint from the prerendered shell and
- * the data streams in behind them. One database round trip feeds all three
- * sections, because the queue, the KPIs and the funnel are three readings of
- * the same rows rather than three queries.
+ * PERFORMANCE: the only client JavaScript is QueueRowActions.tsx — the row
+ * buttons and the "bring back" button, one small module with no dependencies
+ * beyond React and the icons already on the page. Every row, badge and bar is
+ * server-rendered HTML; the bars are divs with a width percentage, not a
+ * charting library. The heading and the empty frame paint from the prerendered
+ * shell and the data streams in behind them. One database round trip feeds
+ * every section, because the queue, the put-down list, the KPIs and the funnel
+ * are readings of the same rows rather than separate queries. A button press
+ * is one server action, and the refreshed list comes back in that same
+ * response — no second fetch.
  *
  * CONVERSION — the internal kind: every queue row carries a mailto link with
  * the borrower's address already in it. The gap between noticing someone has
  * waited twenty days and actually writing to them is where this kind of screen
  * usually dies, so the reply is one click from the finding, not a search away
  * on another page.
+ *
+ * And the record of having done it is one click from the row too: "Log call",
+ * "Log email", "Log text", a note, a snooze, a stage. Work that has to be
+ * written down somewhere else afterwards mostly is not written down, and then
+ * the queue keeps nagging about a borrower who was phoned this morning.
  */
 
 export const metadata = {
@@ -93,28 +107,101 @@ function ReasonBadge({ reason }: { reason: QueueReason }) {
   );
 }
 
-function QueueRow({ item }: { item: QueueItem }) {
+/**
+ * "They wrote back after you put this down."
+ *
+ * The one badge on this screen that means a decision you made is now out of
+ * date. Its own icon and words, never colour alone, same as the reasons.
+ */
+function WroteBackBadge() {
   return (
-    <tr className="border-t border-slate-100 hover:bg-slate-50">
-      <td className="py-3 pr-4 align-top">
-        <p className="font-medium text-navy-900">{item.name}</p>
-        {item.email ? (
-          <a href={`mailto:${item.email}`} className="text-xs text-slate-500 hover:text-gold-700 underline-offset-2 hover:underline">
-            {item.email}
-          </a>
-        ) : (
-          <p className="text-xs text-slate-400">no email on file</p>
-        )}
-      </td>
-      <td className="py-3 pr-4 align-top"><ReasonBadge reason={item.reason} /></td>
-      <td className="py-3 pr-4 align-top text-sm tabular-nums text-slate-700 whitespace-nowrap">
-        {ageLabel(item.waitingDays)}
-      </td>
-      <td className="py-3 pr-4 align-top text-sm text-slate-600">{label(STAGE_LABEL, item.stage)}</td>
-      <td className="py-3 align-top text-sm tabular-nums text-slate-700 text-right whitespace-nowrap">
-        {item.requestedAmount ? money(item.requestedAmount) : "—"}
-      </td>
-    </tr>
+    <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+      <Reply size={12} aria-hidden="true" />
+      Wrote back while snoozed
+    </span>
+  );
+}
+
+/**
+ * One deal: the facts on the first line, the things you can do on the second.
+ *
+ * Each deal is its own <tbody> — several are valid HTML — so the hover
+ * highlight covers the deal and its controls together, and the columns above
+ * keep their widths instead of being squeezed by a sixth column of buttons.
+ */
+function QueueRow({ item }: { item: QueueRowView }) {
+  return (
+    <tbody className="border-t border-slate-100 hover:bg-slate-50 [&>tr>td:first-child]:pl-4 [&>tr>td:last-child]:pr-4">
+      <tr>
+        <td className="pt-3 pb-2 pr-4 align-top">
+          <p className="font-medium text-navy-900">{item.name}</p>
+          {item.email ? (
+            <a href={`mailto:${item.email}`} className="text-xs text-slate-500 hover:text-gold-700 underline-offset-2 hover:underline">
+              {item.email}
+            </a>
+          ) : (
+            <p className="text-xs text-slate-400">no email on file</p>
+          )}
+        </td>
+        <td className="pt-3 pb-2 pr-4 align-top">
+          <div className="flex flex-col items-start gap-1">
+            {item.reason && <ReasonBadge reason={item.reason} />}
+            {item.wroteBack && <WroteBackBadge />}
+          </div>
+        </td>
+        <td className="pt-3 pb-2 pr-4 align-top text-sm tabular-nums text-slate-700 whitespace-nowrap">
+          {ageLabel(item.waitingDays)}
+        </td>
+        <td className="pt-3 pb-2 pr-4 align-top text-sm text-slate-600">{label(STAGE_LABEL, item.stage)}</td>
+        <td className="pt-3 pb-2 align-top text-sm tabular-nums text-slate-700 text-right whitespace-nowrap">
+          {item.requestedAmount ? money(item.requestedAmount) : "—"}
+        </td>
+      </tr>
+      <tr>
+        <td colSpan={5} className="pb-3">
+          <QueueRowActions applicationId={item.applicationId} name={item.name} stage={item.stage} />
+        </td>
+      </tr>
+    </tbody>
+  );
+}
+
+/**
+ * Everything put down, with the count on top.
+ *
+ * Shown, not hidden: a queue that can be emptied by snoozing, with no record of
+ * what was snoozed, rewards parking work over doing it. Nothing put down is one
+ * quiet line rather than an empty box.
+ */
+function PutDown({ items, now }: { items: SnoozedItem[]; now: Date }) {
+  const heading = putDownHeading(items, now);
+  if (!heading) {
+    return <p className="mb-10 text-sm text-slate-500">Nothing put down.</p>;
+  }
+  return (
+    <section className="mb-10">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+        <h2 className="text-lg font-bold text-navy-900">{heading}</h2>
+        <p className="text-sm text-slate-500">Off the queue until the date — or until they write to you</p>
+      </div>
+      <ul className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+        {items.map((p) => (
+          <li key={p.applicationId} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+            <div className="min-w-0">
+              <p className="font-medium text-navy-900">{p.name}</p>
+              <p className="text-xs text-slate-500">
+                {label(STAGE_LABEL, p.stage)}
+                <span aria-hidden="true"> · </span>
+                <span className="sr-only">, </span>
+                back <span className="tabular-nums text-slate-700">{nyDayLabel(p.until, now)}</span>
+              </p>
+              {p.note && <p className="mt-1 text-xs italic text-slate-600 break-words">{p.note}</p>}
+            </div>
+            <BringBackButton applicationId={p.applicationId} name={p.name} />
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -129,13 +216,19 @@ async function Dashboard() {
 
   const apps = await getDashboardApplications();
 
-  const kpis = computeKpis(apps);
-  const queue = buildWorkQueue(apps);
+  // One clock for every decision on the page, so the queue, the put-down list
+  // and the wrote-back badge cannot disagree about what "now" is.
+  const now = new Date();
+
+  const kpis = computeKpis(apps, now);
+  const queue = buildWorkQueue(apps, QUEUE_DEFAULTS, now);
   const summary = queueSummary(queue).filter((s) => s.count > 0);
   const stages = stageCounts(apps);
+  const rows = queueRows(queue, apps, snoozesBrokenByInbound(apps, now), now);
+  const parked = snoozedItems(apps, now);
 
-  const shown = queue.slice(0, QUEUE_LIMIT);
-  const remaining = queue.length - shown.length;
+  const shown = rows.slice(0, QUEUE_LIMIT);
+  const remaining = rows.length - shown.length;
 
   // The widest bar sets the scale. Every other bar is read against it, so a
   // book with one enormous stage renders honestly as one enormous bar.
@@ -157,7 +250,7 @@ async function Dashboard() {
         <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
           <h2 className="text-lg font-bold text-navy-900">Needs you today</h2>
           <p className="text-sm text-slate-500">
-            {queue.length === 0 ? "Nothing waiting" : `${queue.length} ${queue.length === 1 ? "file" : "files"}, most urgent first`}
+            {rows.length === 0 ? "Nothing waiting" : `${rows.length} ${rows.length === 1 ? "file" : "files"}, most urgent first`}
           </p>
         </div>
 
@@ -172,7 +265,7 @@ async function Dashboard() {
           </div>
         )}
 
-        {queue.length === 0 ? (
+        {rows.length === 0 ? (
           <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
             <p className="text-sm text-slate-600">
               Nothing is waiting on a reply, going stale, or sitting untouched. That is the goal state,
@@ -191,9 +284,7 @@ async function Dashboard() {
                   <th className="py-2.5 pr-4 font-semibold text-right">Requested</th>
                 </tr>
               </thead>
-              <tbody className="[&>tr>td:first-child]:pl-4 [&>tr>td:last-child]:pr-4">
-                {shown.map((item) => <QueueRow key={item.applicationId} item={item} />)}
-              </tbody>
+              {shown.map((item) => <QueueRow key={item.applicationId} item={item} />)}
             </table>
             {remaining > 0 && (
               <p className="border-t border-slate-100 px-4 py-3 text-xs text-slate-500">
@@ -203,6 +294,9 @@ async function Dashboard() {
           </div>
         )}
       </section>
+
+      {/* ------------------------------------------------ what was put down */}
+      <PutDown items={parked} now={now} />
 
       {/* -------------------------------------------------- the funnel shape */}
       <section>

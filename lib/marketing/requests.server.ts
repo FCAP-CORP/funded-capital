@@ -46,17 +46,45 @@ export interface RequestRow {
   draftedAt: string | null;
   draftUrl: string | null;
   draftSummary: string | null;
+  /**
+   * The MDX of a blog draft still waiting to go live, so it can be read on the
+   * page. Null for every other row — see listRequests.
+   */
+  draftBody: string | null;
   publishedAt: string | null;
   publishedUrl: string | null;
   error: string | null;
 }
 
-/** Newest first. Bounded, because this list only ever needs to be scannable. */
+/**
+ * Newest first. Bounded, because this list only ever needs to be scannable.
+ *
+ * THE DRAFT BODY IS FETCHED ONLY WHERE IT CAN BE SHOWN. A post is 9-20 KB; a
+ * hundred of them is two megabytes read from Neon on every page load for text
+ * nobody is looking at. Only a drafted blog row can be opened on the page, so
+ * every other row gets NULL from the database rather than being trimmed after.
+ */
 export async function listRequests(limit = 100): Promise<RequestRow[]> {
   await assertCrmStaff();
 
   const rows = await db
-    .select()
+    .select({
+      id: contentRequests.id,
+      channel: contentRequests.channel,
+      topic: contentRequests.topic,
+      notes: contentRequests.notes,
+      status: contentRequests.status,
+      requestedBy: contentRequests.requestedBy,
+      requestedAt: contentRequests.requestedAt,
+      claimedAt: contentRequests.claimedAt,
+      draftedAt: contentRequests.draftedAt,
+      draftUrl: contentRequests.draftUrl,
+      draftSummary: contentRequests.draftSummary,
+      draftBody: sql<string | null>`CASE WHEN ${contentRequests.status} = 'drafted' AND ${contentRequests.channel} = 'blog' THEN ${contentRequests.draftBody} END`,
+      publishedAt: contentRequests.publishedAt,
+      publishedUrl: contentRequests.publishedUrl,
+      error: contentRequests.error,
+    })
     .from(contentRequests)
     .orderBy(desc(contentRequests.requestedAt))
     .limit(limit);
@@ -73,6 +101,7 @@ export async function listRequests(limit = 100): Promise<RequestRow[]> {
     draftedAt: iso(r.draftedAt),
     draftUrl: r.draftUrl,
     draftSummary: r.draftSummary,
+    draftBody: r.draftBody ?? null,
     publishedAt: iso(r.publishedAt),
     publishedUrl: r.publishedUrl,
     error: r.error,

@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { AlertTriangle, CircleCheck, CircleHelp, ExternalLink, TriangleAlert } from "lucide-react";
+import { AlertTriangle, CircleCheck, CircleHelp, ExternalLink, FileText, TriangleAlert } from "lucide-react";
 import { isCrmStaff } from "@/lib/crm/access";
 import { getAllPosts } from "@/lib/blog";
 import { listRequests, lastPublishedByChannel } from "@/lib/marketing/requests.server";
@@ -15,6 +15,7 @@ import {
   type CadenceLevel,
   type ContentStatus,
 } from "@/lib/marketing/requests";
+import { articleWordCount, effectiveStatus, safeHref, type EffectiveStatus } from "@/lib/marketing/published";
 import { ageLabel, shortDate } from "@/lib/crm/view";
 import { daysSince } from "@/lib/crm/view";
 import { GridSkeleton, StatSkeleton } from "../Skeleton";
@@ -46,6 +47,13 @@ import { CancelRequest, MarkPublished, RequestForm, RetryRequest } from "./Contr
  * money here is not a new post, it is the 48 drafts that were written and never
  * sent. So a draft row carries its link and a one-click "Published", and a
  * failure carries the reason and a retry that keeps the brief.
+ *
+ * BLOG "PUBLISHED" COMES FROM THE SITE (24 Sep 2026). A drafted blog request
+ * whose slug is a live post is shown as published, with the post's date, even
+ * if nobody clicked the button — `lib/marketing/published.ts` decides, and the
+ * page never writes to the database while rendering. A blog draft that is not
+ * live yet can be read right here: a native <details>, no JavaScript, and the
+ * body is only fetched for those rows.
  */
 
 export const metadata = {
@@ -94,6 +102,60 @@ const STATUS_STYLE: Record<ContentStatus, string> = {
   cancelled:   "bg-slate-100 text-slate-500 border-slate-200",
 };
 
+/**
+ * Where a draft is, in a form that actually opens.
+ *
+ * A blog draft's `draft_url` is a repository path, not a URL — rendering it as
+ * a link opened a 404 under /crm. So a blog row shows the post once it is live
+ * and the path as plain text until then. Other channels link out, but only to
+ * http(s): the value is written by a task holding a token, not by a person.
+ */
+function DraftLink({ channel, draftUrl, eff }: { channel: string; draftUrl: string | null; eff: EffectiveStatus }) {
+  if (!draftUrl) return null;
+  if (channel === "blog") {
+    if (eff.fromSite && eff.slug) {
+      return (
+        <a href={`/blog/${eff.slug}`} target="_blank" rel="noopener noreferrer"
+           className="mt-1 inline-flex items-center gap-1 text-xs text-gold-700 hover:underline">
+          View the live post <ExternalLink size={11} />
+        </a>
+      );
+    }
+    return <p className="mt-1 font-mono text-[11px] text-slate-500 break-all">{draftUrl}</p>;
+  }
+  const href = safeHref(draftUrl);
+  if (!href) return <p className="mt-1 text-[11px] text-slate-500 break-all">{draftUrl}</p>;
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer"
+       className="mt-1 inline-flex items-center gap-1 text-xs text-gold-700 hover:underline">
+      Open the draft <ExternalLink size={11} />
+    </a>
+  );
+}
+
+/**
+ * Read a blog draft without leaving the page, and without any JavaScript.
+ *
+ * A native <details> opens and closes in the browser on its own; the MDX is
+ * server-rendered as escaped text inside it, so nothing in a draft can run.
+ */
+function DraftReader({ body }: { body: string }) {
+  const words = articleWordCount(body);
+  return (
+    <details className="mt-2">
+      <summary className="inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-gold-700 hover:underline">
+        <FileText size={11} /> Read the draft · {words.toLocaleString("en-US")} words
+      </summary>
+      <p className="mt-1 text-[11px] text-slate-500">
+        To publish it: run fc-pull-drafts.bat, look it over in content\blog, then run publish-blog.bat.
+      </p>
+      <pre className="mt-2 max-h-96 max-w-2xl overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-700">
+        {body}
+      </pre>
+    </details>
+  );
+}
+
 async function Marketing() {
   // Checked here as well as in the layout — a layout and its page render
   // concurrently. The server module asserts a third time, for itself.
@@ -111,6 +173,7 @@ async function Marketing() {
    */
   const posts = getAllPosts();
   const newestPost = posts[0]?.date ?? null;
+  const liveSlugs = new Map(posts.map((p) => [p.slug, p.date] as const));
 
   const cadences = CHANNELS.map((channel) => {
     if (channel === "blog" && newestPost) {
@@ -120,8 +183,10 @@ async function Marketing() {
   });
 
   const stuck = stuckRequests(requests);
-  const live = requests.filter((r) => !isSettled(r.status));
-  const settled = requests.filter((r) => isSettled(r.status));
+  // What the screen says, as opposed to what the table says. Read-only.
+  const shown = requests.map((r) => ({ r, eff: effectiveStatus(r, liveSlugs) }));
+  const live = shown.filter(({ eff }) => !isSettled(eff.status));
+  const settled = shown.filter(({ eff }) => isSettled(eff.status));
 
   return (
     <>
@@ -168,7 +233,7 @@ async function Marketing() {
                 </tr>
               </thead>
               <tbody>
-                {live.map((r) => (
+                {live.map(({ r, eff }) => (
                   <tr key={r.id} className="border-t border-slate-100 align-top">
                     <td className="py-3 px-4 text-sm text-slate-700 whitespace-nowrap">{CHANNEL_SPEC[r.channel].label}</td>
                     <td className="py-3 pr-4">
@@ -176,16 +241,12 @@ async function Marketing() {
                       {r.notes && <p className="mt-0.5 text-xs text-slate-500">{r.notes}</p>}
                       {r.draftSummary && <p className="mt-1 text-xs text-slate-600">{r.draftSummary}</p>}
                       {r.error && <p className="mt-1 text-xs text-red-600">{r.error}</p>}
-                      {r.draftUrl && (
-                        <a href={r.draftUrl} target="_blank" rel="noopener noreferrer"
-                           className="mt-1 inline-flex items-center gap-1 text-xs text-gold-700 hover:underline">
-                          Open the draft <ExternalLink size={11} />
-                        </a>
-                      )}
+                      <DraftLink channel={r.channel} draftUrl={r.draftUrl} eff={eff} />
+                      {eff.status === "drafted" && r.draftBody && <DraftReader body={r.draftBody} />}
                     </td>
                     <td className="py-3 pr-4 whitespace-nowrap">
-                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${STATUS_STYLE[r.status]}`}>
-                        {STATUS_LABEL[r.status]}
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${STATUS_STYLE[eff.status]}`}>
+                        {STATUS_LABEL[eff.status]}
                       </span>
                     </td>
                     <td className="py-3 pr-4 text-sm tabular-nums text-slate-600 whitespace-nowrap">
@@ -193,8 +254,8 @@ async function Marketing() {
                     </td>
                     <td className="py-3 pr-4 text-right whitespace-nowrap">
                       <span className="inline-flex items-center gap-2">
-                        {r.status === "drafted" && <MarkPublished id={r.id} />}
-                        {r.status === "failed" && <RetryRequest id={r.id} />}
+                        {eff.status === "drafted" && <MarkPublished id={r.id} />}
+                        {eff.status === "failed" && <RetryRequest id={r.id} />}
                         <CancelRequest id={r.id} />
                       </span>
                     </td>
@@ -210,25 +271,29 @@ async function Marketing() {
         <section>
           <h2 className="text-lg font-bold text-navy-900 mb-3">Done</h2>
           <ul className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
-            {settled.slice(0, 25).map((r) => (
-              <li key={r.id} className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-2.5">
-                <span className="text-sm text-slate-700">
-                  <span className="text-slate-500">{CHANNEL_SPEC[r.channel].label}</span> — {r.topic}
-                </span>
-                <span className="text-xs text-slate-500">
-                  {STATUS_LABEL[r.status]}
-                  {r.publishedAt && ` · ${shortDate(r.publishedAt)}`}
-                  {r.publishedUrl && (
-                    <>
-                      {" · "}
-                      <a href={r.publishedUrl} target="_blank" rel="noopener noreferrer" className="text-gold-700 hover:underline">
-                        link
-                      </a>
-                    </>
-                  )}
-                </span>
-              </li>
-            ))}
+            {settled.slice(0, 25).map(({ r, eff }) => {
+              const link = eff.fromSite && eff.slug ? `/blog/${eff.slug}` : safeHref(r.publishedUrl);
+              return (
+                <li key={r.id} className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-2.5">
+                  <span className="text-sm text-slate-700">
+                    <span className="text-slate-500">{CHANNEL_SPEC[r.channel].label}</span> — {r.topic}
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    {STATUS_LABEL[eff.status]}
+                    {eff.publishedAt && ` · ${shortDate(eff.publishedAt)}`}
+                    {eff.fromSite && " · live on the site"}
+                    {link && (
+                      <>
+                        {" · "}
+                        <a href={link} target="_blank" rel="noopener noreferrer" className="text-gold-700 hover:underline">
+                          link
+                        </a>
+                      </>
+                    )}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}

@@ -330,6 +330,11 @@ building it, both worth keeping:
   was called from; a page that shows nothing the action changed does not need revalidating at
   all. The in-memory cache clears on a dev-server restart, so a restart that fixes it is the
   confirmation.
+  **Enforced in `app/crm/actions.ts` since 24 Sep 2026:** actions take a `from: CrmRoute` argument
+  checked against a fixed list and refresh that one route via `revalidateFrom()`. Three actions
+  shipped the day before refreshed both `/crm/dashboard` and `/crm`; the work-queue buttons would
+  have frozen `/crm` on their first click. `lib/crm/guards.regress.ts` §8 fails the build if any
+  action refreshes two routes or a dashboard button omits its route.
 - **`/crm` 404s on localhost unless `CRM_STAFF_EMAILS` is set in `.env.local` by hand.**
   `scripts/merge-env.mjs` copies only DATABASE keys across from Vercel (`WANTED` in that
   file), so the staff allowlist has never come down with an env pull. Production has the
@@ -554,8 +559,15 @@ public-facing service.
   archive, so they are measured from the portal and carry that caveat on the card.
 - **"Unknown" is its own level, not "stalled".** A channel with no recorded history is unmeasured.
   Colouring it red teaches the reader to ignore red.
-- **No draft content in the table.** `draft_url` points at the Gmail draft, the Klaviyo template or
-  the MDX file. The portal stays a pipe — the same rule borrower documents follow.
+- **Blog drafts travel through the table; nothing else does.** `draft_body` (0008, 24 Sep 2026)
+  holds a blog post's MDX between the 7am task writing it and Luis pulling it down with
+  `fc-pull-drafts.bat` — so the task no longer needs his laptop awake. It is a transit copy: the
+  published copy lives in `content/blog`, and a drafted redo without a body clears it. LinkedIn and
+  email rows never carry a body; `draft_url` still points at the Gmail draft or Klaviyo template.
+  Marketing content only — borrower documents still never touch the database.
+- **Blog status is derived, not recorded.** `/crm/marketing` shows a drafted blog row as Published
+  when its slug is live in `content/blog` (`lib/marketing/published.ts`), so nobody has to remember a
+  button. LinkedIn and email keep "Mark published": there is no file to check.
 - **`in_progress` with no finish is surfaced.** A task that claims a job and dies leaves a row
   looking busy forever; `stuckRequests` flags it after 6 hours and the retry keeps the brief.
 - **`scripts/content-queue.ts` imports the transition rules from `lib/marketing/requests.ts`** rather
@@ -651,6 +663,11 @@ It flagged the new module because a doc comment *explains* why `assertCrmStaff()
 Negative checks now strip comments first via `codeOnly()`; positive checks still read raw source,
 because an approximation that eats code makes a must-not-contain check stricter (a false alarm,
 cheap) and a must-contain check weaker (a missed guard, not cheap).
+
+**Update 24 Sep 2026:** the device gate is also why the task produced nothing that morning — the
+laptop was asleep at 7:00 and the task was suspended (`device_absent`). The device-free path is
+built (draft into `draft_body`, pulled down by `fc-pull-drafts.bat`); the prompt switch is pending
+Luis's decision on where the queue token lives for a task that can't read his disk.
 
 **One blog system, not two.** The 7am daily task now works the queue and keeps its device gate — the
 gate is why it has always worked. The three-times-daily marketing-queue task is disabled; it was

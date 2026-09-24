@@ -91,5 +91,25 @@ check("and every early preset is still in the future", early.every((p) => Date.p
 const EOM = new Date("2026-09-30T21:30:00.000Z");
 check("crossing a month boundary rolls correctly", new Date(snoozePresets(EOM)[0].iso).toISOString().slice(0, 10) === "2026-10-01", new Date(snoozePresets(EOM)[0].iso).toISOString().slice(0, 10));
 
+
+console.log("\n=== 5. Days are counted on the New York calendar ===");
+// 21:30 Eastern on Wed 23 Sep is already Thu 24 Sep in UTC. Counting UTC days
+// made "Tomorrow" land on Fri 25 Sep — two days out for Luis. Every evening,
+// 8pm to midnight.
+const EVENING = new Date("2026-09-24T01:30:00.000Z");
+const ev = snoozePresets(EVENING);
+check("at 9:30pm Eastern, Tomorrow is Thursday the 24th", ev[0].iso === "2026-09-24T13:00:00.000Z", ev[0].iso);
+check("and next week is Wednesday the 30th", ev[2].iso === "2026-09-30T13:00:00.000Z", ev[2].iso);
+check("every evening preset is still in the future", ev.every((p) => Date.parse(p.iso) > EVENING.getTime()), "all future");
+check("every evening preset passes its own validator", ev.every((p) => parseSnoozeDate(p.iso, EVENING).ok), "all valid");
+
+// Eastern Standard Time, after the clocks go back: 23:30 EST Sun 1 Nov = 04:30 UTC Mon 2 Nov.
+const WINTER = new Date("2026-11-02T04:30:00.000Z");
+check("in winter time, Tomorrow is Monday the 2nd", snoozePresets(WINTER)[0].iso === "2026-11-02T13:00:00.000Z", snoozePresets(WINTER)[0].iso);
+
+// Just after midnight Eastern the NY date has advanced; tomorrow is the next day.
+const AFTER_MIDNIGHT = new Date("2026-09-24T04:05:00.000Z"); // 00:05 EDT Thu 24 Sep
+check("just after midnight Eastern, Tomorrow is Friday the 25th", snoozePresets(AFTER_MIDNIGHT)[0].iso === "2026-09-25T13:00:00.000Z", snoozePresets(AFTER_MIDNIGHT)[0].iso);
+
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

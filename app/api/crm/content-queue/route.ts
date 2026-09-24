@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import {
   QueueApiError,
+  apiListDrafts,
   apiListQueue,
   apiUpdateRequest,
   type ApiUpdate,
 } from "@/lib/marketing/queue.api.server";
 import { isContentChannel, type ContentStatus } from "@/lib/marketing/requests";
+import { MAX_DRAFT_BYTES } from "@/lib/marketing/draft";
 
 /**
  * The marketing queue, for a scheduled task.
@@ -30,8 +32,14 @@ import { isContentChannel, type ContentStatus } from "@/lib/marketing/requests";
  * from here, and none should ever become reachable — that is what the
  * staff-guarded modules and a Clerk session are for.
  *
- * GET  → the open queue, oldest first.
- * POST → { id, status, draftUrl?, draftSummary?, error?, by? }
+ * GET               → the open queue, oldest first.
+ * GET ?view=drafts  → finished blog drafts WITH their MDX, for pull-drafts.mjs.
+ * POST → { id, status, draftUrl?, draftSummary?, draftBody?, error?, by? }
+ *
+ * `draftBody` is the whole MDX of a blog draft, sent with `drafted`. It is why
+ * the daily task no longer needs Luis's laptop awake: the draft lands here and
+ * he pulls it down when he chooses to publish. It is validated in
+ * queue.api.server.ts (path and shape) before anything is written.
  *
  * PERFORMANCE: a route handler is dynamic by nature, so there is no
  * `cacheComponents` boundary to think about here — unlike every page in this
@@ -50,8 +58,80 @@ function problem(err: unknown) {
   return NextResponse.json({ ok: false, error: "Something went wrong." }, { status: 500 });
 }
 
-export async function GET() {
+/**
+ * Largest request body this route will read.
+ *
+ * A draft may be up to MAX_DRAFT_BYTES of MDX, and JSON escaping can inflate
+ * it — every newline and quote doubles, and a client that escapes non-ASCII
+ * (Python's json.dumps does by default) turns one character into six. Twice
+ * the draft plus room for the other fields covers any honest request by a wide
+ * margin; anything bigger is refused before it is parsed, so a hostile caller
+ * cannot make this function buffer an arbitrary amount of memory — even
+ * without the token, because this check runs first.
+ *
+ * Not exported: a route file should export its handlers and nothing new.
+ */
+const MAX_REQUEST_BYTES = MAX_DRAFT_BYTES * 2 + 16_384;
+
+type Read = { ok: true; value: unknown } | { ok: false; status: 400 | 413; error: string };
+
+const TOO_LARGE = `The request is too large. A draft must be under ${Math.floor(MAX_DRAFT_BYTES / 1024)} KB.`;
+
+/**
+ * `request.json()` with a ceiling.
+ *
+ * Content-Length is checked first because it is free, but it is only a claim —
+ * a chunked request has none, and a dishonest one can lie — so the stream is
+ * also counted as it arrives and abandoned the moment it passes the limit.
+ */
+async function readJsonCapped(request: Request, limit: number): Promise<Read> {
+  const declared = Number(request.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > limit) {
+    return { ok: false, status: 413, error: TOO_LARGE };
+  }
+  if (!request.body) return { ok: false, status: 400, error: "Body must be JSON." };
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => {});
+      return { ok: false, status: 413, error: TOO_LARGE };
+    }
+    chunks.push(value);
+  }
+
+  const bytes = new Uint8Array(total);
+  let at = 0;
+  for (const c of chunks) {
+    bytes.set(c, at);
+    at += c.byteLength;
+  }
   try {
+    return { ok: true, value: JSON.parse(new TextDecoder().decode(bytes)) };
+  } catch {
+    return { ok: false, status: 400, error: "Body must be JSON." };
+  }
+}
+
+export async function GET(request: Request) {
+  try {
+    const view = new URL(request.url).searchParams.get("view");
+
+    if (view === "drafts") {
+      const items = await apiListDrafts();
+      // `view` is echoed so the pull script can tell this apart from an older
+      // deployment that ignores the parameter and returns the queue instead.
+      return NextResponse.json({ ok: true, view: "drafts", count: items.length, items });
+    }
+    if (view !== null && view !== "queue") {
+      return NextResponse.json({ ok: false, error: 'view must be "queue" or "drafts".' }, { status: 400 });
+    }
+
     const items = await apiListQueue();
     return NextResponse.json({ ok: true, count: items.length, items });
   } catch (err) {
@@ -61,12 +141,12 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    let body: Record<string, unknown>;
-    try {
-      body = (await request.json()) as Record<string, unknown>;
-    } catch {
-      return NextResponse.json({ ok: false, error: "Body must be JSON." }, { status: 400 });
+    const read = await readJsonCapped(request, MAX_REQUEST_BYTES);
+    if (!read.ok) return NextResponse.json({ ok: false, error: read.error }, { status: read.status });
+    if (!read.value || typeof read.value !== "object" || Array.isArray(read.value)) {
+      return NextResponse.json({ ok: false, error: "Body must be a JSON object." }, { status: 400 });
     }
+    const body = read.value as Record<string, unknown>;
 
     const id = typeof body.id === "string" ? body.id.trim() : "";
     const status = typeof body.status === "string" ? body.status.trim() : "";
@@ -90,11 +170,22 @@ export async function POST(request: Request) {
     const optional = (v: unknown): string | null =>
       typeof v === "string" && v.trim() ? v.trim().slice(0, 4000) : null;
 
+    /*
+     * The draft body is passed through WHOLE — not trimmed, not cut at 4000
+     * characters like the short fields. An empty string is passed too, so it
+     * is refused as an empty draft rather than quietly treated as "no draft",
+     * which would report success for a post that never arrived.
+     */
+    if (body.draftBody !== undefined && body.draftBody !== null && typeof body.draftBody !== "string") {
+      return NextResponse.json({ ok: false, error: "draftBody must be a string." }, { status: 400 });
+    }
+
     const update: ApiUpdate = {
       id,
       status: status as ContentStatus,
       draftUrl: optional(body.draftUrl),
       draftSummary: optional(body.draftSummary),
+      draftBody: typeof body.draftBody === "string" ? body.draftBody : null,
       error: optional(body.error),
       by: optional(body.by),
     };

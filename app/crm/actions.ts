@@ -36,6 +36,24 @@ async function requireUser(): Promise<string> {
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
 /**
+ * The routes an action in this file may be called from, and so may refresh.
+ *
+ * ONE ROUTE PER CALL, and only the caller's own. See CLAUDE.md, "Do not
+ * revalidatePath a PPR route from a server action on a different route": an
+ * action invoked on one /crm page that refreshed another left the whole /crm
+ * subtree serving its shell forever — heading painted, data never arriving, no
+ * error anywhere. The caller says where it is; anything not on this list falls
+ * back to the action's default rather than being passed to revalidatePath,
+ * because a server action's arguments arrive from the browser.
+ */
+export type CrmRoute = "/crm" | "/crm/dashboard";
+const CRM_ROUTES: readonly string[] = ["/crm", "/crm/dashboard"];
+
+function revalidateFrom(from: unknown, fallback: CrmRoute): void {
+  revalidatePath(typeof from === "string" && CRM_ROUTES.includes(from) ? from : fallback);
+}
+
+/**
  * Move a deal to a new stage.
  *
  * The transition row is the point. `applications.stage` is only a cache of the
@@ -44,7 +62,11 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
  * conversion or time-in-stage question could be answered about the last year.
  * Both writes happen together, or the stage does not move.
  */
-export async function setStage(applicationId: string, toStage: string): Promise<ActionResult> {
+export async function setStage(
+  applicationId: string,
+  toStage: string,
+  from: CrmRoute = "/crm",
+): Promise<ActionResult> {
   try {
     const userId = await requireUser();
     if (!(toStage in STAGE_LABEL)) return { ok: false, error: `unknown stage "${toStage}"` };
@@ -86,7 +108,7 @@ export async function setStage(applicationId: string, toStage: string): Promise<
         .where(eq(applications.id, applicationId)),
     ]);
 
-    revalidatePath("/crm");
+    revalidateFrom(from, "/crm");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -177,6 +199,7 @@ export async function logContact(
   applicationId: string,
   kind: string,
   note: string,
+  from: CrmRoute = "/crm/dashboard",
 ): Promise<ActionResult> {
   try {
     const userId = await requireUser();
@@ -211,8 +234,7 @@ export async function logContact(
       metadata: { by: userId },
     });
 
-    revalidatePath("/crm/dashboard");
-    revalidatePath("/crm");
+    revalidateFrom(from, "/crm/dashboard");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "could not log that" };
@@ -235,6 +257,7 @@ export async function setSnooze(
   applicationId: string,
   until: string,
   note: string,
+  from: CrmRoute = "/crm/dashboard",
 ): Promise<ActionResult> {
   try {
     const userId = await requireUser();
@@ -276,8 +299,7 @@ export async function setSnooze(
       }),
     ]);
 
-    revalidatePath("/crm/dashboard");
-    revalidatePath("/crm");
+    revalidateFrom(from, "/crm/dashboard");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "could not put that down" };
@@ -285,15 +307,17 @@ export async function setSnooze(
 }
 
 /** Bring a snoozed deal back now. Clears all three columns together. */
-export async function clearSnooze(applicationId: string): Promise<ActionResult> {
+export async function clearSnooze(
+  applicationId: string,
+  from: CrmRoute = "/crm/dashboard",
+): Promise<ActionResult> {
   try {
     await requireUser();
     await db
       .update(applications)
       .set({ nextActionAt: null, nextActionSetAt: null, nextActionNote: null, updatedAt: new Date() })
       .where(eq(applications.id, applicationId));
-    revalidatePath("/crm/dashboard");
-    revalidatePath("/crm");
+    revalidateFrom(from, "/crm/dashboard");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "could not bring that back" };

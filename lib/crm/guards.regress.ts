@@ -403,5 +403,174 @@ check(
   settable.trim(),
 );
 
+/* ------------------------------------------- blog drafts through the API */
+
+/**
+ * Since 24 Sep 2026 the queue API carries the full MDX of a blog draft, so the
+ * daily task no longer needs Luis's laptop awake. That makes the module bigger
+ * in exactly one way — it now stores and returns text — and these checks pin
+ * the edges of that, so the next change cannot widen it quietly.
+ */
+console.log("\n=== 7. Blog drafts: validated on the way in, narrow on the way out ===");
+
+if (queueSrc) {
+  const code = codeOnly(queueSrc);
+  const fns = exportedFunctions(queueSrc).map((f) => f.name);
+  check(
+    "  the drafts listing exists and is covered by section 6",
+    fns.includes("apiListDrafts"),
+    fns.join(", "),
+  );
+
+  /*
+   * The path check is the one that protects Luis's disk: pull-drafts.mjs later
+   * writes to it. Asserted as the specific call on the specific field, which a
+   * comment cannot satisfy by accident.
+   */
+  check(
+    "  the draft path is validated before it is stored",
+    queueSrc.includes("parseDraftPath(update.draftUrl)"),
+    queueSrc.includes("parseDraftPath(update.draftUrl)") ? "parseDraftPath(update.draftUrl)" : "**PATH NOT VALIDATED**",
+  );
+  check(
+    "  the draft body is validated before it is stored",
+    queueSrc.includes("validateDraftBody(update.draftBody)"),
+    queueSrc.includes("validateDraftBody(update.draftBody)") ? "validateDraftBody(update.draftBody)" : "**BODY NOT VALIDATED**",
+  );
+
+  /*
+   * Section 6 lists tables it must NOT reach. This is the positive form: every
+   * table this module names in a query is content_requests. A new table —
+   * any table — has to be argued for in a diff to this line.
+   */
+  // Only the SQL: the bodies of sql`...` templates. `import ... from "next/headers"`
+  // is not a query, and the first version of this check said it was.
+  const queries = [...code.matchAll(/\bsql`([\s\S]*?)`/g)].map((m) => m[1]).join("\n");
+  const targets = [...queries.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE)\s+"?([a-z_][a-z0-9_]*)"?/gi)].map((m) => m[1].toLowerCase());
+  const others = [...new Set(targets.filter((t) => t !== "content_requests"))];
+  check(
+    "  every query in the module names content_requests and nothing else",
+    targets.length > 0 && others.length === 0,
+    others.length ? `**ALSO REACHES ${others.join(", ")}**` : `${targets.length} table references, all content_requests`,
+  );
+  check(
+    "  no SELECT * — a column added later does not leave the building on its own",
+    !/SELECT\s+\*/i.test(code),
+    /SELECT\s+\*/i.test(code) ? "**SELECT * FOUND**" : "every column named",
+  );
+}
+
+/*
+ * A request body is bounded BEFORE it is parsed, and before the token is
+ * checked — `request.json()` would buffer whatever arrived. The negative check
+ * uses codeOnly, so the comment that explains why does not trip it.
+ */
+const routeCode = codeOnly(queueRoute);
+check(
+  "the route never calls request.json() on an unbounded body",
+  !/\brequest\.json\(\)/.test(routeCode),
+  /\brequest\.json\(\)/.test(routeCode) ? "**UNBOUNDED request.json()**" : "clean",
+);
+check(
+  "...it reads through the capped reader instead",
+  queueRoute.includes("readJsonCapped(request, MAX_REQUEST_BYTES)"),
+  queueRoute.includes("readJsonCapped(request, MAX_REQUEST_BYTES)") ? "capped" : "**NO CAP FOUND**",
+);
+
+/*
+ * The marketing page decides "published" for blog rows from the live site
+ * (lib/marketing/published.ts). It must only READ while it renders — a write
+ * during render would run on every page view, for every staff member, and
+ * would turn a display rule into a data migration nobody asked for.
+ */
+const MARKETING_PAGE = "app/crm/marketing/page.tsx";
+let marketingPage = "";
+try {
+  marketingPage = readFileSync(join(ROOT, MARKETING_PAGE), "utf8");
+} catch {
+  check(MARKETING_PAGE, false, "**FILE MISSING** — renamed? update this section");
+}
+if (marketingPage) {
+  const pageCode = codeOnly(marketingPage);
+  const WRITES = ["setRequestStatus(", "createRequest(", ".insert(", ".update(", ".delete(", "db.execute(", "apiUpdateRequest("];
+  const found = WRITES.filter((w) => pageCode.includes(w));
+  check(
+    `${MARKETING_PAGE} does not write while rendering`,
+    found.length === 0,
+    found.length ? `**WRITES: ${found.join(", ")}**` : "read-only",
+  );
+  check(
+    "...and it takes blog status from the live site",
+    marketingPage.includes("effectiveStatus(r, liveSlugs)"),
+    marketingPage.includes("effectiveStatus(r, liveSlugs)") ? "effectiveStatus" : "**NOT DERIVED**",
+  );
+}
+
+
+/* ---------------------------------------------------------------------- */
+console.log("\n=== 8. An action refreshes only the route it was called from ===");
+/*
+ * CLAUDE.md: "Do not revalidatePath a PPR route from a server action on a
+ * different route." Refreshing /crm from an action run on another /crm page
+ * once left the entire section serving its loading shell, with no error
+ * anywhere. On 2026-09-24 three actions were found refreshing TWO routes each
+ * — /crm/dashboard and /crm — which would have triggered it on the first click
+ * of the new work-queue buttons. These checks keep that from coming back.
+ */
+const CRM_ACTIONS = "app/crm/actions.ts";
+let crmActions = "";
+try { crmActions = readFileSync(join(ROOT, CRM_ACTIONS), "utf8"); }
+catch { check(CRM_ACTIONS, false, "**FILE MISSING** — renamed? update this section"); }
+if (crmActions) {
+  const code = codeOnly(crmActions);
+  check(
+    "a whitelist of refreshable routes exists",
+    /function revalidateFrom\(/.test(code) && /CRM_ROUTES\.includes\(/.test(code),
+    /function revalidateFrom\(/.test(code) ? "revalidateFrom + CRM_ROUTES" : "**MISSING**",
+  );
+  // Split into exported functions and count refresh calls in each.
+  const fnRe = /export async function (\w+)\s*\(/g;
+  const starts: { name: string; at: number }[] = [];
+  for (let m; (m = fnRe.exec(code)); ) starts.push({ name: m[1], at: m.index });
+  for (let i = 0; i < starts.length; i++) {
+    const body = code.slice(starts[i].at, i + 1 < starts.length ? starts[i + 1].at : undefined);
+    const n = (body.match(/revalidatePath\(|revalidateFrom\(/g) ?? []).length;
+    check(
+      `${starts[i].name} refreshes at most one route`,
+      n <= 1,
+      n <= 1 ? `${n} refresh call${n === 1 ? "" : "s"}` : `**${n} REFRESH CALLS**`,
+    );
+  }
+  for (const name of ["setStage", "logContact", "setSnooze", "clearSnooze"]) {
+    const s = starts.findIndex((x) => x.name === name);
+    const body = s < 0 ? "" : code.slice(starts[s].at, s + 1 < starts.length ? starts[s + 1].at : undefined);
+    check(
+      `${name} refreshes through the whitelist, not a literal`,
+      s >= 0 && body.includes("revalidateFrom(") && !body.includes("revalidatePath("),
+      s < 0 ? "**NOT FOUND**" : body.includes("revalidatePath(") ? "**LITERAL revalidatePath**" : "revalidateFrom",
+    );
+  }
+}
+
+const QUEUE_UI = "app/crm/dashboard/QueueRowActions.tsx";
+let queueUi = "";
+try { queueUi = readFileSync(join(ROOT, QUEUE_UI), "utf8"); }
+catch { check(QUEUE_UI, false, "**FILE MISSING** — renamed? update this section"); }
+if (queueUi) {
+  const code = codeOnly(queueUi);
+  const calls = code.match(/\b(setStage|logContact|setSnooze|clearSnooze)\(([^()]|\([^()]*\))*\)/g) ?? [];
+  const without = calls.filter((c) => !/HERE\)$/.test(c));
+  check(
+    "every dashboard action call says it is on /crm/dashboard",
+    calls.length >= 5 && without.length === 0,
+    without.length ? `**MISSING ROUTE: ${without.join(" | ")}**` : `${calls.length} calls, all pass HERE`,
+  );
+  check(
+    "...and HERE is /crm/dashboard",
+    /const HERE = "\/crm\/dashboard"/.test(code),
+    /const HERE = "\/crm\/dashboard"/.test(code) ? "yes" : "**WRONG OR MISSING**",
+  );
+}
+
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);
