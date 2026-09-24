@@ -741,3 +741,27 @@ slides on request.
   function; without it every slide fails with ENOENT in production only.
 - Test a deck without the site:
   `npx tsx --conditions=react-server scripts/carousel-preview.tsx spec.json out-folder`.
+
+### BiggerPockets leads reach Lending OS (24 Sep 2026)
+
+Website leads have written straight into Postgres at submit time since 14 Sep (`lib/leads/record.ts`,
+called from `/api/lead`). BiggerPockets leads did not: they arrive as emails, the Apps Script
+BiggerPockets file handles them, and nothing sent them to the CRM, so every BP lead after the
+14 Sep migration was missing from `/crm`.
+
+- **`POST /api/crm/lead-intake`** takes parsed BP leads from the Apps Script. Same guard as
+  `/api/crm/activity`: `CRM_SYNC_SECRET` in the body, constant-time, fails closed. Up to 50 leads
+  per call, body capped before parsing; a bad lead is reported per-lead and never blocks the rest.
+- **One lead is written once, ever.** The key is `bp:gmail:<Gmail message id>` on the lead's
+  `form_submission` activity. That insert goes LAST in the `db.batch` with no on-conflict clause,
+  so the unique index rolls back the whole lead on a repeat — no half-written application. A
+  hand-typed sheet row with no message id gets a server-built fallback key; the caller can never
+  supply its own.
+- **Repeat enquirers reuse their contact**, exactly as `record.ts` does. A phone match is used only
+  when there is no usable email AND exactly one contact holds that number.
+- `apps-script/BiggerPocketsToLendingOS.gs` holds the Apps Script side: the live post (never throws,
+  runs after the ack, alert and sheet row), `checkLendingOsConnection`, and
+  `backfillBpLeadsToLendingOs` for the gap since 14 Sep (safe to run twice). **Save only, never
+  Deploy** — the BP trigger runs saved code; the website form's web-app deployment must not move.
+- Rules in `lib/leads/biggerpockets.ts` (137 tests); guards §10 pins the route's secret check and
+  the tables it may write.

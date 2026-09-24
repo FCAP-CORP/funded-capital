@@ -282,6 +282,15 @@ const NON_STAFF_SERVER_MODULES: Record<string, string> = {
    * touches `content_requests` and nothing else. Section 6 checks both.
    */
   "lib/marketing/queue.api.server.ts": "token-guarded: the marketing queue API",
+
+  /**
+   * SECRET-GUARDED, by its one caller. The BiggerPockets Apps Script trigger
+   * has no browser and no Clerk session, so `assertCrmStaff()` can never pass
+   * for it. /api/crm/lead-intake checks CRM_SYNC_SECRET before calling in, and
+   * section 10 asserts that the route is the only importer, that the check
+   * comes first, and that the module writes only the six tables a lead needs.
+   */
+  "lib/leads/biggerpockets.server.ts": "secret-guarded: BiggerPockets lead intake, via /api/crm/lead-intake only",
 };
 
 const exemptPaths = Object.keys(NON_STAFF_SERVER_MODULES);
@@ -717,6 +726,84 @@ if (carouselSrc) {
 const queueRouteCode = codeOnly(queueRoute);
 check("attaching a carousel cannot also change a status",
   /carouselSpec !== undefined\)\s*\{\s*if \(status\)/.test(queueRouteCode), "refused together");
+
+/* ---------------------------------------------- BiggerPockets lead intake */
+
+/**
+ * /api/crm/lead-intake writes borrowers into the book on the strength of a
+ * shared secret alone (24 Sep 2026). `proxy.ts` does not guard /api, so the
+ * secret check in the route is the ONLY thing between the internet and the
+ * contacts table. Four things are pinned here:
+ *   1. the secret is checked, fail-closed and in constant time, BEFORE the
+ *      first database access — and before anything is written;
+ *   2. the body is capped before it is parsed;
+ *   3. the writer module is reachable only through that route;
+ *   4. the writer touches the six tables a lead needs and nothing else — no
+ *      broker tables, no documents, and never a DELETE.
+ */
+console.log("\n=== 10. BiggerPockets intake: secret first, six tables only ===");
+
+const INTAKE_ROUTE = "app/api/crm/lead-intake/route.ts";
+const INTAKE_WRITER = "lib/leads/biggerpockets.server.ts";
+let intakeRoute = "";
+let intakeWriter = "";
+try { intakeRoute = readFileSync(join(ROOT, INTAKE_ROUTE), "utf8"); }
+catch { check(INTAKE_ROUTE, false, "**FILE MISSING** — renamed? update this section"); }
+try { intakeWriter = readFileSync(join(ROOT, INTAKE_WRITER), "utf8"); }
+catch { check(INTAKE_WRITER, false, "**FILE MISSING** — renamed? update this section"); }
+
+if (intakeRoute) {
+  const code = codeOnly(intakeRoute);
+  const post = code.slice(code.indexOf("export async function POST"));
+  const guardAt = post.search(/if\s*\(\s*!\s*secretMatches\(body\.secret\)\s*\)\s*\{?\s*(\/\/[^\n]*\s*)*return NextResponse\.json\([^)]*\{\s*status:\s*401\s*\}/);
+  // Every way the handler could reach the database or the writer.
+  const dbTouches = [...post.matchAll(/\b(ingestBpLeads\(|db\.|readState\()/g)].map((m) => m.index ?? -1);
+  const firstDb = dbTouches.length ? Math.min(...dbTouches) : -1;
+  check("  the handler checks the secret and returns 401 on a mismatch", guardAt >= 0, guardAt >= 0 ? "found" : "**NO SECRET CHECK IN POST**");
+  check("  ...and it calls the writer at all, so the next check is not vacuous", firstDb >= 0, firstDb >= 0 ? "ingestBpLeads" : "**NO WRITE FOUND**");
+  check("  the secret is checked BEFORE the first database access",
+    guardAt >= 0 && firstDb >= 0 && guardAt < firstDb,
+    guardAt >= 0 && firstDb >= 0 && guardAt < firstDb ? `check at ${guardAt}, first db use at ${firstDb}` : "**DATABASE REACHED BEFORE THE SECRET CHECK**");
+  check("  the secret is CRM_SYNC_SECRET, the Gmail sync's — not a new credential",
+    /process\.env\.CRM_SYNC_SECRET/.test(code) && !/process\.env\.(?!CRM_SYNC_SECRET\b)[A-Z_]*SECRET/.test(code), "CRM_SYNC_SECRET");
+  check("  it fails closed when the secret is unset or short",
+    /if\s*\(\s*!expected\s*\|\|\s*expected\.length\s*<\s*16\s*\)\s*return false/.test(code), "unset or < 16 chars admits nobody");
+  check("  it compares in constant time", /timingSafeEqual\(/.test(code), "timingSafeEqual");
+  check("  the body is capped before parsing", intakeRoute.includes("readJsonCapped(request, MAX_REQUEST_BYTES)") && !/\brequest\.json\(\)/.test(code), "capped");
+  const routeImports = importsOf(intakeRoute);
+  const brokerish = routeImports.filter((i) => /broker|admin\.server|invites\.server|documents/.test(i));
+  check("  the route imports nothing from the broker side", brokerish.length === 0, brokerish.length ? `**IMPORTS ${brokerish.join(", ")}**` : `clean (${routeImports.length} imports)`);
+}
+
+if (intakeWriter) {
+  const code = codeOnly(intakeWriter);
+  const ALLOWED = ["contacts", "applications", "properties", "participants", "stageTransitions", "activities"];
+  const writes = [...code.matchAll(/\.(insert|update)\(\s*schema\.(\w+)\s*\)/g)].map((m) => m[2]);
+  const bad = [...new Set(writes.filter((t) => !ALLOWED.includes(t)))];
+  check("  it writes only contacts/applications/properties/participants/stage_transitions/activities",
+    writes.length > 0 && bad.length === 0, bad.length ? `**ALSO WRITES ${bad.join(", ")}**` : [...new Set(writes)].join(", "));
+  check("  ...and it does write the application, its first stage row and the activity (not vacuous)",
+    ["applications", "stageTransitions", "activities"].every((t) => writes.includes(t)), "all three");
+  check("  it never deletes", !/\.delete\(/.test(code) && !/\bDELETE\s+FROM\b/i.test(code), "no delete");
+  check("  no hand-written SQL writes that could bypass the list above",
+    ![...code.matchAll(/\bsql`([\s\S]*?)`/g)].some((m) => /\b(INSERT|UPDATE|DELETE)\b/i.test(m[1])), "none");
+  const FORBIDDEN = ["brokerUsers", "brokerFirms", "brokerInvites", "documents", "applicationProperties", "entities", "crmTasks", "contentRequests"];
+  const named = FORBIDDEN.filter((t) => new RegExp(`\\bschema\\.${t}\\b`).test(code));
+  check("  it never names a broker table, documents or any other table", named.length === 0, named.length ? `**NAMES ${named.join(", ")}**` : "clean");
+  check("  its writes go out as one db.batch per lead, never db.transaction", /db\.batch\(/.test(code) && !/\.transaction\(/.test(code), "db.batch");
+  check("  the dedup-carrying activity insert has NO on-conflict clause (it is the lock)",
+    /statements\.push\(db\.insert\(schema\.activities\)\.values\(rows\.activity\)\);/.test(code), "plain insert");
+  check("  it grants no SMS consent", !/smsConsent/.test(code), "none");
+}
+
+/* Only the route may reach the writer. A second importer would be a second door. */
+const importersOfWriter = [...walk(join(ROOT, "app")), ...walk(join(ROOT, "lib")), ...walk(join(ROOT, "scripts"))]
+  .filter((f) => /\.(ts|tsx|mjs)$/.test(f) && !f.endsWith(".regress.ts"))
+  .filter((f) => importsOf(readFileSync(f, "utf8")).some((i) => /biggerpockets\.server$/.test(i)))
+  .map(rel);
+check("the BiggerPockets writer is imported by the intake route and nothing else",
+  importersOfWriter.length === 1 && importersOfWriter[0] === INTAKE_ROUTE,
+  importersOfWriter.length ? importersOfWriter.join(", ") : "**NOT IMPORTED AT ALL**");
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

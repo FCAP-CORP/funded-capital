@@ -1,0 +1,262 @@
+===== generated Wed 09/23/2026 17:13:18.02 =====
+
+===== LAST 8 COMMITS TOUCHING THESE FILES =====
+c2b2484 2026-09-21 22:54:19 -0400 Site update (2026-09-21)
+c807014 2026-09-15 22:22:42 -0400 Site update (2026-09-15)
+32fb0ec 2026-09-15 15:29:46 -0400 Site update (2026-09-15)
+c967bfc 2026-09-15 13:37:42 -0400 Site update (2026-09-15)
+50db784 2026-09-15 13:06:57 -0400 Site update (2026-09-15)
+cf9ff6d 2026-09-11 18:33:18 -0400 Site update (2026-09-11)
+ce2229c 2026-09-10 16:21:30 -0400 Site update (2026-09-10)
+547a3b4 2026-09-10 14:51:22 -0400 Site update (2026-09-10)
+
+===== CURRENT HEAD =====
+7649808 2026-09-23 16:51:54 -0400 Add a token-guarded API for the marketing queue
+
+===== SIZE OF THE DIFFERENCE =====
+warning: in the working copy of 'app/participant-portal/admin/AdminActions.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/revenueShare.server.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/revenueShare.ts', LF will be replaced by CRLF the next time Git touches it
+ app/participant-portal/admin/AdminActions.tsx | 22 ++++-----
+ lib/revenueShare.server.ts                    | 60 ++++++++++++++++--------
+ lib/revenueShare.ts                           | 67 ++++++++++++++++++++++++++-
+ 3 files changed, 116 insertions(+), 33 deletions(-)
+
+
+===== THE FULL DIFFERENCE =====
+(minus lines = what is committed now, plus lines = what is on your disk)
+
+warning: in the working copy of 'app/participant-portal/admin/AdminActions.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/revenueShare.server.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'lib/revenueShare.ts', LF will be replaced by CRLF the next time Git touches it
+diff --git a/app/participant-portal/admin/AdminActions.tsx b/app/participant-portal/admin/AdminActions.tsx
+index 46bb76f..d1c5a8a 100644
+--- a/app/participant-portal/admin/AdminActions.tsx
++++ b/app/participant-portal/admin/AdminActions.tsx
+@@ -146,16 +146,17 @@ function InitiatedFlag({ state }: { state: AdminState }) {
+   return (
+     <>
+       <p className="mb-3 text-sm text-slate-600">
+-        {state.initiatedThrough ? (
++        {state.initiatedCount > 0 ? (
+           <>
+-            Currently set to{" "}
+             <strong className="font-semibold text-ink">
+-              {formatDate(state.initiatedThrough)}
+-            </strong>
+-            . Unpaid payments due on or before it read &ldquo;Payment initiated&rdquo;.
++              {state.initiatedCount} payment{state.initiatedCount === 1 ? "" : "s"}
++            </strong>{" "}
++            currently show as &ldquo;Payment initiated&rdquo; to participants.
+           </>
+         ) : (
+-          <>Not set. Payments read Due or Overdue based on their date alone.</>
++          <>
++            Nothing is flagged. Payments read Due or Overdue from their date alone.
++          </>
+         )}
+       </p>
+ 
+@@ -164,18 +165,13 @@ function InitiatedFlag({ state }: { state: AdminState }) {
+           <span className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-500">
+             Sent on
+           </span>
+-          <input
+-            type="date"
+-            name="date"
+-            defaultValue={state.initiatedThrough || state.today}
+-            className={FIELD}
+-          />
++          <input type="date" name="date" defaultValue={state.today} className={FIELD} />
+         </label>
+         <Submit label="Mark initiated" />
+       </form>
+       <Result result={markResult} />
+ 
+-      {state.initiatedThrough && (
++      {state.initiatedCount > 0 && (
+         <>
+           <form action={clearAction} className="mt-3">
+             <Submit label="Clear the flag" tone="quiet" />
+diff --git a/lib/revenueShare.server.ts b/lib/revenueShare.server.ts
+index edc0465..7729989 100644
+--- a/lib/revenueShare.server.ts
++++ b/lib/revenueShare.server.ts
+@@ -9,7 +9,12 @@ import type {
+   ParticipantRecord,
+   ScheduledPayment,
+ } from "./revenueShare";
+-import { summarizeBook, summarizeHolder, toParticipationView } from "./revenueShare";
++import {
++  deriveAdminState,
++  summarizeBook,
++  summarizeHolder,
++  toParticipationView,
++} from "./revenueShare";
+ 
+ /**
+  * Server-side access to the Revenue Share participant sheet.
+@@ -280,6 +285,11 @@ async function callWrite(
+       cache: "no-store",
+       headers: { "Content-Type": "text/plain;charset=utf-8" },
+       body: JSON.stringify({ ...payload, secret }),
++      // Apps Script is a shared Google service and its response time is not
++      // ours to control — measured between 0.9s and 34s for the same call. A
++      // button that hangs indefinitely is worse than one that says it timed
++      // out, because the second at least tells you to go and check the sheet.
++      signal: AbortSignal.timeout(20000),
+     });
+ 
+     const text = await res.text();
+@@ -303,15 +313,37 @@ async function callWrite(
+     }
+ 
+     if (!data.ok) {
++      // "unauthorized" has exactly one cause worth naming, and the generic word
++      // sent us looking in the wrong place once already.
++      if (data.error === "unauthorized") {
++        return {
++          ok: false,
++          reason: "unconfigured",
++          detail:
++            "The tracker rejected the write secret. PARTICIPANT_WEBAPP_WRITE_SECRET " +
++            "in Vercel does not match WRITE_SECRET in the Apps Script — check for " +
++            "quotes or a trailing space, and remember a changed variable only takes " +
++            "effect on the next deploy.",
++        };
++      }
+       return {
+         ok: false,
+-        reason: data.error === "unauthorized" ? "unconfigured" : "unavailable",
++        reason: "unavailable",
+         detail: data.detail || data.error || "The write was refused.",
+       };
+     }
+ 
+     return { ok: true, data: { ...data, message: data.message ?? "Done." } };
+   } catch (err) {
++    if (err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError")) {
++      return {
++        ok: false,
++        reason: "unavailable",
++        detail:
++          "The tracker did not answer within 20 seconds. The change may or may not " +
++          "have been made — open the spreadsheet and check before trying again.",
++      };
++    }
+     return {
+       ok: false,
+       reason: "unavailable",
+@@ -328,27 +360,17 @@ export function isWriteConfigured(): boolean {
+ export type { AdminState, AwaitingCapital, OutstandingRun } from "./revenueShare";
+ 
+ /**
+- * What the admin panel needs, computed by the sheet rather than here.
++ * What the admin panel needs.
+  *
+- * Asking the Apps Script means one definition of "outstanding" — the same one
+- * the spreadsheet menu uses. Deriving it a second time in TypeScript would be
+- * two implementations of a money rule that must agree, and they would not stay
+- * agreeing for long.
++ * Reads the book — which the Program Book is loading anyway and which React
++ * cache() dedupes to a single sheet call — and derives the rest locally. No
++ * second round trip, so the panel costs the page nothing.
+  */
+ export async function getAdminState(): Promise<FetchOutcome<AdminState>> {
+   if (!(await isPortalAdmin())) return { ok: false, reason: "not_found" };
+-  const result = await callWrite({ action: "state" });
+-  if (!result.ok) return result;
+-  const d = result.data as unknown as AdminState;
+-  return {
+-    ok: true,
+-    data: {
+-      today: d.today ?? "",
+-      initiatedThrough: d.initiatedThrough ?? "",
+-      outstanding: Array.isArray(d.outstanding) ? d.outstanding : [],
+-      awaitingCapital: Array.isArray(d.awaitingCapital) ? d.awaitingCapital : [],
+-    },
+-  };
++  const book = await getBook();
++  if (!book.ok) return book;
++  return { ok: true, data: deriveAdminState(book.data.participants, book.data.schedule) };
+ }
+ 
+ /**
+diff --git a/lib/revenueShare.ts b/lib/revenueShare.ts
+index c6540ad..5d3213a 100644
+--- a/lib/revenueShare.ts
++++ b/lib/revenueShare.ts
+@@ -757,7 +757,72 @@ export interface AwaitingCapital {
+ 
+ export interface AdminState {
+   today: string;
+-  initiatedThrough: string;
++  /** How many scheduled payments the tracker currently marks INITIATED. */
++  initiatedCount: number;
+   outstanding: OutstandingRun[];
+   awaitingCapital: AwaitingCapital[];
+ }
++
++/**
++ * What the admin panel needs, derived from the book the page already loaded.
++ *
++ * This used to ask the Apps Script, on the reasoning that one definition of
++ * "outstanding" is better than two. Measured, that cost 6 to 34 seconds on
++ * every Program Book load — the sheet had to re-read three tabs to answer a
++ * question the page was already holding the data for. Wrong trade.
++ *
++ * The two definitions cannot drift, because this one is not a reimplementation:
++ * a payment is loggable exactly when the schedule's own Status column says it
++ * is not PAID and its due date has arrived. That Status is computed by the
++ * sheet. We are reading its answer, not second-guessing it.
++ */
++export function deriveAdminState(
++  records: ParticipantRecord[],
++  schedule: ScheduledPayment[],
++  today = todayIso()
++): AdminState {
++  const byId = new Map(records.map((r) => [r.participantId, r]));
++
++  const groups = new Map<string, OutstandingRun>();
++  let initiatedCount = 0;
++
++  for (const raw of schedule) {
++    const holder = byId.get(raw.participantId);
++    if (!holder) continue;
++
++    const row = { ...raw, payoffDate: holder.payoffDate ?? "" };
++    const state = paymentState(row, today);
++    if (state === "initiated") initiatedCount += 1;
++
++    // Paid is history; ended means the loan repaid and this period is void;
++    // scheduled means it has not come due. Everything else is money owed that
++    // the Payment Log does not yet know about — which is what "log a run" means.
++    if (state !== "due" && state !== "overdue" && state !== "initiated") continue;
++
++    const due = String(row.dueDate).slice(0, 10);
++    const group = groups.get(due) ?? { due, total: 0, rows: [] };
++    group.rows.push({
++      id: raw.participantId,
++      name: holder.fullName?.trim() || holder.entityName?.trim() || raw.participantId,
++      amount: raw.scheduledAmount || 0,
++    });
++    group.total += raw.scheduledAmount || 0;
++    groups.set(due, group);
++  }
++
++  const outstanding = Array.from(groups.values()).sort((a, b) => a.due.localeCompare(b.due));
++  for (const run of outstanding) run.rows.sort((a, b) => a.id.localeCompare(b.id));
++
++  const awaitingCapital: AwaitingCapital[] = records
++    .filter((r) => isPaidOff(r) && !/^\d{4}-\d{2}-\d{2}$/.test(String(r.capitalReturned || "")))
++    .map((r) => ({
++      id: r.participantId,
++      name: r.fullName?.trim() || r.entityName?.trim() || r.participantId,
++      capital: r.capitalContributed || 0,
++      payoff: String(r.payoffDate || "").slice(0, 10),
++      returnDue: String(r.capitalReturnDue || "").slice(0, 10),
++    }))
++    .sort((a, b) => a.returnDue.localeCompare(b.returnDue));
++
++  return { today, initiatedCount, outstanding, awaitingCapital };
++}
