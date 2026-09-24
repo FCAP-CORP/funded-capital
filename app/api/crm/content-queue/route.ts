@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   QueueApiError,
   apiListDrafts,
+  apiAttachCarousel,
   apiListQueue,
   apiUpdateRequest,
   type ApiUpdate,
@@ -35,6 +36,9 @@ import { MAX_DRAFT_BYTES } from "@/lib/marketing/draft";
  * GET               → the open queue, oldest first.
  * GET ?view=drafts  → finished blog drafts WITH their MDX, for pull-drafts.mjs.
  * POST → { id, status, draftUrl?, draftSummary?, draftBody?, error?, by? }
+ * POST → { id, carouselSpec, by? }   (no status) attaches a LinkedIn carousel
+ *        to a drafted or published blog request. Words only; the site draws
+ *        the slides at /api/crm/carousel/<id>. Never changes the status.
  *
  * `draftBody` is the whole MDX of a blog draft, sent with `drafted`. It is why
  * the daily task no longer needs Luis's laptop awake: the draft lands here and
@@ -151,6 +155,31 @@ export async function POST(request: Request) {
     const id = typeof body.id === "string" ? body.id.trim() : "";
     const status = typeof body.status === "string" ? body.status.trim() : "";
     if (!id) return NextResponse.json({ ok: false, error: "id is required." }, { status: 400 });
+
+    /*
+     * A carousel is its own call, never mixed with a status change: the task
+     * only makes one after the draft was accepted, and a bad slide must not be
+     * able to undo that acceptance.
+     */
+    if (body.carouselSpec !== undefined) {
+      if (status) {
+        return NextResponse.json(
+          { ok: false, error: "Send carouselSpec on its own, without status." },
+          { status: 400 },
+        );
+      }
+      const attached = await apiAttachCarousel({
+        id,
+        carouselSpec: body.carouselSpec,
+        by: typeof body.by === "string" ? body.by.trim().slice(0, 120) : null,
+      });
+      return NextResponse.json({
+        ok: true,
+        carousel: true,
+        slides: attached.slides,
+        pdf: `/api/crm/carousel/${id}`,
+      });
+    }
 
     /*
      * A task may claim, draft and fail. It may NOT publish.

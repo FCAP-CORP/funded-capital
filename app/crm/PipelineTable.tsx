@@ -3,6 +3,7 @@
 import DataTable, { type Column } from "./DataTable";
 import { StageSelect, InlineText } from "./Editable";
 import LastContact from "./LastContact";
+import { RecordLink } from "./_record/RecordCardProvider";
 import { setStage, setApplicationNotes } from "./actions";
 import type { PipelineRow } from "@/lib/db/queries";
 import {
@@ -26,7 +27,14 @@ export default function PipelineTable({ rows }: { rows: PipelineRow[] }) {
       width: "16rem",
       render: (r) => (
         <div className="min-w-0">
-          <p className="font-medium text-navy-900 truncate">{r.name}</p>
+          {/* Opens the record card over the grid — everything about the deal in one place. */}
+          <RecordLink
+            applicationId={r.id}
+            label={`Open the full record for ${r.name}`}
+            className="block truncate font-medium text-navy-900 underline decoration-slate-300 underline-offset-2 hover:decoration-gold-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-500 rounded-sm"
+          >
+            {r.name}
+          </RecordLink>
           <p className="text-xs text-slate-500 truncate">
             {r.email ? (
               <a href={`mailto:${r.email}`} className="hover:text-gold-600 transition-colors">{r.email}</a>

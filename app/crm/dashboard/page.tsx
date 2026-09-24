@@ -19,6 +19,11 @@ import { STAGE_LABEL, ageLabel, label, money } from "@/lib/crm/view";
 import { nyDayLabel, putDownHeading, queueRows, type QueueRowView } from "@/lib/crm/queueView";
 import { GridSkeleton, StatSkeleton } from "../Skeleton";
 import { BringBackButton, QueueRowActions } from "./QueueRowActions";
+import { RecordCardProvider, RecordLink } from "../_record/RecordCardProvider";
+import RecordCardSlot from "../_record/RecordCardSlot";
+
+/** The route every action on this page refreshes — the record card's included. */
+const HERE = "/crm/dashboard" as const;
 
 /**
  * Dashboard — the numbers, and then the work.
@@ -33,9 +38,12 @@ import { BringBackButton, QueueRowActions } from "./QueueRowActions";
  * `cacheComponents: true` rejects route segment config outright, so the page is
  * a static shell and everything touching the database sits inside <Suspense>.
  *
- * PERFORMANCE: the only client JavaScript is QueueRowActions.tsx — the row
- * buttons and the "bring back" button, one small module with no dependencies
- * beyond React and the icons already on the page. Every row, badge and bar is
+ * PERFORMANCE: the client JavaScript is QueueRowActions.tsx — the row
+ * buttons and the "bring back" button — plus the record card's small shell
+ * (app/crm/_record: open/close, focus, and the card's own buttons), with no
+ * dependencies beyond React and the icons already on the page. A borrower's
+ * name opens their record card over the queue (`?open=<id>`), rendered on the
+ * server like the rest of the page. Every row, badge and bar is
  * server-rendered HTML; the bars are divs with a width percentage, not a
  * charting library. The heading and the empty frame paint from the prerendered
  * shell and the data streams in behind them. One database round trip feeds
@@ -134,7 +142,13 @@ function QueueRow({ item }: { item: QueueRowView }) {
     <tbody className="border-t border-slate-100 hover:bg-slate-50 [&>tr>td:first-child]:pl-4 [&>tr>td:last-child]:pr-4">
       <tr>
         <td className="pt-3 pb-2 pr-4 align-top">
-          <p className="font-medium text-navy-900">{item.name}</p>
+          <RecordLink
+            applicationId={item.applicationId}
+            label={`Open the full record for ${item.name}`}
+            className="block w-fit font-medium text-navy-900 underline decoration-slate-300 underline-offset-2 hover:decoration-gold-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-500 rounded-sm"
+          >
+            {item.name}
+          </RecordLink>
           {item.email ? (
             <a href={`mailto:${item.email}`} className="text-xs text-slate-500 hover:text-gold-700 underline-offset-2 hover:underline">
               {item.email}
@@ -188,7 +202,13 @@ function PutDown({ items, now }: { items: SnoozedItem[]; now: Date }) {
         {items.map((p) => (
           <li key={p.applicationId} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
             <div className="min-w-0">
-              <p className="font-medium text-navy-900">{p.name}</p>
+              <RecordLink
+                applicationId={p.applicationId}
+                label={`Open the full record for ${p.name}`}
+                className="block w-fit font-medium text-navy-900 underline decoration-slate-300 underline-offset-2 hover:decoration-gold-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-500 rounded-sm"
+              >
+                {p.name}
+              </RecordLink>
               <p className="text-xs text-slate-500">
                 {label(STAGE_LABEL, p.stage)}
                 <span aria-hidden="true"> · </span>
@@ -331,19 +351,30 @@ async function Dashboard() {
   );
 }
 
-export default function DashboardPage() {
+/** `searchParams` is awaited only inside the record card's <Suspense>. See app/crm/page.tsx. */
+export default function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   return (
-    <main className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-navy-900">Dashboard</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Where the book stands, and who is waiting on you.
-        </p>
-      </header>
+    <RecordCardProvider here={HERE}>
+      <main className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
+        <header className="mb-6">
+          <h1 className="text-2xl font-bold text-navy-900">Dashboard</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Where the book stands, and who is waiting on you.
+          </p>
+        </header>
 
-      <Suspense fallback={<><StatSkeleton /><GridSkeleton /></>}>
-        <Dashboard />
-      </Suspense>
-    </main>
+        <Suspense fallback={<><StatSkeleton /><GridSkeleton /></>}>
+          <Dashboard />
+        </Suspense>
+
+        <Suspense fallback={null}>
+          <RecordCardSlot searchParams={searchParams} from={HERE} />
+        </Suspense>
+      </main>
+    </RecordCardProvider>
   );
 }

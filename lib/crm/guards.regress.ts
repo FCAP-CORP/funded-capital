@@ -134,6 +134,8 @@ const STAFF_ONLY_MODULES = [
   "lib/broker/admin.server.ts",
   "lib/broker/invites.server.ts",
   "lib/marketing/requests.server.ts",
+  // The record card's read: one borrower's whole file, consent state included.
+  "lib/crm/record.server.ts",
 ];
 
 for (const relPath of STAFF_ONLY_MODULES) {
@@ -541,7 +543,12 @@ if (crmActions) {
       n <= 1 ? `${n} refresh call${n === 1 ? "" : "s"}` : `**${n} REFRESH CALLS**`,
     );
   }
-  for (const name of ["setStage", "markLost", "logContact", "setSnooze", "clearSnooze"]) {
+  for (const name of [
+    "setStage", "markLost", "logContact", "setSnooze", "clearSnooze",
+    // Route-aware since the record card (2026-09-24), which calls them from three pages.
+    "setApplicationNotes", "setContactField",
+    "addTask", "toggleTask", "deleteTask",
+  ]) {
     const s = starts.findIndex((x) => x.name === name);
     const body = s < 0 ? "" : code.slice(starts[s].at, s + 1 < starts.length ? starts[s + 1].at : undefined);
     check(
@@ -599,6 +606,117 @@ if (crmActions) {
     /CRM_ROUTES[^=]*=\s*\[[^\]]*"\/crm\/board"/.test(codeOnly(crmActions)) ? "listed" : "**NOT LISTED**",
   );
 }
+
+/* ------------------------------------------------- the record card (§8b) */
+
+/**
+ * The record card opens over three pages, so its controls cannot hard-code a
+ * HERE the way the dashboard and the board do. Instead each page hands its own
+ * HERE to RecordCardSlot as `from`, and every call in the card passes `from`
+ * back. Two things are checked: every call in the card ends in `from)`, and
+ * every page that renders the card passes a `from` equal to its own route.
+ * Either one slipping would let a card action refresh a different /crm route.
+ */
+console.log("\n=== 8b. The record card refreshes the page it is open on ===");
+
+const CARD_ACTIONS =
+  /\b(setStage|markLost|logContact|setSnooze|clearSnooze|setApplicationNotes|setContactField|addTask|toggleTask|deleteTask)\(([^()]|\([^()]*\))*\)/g;
+const RECORD_DIR = join(ROOT, "app", "crm", "_record");
+const recordFiles = walk(RECORD_DIR).filter((f) => f.endsWith(".tsx"));
+check("found the record card's files", recordFiles.length >= 3, `${recordFiles.length} files`);
+let cardCalls = 0;
+for (const f of recordFiles) {
+  const code = codeOnly(readFileSync(f, "utf8"));
+  const calls = code.match(CARD_ACTIONS) ?? [];
+  cardCalls += calls.length;
+  const without = calls.filter((c) => !/\bfrom\)$/.test(c));
+  check(
+    `${rel(f)}: every action call passes the opening page's route`,
+    without.length === 0,
+    without.length ? `**MISSING ROUTE: ${without.join(" | ")}**` : `${calls.length} calls, all pass from`,
+  );
+  if (calls.length > 0) {
+    check(
+      `${rel(f)}: \`from\` is typed as a CrmRoute, not a free string`,
+      /from:\s*CrmRoute/.test(code),
+      /from:\s*CrmRoute/.test(code) ? "typed" : "**UNTYPED from**",
+    );
+  }
+}
+check("...and the card does call actions, so the check is not vacuous", cardCalls >= 10, `${cardCalls} calls`);
+
+const slotSrc = (() => { try { return readFileSync(join(RECORD_DIR, "RecordCardSlot.tsx"), "utf8"); } catch { return ""; } })();
+check(
+  "the card checks staff itself, not only via its page",
+  slotSrc.includes("isCrmStaff") && slotSrc.includes("getRecordCard("),
+  slotSrc.includes("isCrmStaff") ? "isCrmStaff + getRecordCard (which asserts)" : "**NO STAFF CHECK**",
+);
+
+/** The route a page file serves: app/crm/board/page.tsx -> /crm/board. */
+const routeOf = (f: string) => "/" + rel(f).replace(/^app\//, "").replace(/\/page\.tsx$/, "");
+const cardPages = pageFiles.filter((f) => f.endsWith("page.tsx") && readFileSync(f, "utf8").includes("<RecordCardSlot"));
+check("the card is on the pipeline, the board and the dashboard", cardPages.length >= 3, cardPages.map(rel).join(", "));
+for (const f of cardPages) {
+  const code = codeOnly(readFileSync(f, "utf8"));
+  const route = routeOf(f);
+  const here = /const HERE = "([^"]+)"/.exec(code)?.[1];
+  const slotFrom = /<RecordCardSlot[^>]*\bfrom=\{HERE\}/.test(code);
+  const provider = /<RecordCardProvider\s+here=\{HERE\}/.test(code);
+  check(
+    `${rel(f)} opens the card with its own route`,
+    here === route && slotFrom && provider,
+    here !== route ? `**HERE is ${here ?? "missing"}, page is ${route}**`
+      : !slotFrom ? "**RecordCardSlot not given from={HERE}**"
+        : !provider ? "**RecordCardProvider not given here={HERE}**"
+          : `${route}`,
+  );
+  if (crmActions) {
+    check(
+      `  ...and ${route} is on the list of routes an action may refresh`,
+      new RegExp(`CRM_ROUTES[^=]*=\\s*\\[[^\\]]*"${route.replace(/\//g, "\\/")}"`).test(codeOnly(crmActions)),
+      "listed",
+    );
+  }
+}
+
+/**
+ * PPR: searchParams is request data. Awaiting it in the page function, outside
+ * any <Suspense>, fails the production build under cacheComponents — and
+ * typecheck does not catch it. The card awaits it inside its own boundary.
+ */
+for (const f of pageFiles.filter((x) => x.endsWith("page.tsx"))) {
+  const code = codeOnly(readFileSync(f, "utf8"));
+  const bad = /await\s+searchParams\b/.test(code) || /\bsearchParams\)\s*\.then\b/.test(code);
+  check(`${rel(f)} does not unwrap searchParams outside a boundary`, !bad, bad ? "**AWAITS searchParams IN THE PAGE**" : "clean");
+}
+
+/* ------------------------------------------------------------ carousels */
+
+/**
+ * LinkedIn carousels (24 Sep 2026). The route that draws them has two doors —
+ * a staff session, or the queue token — and a third caller must get a 404.
+ * A carousel is marketing copy, but the route sits under /api/crm, and the
+ * next change to it should not be the one that forgets which doors exist.
+ */
+console.log("\n=== 9. The carousel route lets in staff and the task, nobody else ===");
+const CAROUSEL_ROUTE = "app/api/crm/carousel/[id]/route.ts";
+let carouselSrc = "";
+try { carouselSrc = codeOnly(readFileSync(join(ROOT, CAROUSEL_ROUTE), "utf8")); }
+catch { check(CAROUSEL_ROUTE, false, "**FILE MISSING** — renamed? update this section"); }
+if (carouselSrc) {
+  check("  the staff path checks isCrmStaff() and 404s otherwise",
+    /if\s*\(\s*!\s*\(await isCrmStaff\(\)\)\s*\)\s*return NOT_FOUND\(\)/.test(carouselSrc), "guarded");
+  check("  the token path goes through apiGetCarousel, which asserts the token",
+    /apiGetCarousel\(/.test(carouselSrc) && !!queueSrc && /export async function apiGetCarousel[\s\S]*?assertQueueToken\(/.test(queueSrc), "guarded");
+  check("  the staff read goes through the staff-only module",
+    /from\s+"@\/lib\/marketing\/requests\.server"/.test(carouselSrc) && /getCarouselForStaff\(/.test(carouselSrc), "requests.server");
+  check("  it never reads the database directly",
+    !/from\s+"@\/lib\/db"/.test(carouselSrc) && !/\bdb\./.test(carouselSrc), "no db import");
+  check("  responses are never cached by a CDN", /private, no-store/.test(carouselSrc), "private, no-store");
+}
+const queueRouteCode = codeOnly(queueRoute);
+check("attaching a carousel cannot also change a status",
+  /carouselSpec !== undefined\)\s*\{\s*if \(status\)/.test(queueRouteCode), "refused together");
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

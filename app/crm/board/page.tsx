@@ -5,6 +5,11 @@ import { getPipeline } from "@/lib/db/queries";
 import { offBoard, type BoardSource } from "@/lib/crm/board";
 import ViewToggle from "../ViewToggle";
 import PipelineBoard from "./PipelineBoard";
+import { RecordCardProvider } from "../_record/RecordCardProvider";
+import RecordCardSlot from "../_record/RecordCardSlot";
+
+/** The route every action on this page refreshes — the record card's included. */
+const HERE = "/crm/board" as const;
 
 export const metadata = {
   title: "Pipeline Board | Funded Capital Lending OS",
@@ -59,22 +64,33 @@ async function Board() {
   );
 }
 
-export default function BoardPage() {
+/** `searchParams` is awaited only inside the record card's <Suspense>. See app/crm/page.tsx. */
+export default function BoardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   return (
-    <main className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-      <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-navy-900">Pipeline</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Drag a deal to change its stage. The history is written with every move.
-          </p>
-        </div>
-        <ViewToggle current="board" />
-      </header>
+    <RecordCardProvider here={HERE}>
+      <main className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
+        <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-navy-900">Pipeline</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Drag a deal to change its stage, or click it to open the full record. The history is written with every move.
+            </p>
+          </div>
+          <ViewToggle current="board" />
+        </header>
 
-      <Suspense fallback={<BoardSkeleton />}>
-        <Board />
-      </Suspense>
-    </main>
+        <Suspense fallback={<BoardSkeleton />}>
+          <Board />
+        </Suspense>
+
+        <Suspense fallback={null}>
+          <RecordCardSlot searchParams={searchParams} from={HERE} />
+        </Suspense>
+      </main>
+    </RecordCardProvider>
   );
 }

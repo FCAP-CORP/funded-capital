@@ -9,7 +9,8 @@
  *
  * WHAT IT CAN TOUCH: `content_requests`, and nothing else. Blog topics, their
  * status, and — since 24 Sep 2026 — the MDX of a finished blog draft, so the
- * daily task no longer needs Luis's laptop awake to deliver it. If a future
+ * daily task no longer needs Luis's laptop awake to deliver it, and the words
+ * of the LinkedIn carousel that goes with it. If a future
  * edit here reads an application, a contact or a broker, that edit is wrong —
  * move it to a staff-guarded module instead.
  *
@@ -24,6 +25,7 @@ import { db } from "@/lib/db";
 import { bearerFrom, checkToken } from "./token";
 import { canTransition, type ContentChannel, type ContentStatus } from "./requests";
 import { parseDraftPath, validateDraftBody } from "./draft";
+import { parseCarouselSpec, type CarouselSpec } from "./carousel";
 
 type Row = Record<string, unknown>;
 const rowsOf = (r: unknown): Row[] => (r as { rows?: Row[] }).rows ?? (r as Row[]);
@@ -231,4 +233,68 @@ export async function apiListDrafts(): Promise<ApiDraft[]> {
     draftBody: String(r.draft_body),
     draftedAt: iso(r.drafted_at),
   }));
+}
+
+/* ------------------------------------------------------------- carousels */
+
+/**
+ * Attach a LinkedIn carousel to a blog request. Words only: the site draws the
+ * slides itself (app/api/crm/carousel/[id]).
+ *
+ * Allowed while the request is `drafted` or `published` — the carousel is made
+ * after the draft is accepted, and the post may already be live by the time it
+ * is fixed. Sending it again REPLACES it, which is how the task corrects a
+ * slide it did not like the look of. It never changes the request's status.
+ */
+export async function apiAttachCarousel(input: { id: string; carouselSpec: unknown; by?: string | null }): Promise<{ slides: number }> {
+  await assertQueueToken();
+
+  const parsed = parseCarouselSpec(input.carouselSpec);
+  if (!parsed.ok) throw new QueueApiError(400, parsed.error);
+
+  const current = await db.execute(sql`
+    SELECT status::text AS status, channel::text AS channel
+    FROM content_requests WHERE id = ${input.id}
+  `);
+  const existing = rowsOf(current)[0];
+  if (!existing) throw new QueueApiError(404, "No request with that id.");
+  if (String(existing.channel) !== "blog") throw new QueueApiError(400, "Only a blog request carries a carousel.");
+  const status = String(existing.status);
+  if (status !== "drafted" && status !== "published") {
+    throw new QueueApiError(409, `A carousel is attached after the draft is accepted; this request is "${status}".`);
+  }
+
+  const now = new Date().toISOString();
+  const result = await db.execute(sql`
+    UPDATE content_requests
+    SET carousel_spec = ${JSON.stringify(parsed.value)}::jsonb,
+        carousel_at = ${now}::timestamptz,
+        updated_at = ${now}::timestamptz
+    WHERE id = ${input.id} AND status IN ('drafted', 'published')
+    RETURNING id
+  `);
+  if (!rowsOf(result).length) {
+    throw new QueueApiError(409, "That request changed while you were working on it. Read the queue again.");
+  }
+  return { slides: parsed.value.slides.length };
+}
+
+/**
+ * A stored carousel, for the task to look at the slides it just attached.
+ *
+ * Re-validated on the way OUT as well as in: the design may have tightened
+ * since the spec was stored, and a slide the renderer can no longer fit should
+ * be a clear error, not a clipped image.
+ */
+export async function apiGetCarousel(id: string): Promise<CarouselSpec | null> {
+  await assertQueueToken();
+
+  const result = await db.execute(sql`
+    SELECT carousel_spec FROM content_requests WHERE id = ${id} AND channel = 'blog'
+  `);
+  const row = rowsOf(result)[0];
+  if (!row || row.carousel_spec === null || row.carousel_spec === undefined) return null;
+  const parsed = parseCarouselSpec(row.carousel_spec);
+  if (!parsed.ok) throw new QueueApiError(422, `The stored carousel no longer passes the checks: ${parsed.error}`);
+  return parsed.value;
 }

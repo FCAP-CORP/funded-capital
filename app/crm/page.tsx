@@ -6,6 +6,11 @@ import { money, daysSince } from "@/lib/crm/view";
 import PipelineTable from "./PipelineTable";
 import { GridSkeleton, StatSkeleton } from "./Skeleton";
 import ViewToggle from "./ViewToggle";
+import { RecordCardProvider } from "./_record/RecordCardProvider";
+import RecordCardSlot from "./_record/RecordCardSlot";
+
+/** The route every action on this page refreshes — the record card's included. */
+const HERE = "/crm" as const;
 
 /**
  * Pipeline — the Lending OS home screen.
@@ -90,22 +95,38 @@ async function Pipeline() {
   );
 }
 
-export default function PipelinePage() {
+/**
+ * `searchParams` is passed down as a PROMISE and only awaited inside the
+ * record card's own <Suspense> — reading it here would make the whole page
+ * unprerenderable under cacheComponents (see CLAUDE.md). `?open=<id>` opens
+ * the record card over the grid.
+ */
+export default function PipelinePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   return (
-    <main className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-      <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-navy-900">Pipeline</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Every application in one place. Change a stage here and the history is written with it.
-          </p>
-        </div>
-        <ViewToggle current="table" />
-      </header>
+    <RecordCardProvider here={HERE}>
+      <main className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
+        <header className="mb-6 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-navy-900">Pipeline</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              Every application in one place. Change a stage here and the history is written with it.
+            </p>
+          </div>
+          <ViewToggle current="table" />
+        </header>
 
-      <Suspense fallback={<><StatSkeleton /><GridSkeleton /></>}>
-        <Pipeline />
-      </Suspense>
-    </main>
+        <Suspense fallback={<><StatSkeleton /><GridSkeleton /></>}>
+          <Pipeline />
+        </Suspense>
+
+        <Suspense fallback={null}>
+          <RecordCardSlot searchParams={searchParams} from={HERE} />
+        </Suspense>
+      </main>
+    </RecordCardProvider>
   );
 }

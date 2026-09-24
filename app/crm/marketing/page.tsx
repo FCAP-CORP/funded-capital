@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { notFound } from "next/navigation";
-import { AlertTriangle, CircleCheck, CircleHelp, ExternalLink, FileText, TriangleAlert } from "lucide-react";
+import { AlertTriangle, CircleCheck, CircleHelp, Download, ExternalLink, FileText, GalleryHorizontal, TriangleAlert } from "lucide-react";
 import { isCrmStaff } from "@/lib/crm/access";
 import { getAllPosts } from "@/lib/blog";
 import { listRequests, lastPublishedByChannel } from "@/lib/marketing/requests.server";
@@ -139,6 +139,30 @@ function DraftLink({ channel, draftUrl, eff }: { channel: string; draftUrl: stri
  * A native <details> opens and closes in the browser on its own; the MDX is
  * server-rendered as escaped text inside it, so nothing in a draft can run.
  */
+/**
+ * The LinkedIn carousel for a post, when the daily task made one.
+ *
+ * Plain links to the route that draws it — no client JavaScript, and nothing
+ * is drawn until it is clicked. "Preview" opens the PDF in a tab; "Download"
+ * saves the file LinkedIn's document post takes.
+ */
+function CarouselLinks({ id }: { id: string }) {
+  const href = `/api/crm/carousel/${id}`;
+  return (
+    <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+      <span className="inline-flex items-center gap-1 font-semibold text-navy-900">
+        <GalleryHorizontal size={13} aria-hidden="true" /> LinkedIn carousel
+      </span>
+      <a href={`${href}?inline=1`} target="_blank" rel="noopener noreferrer" className="text-gold-700 hover:underline">
+        Preview
+      </a>
+      <a href={href} download className="inline-flex items-center gap-1 text-gold-700 hover:underline">
+        <Download size={12} aria-hidden="true" /> Download PDF
+      </a>
+    </p>
+  );
+}
+
 function DraftReader({ body }: { body: string }) {
   const words = articleWordCount(body);
   return (
@@ -242,6 +266,7 @@ async function Marketing() {
                       {r.draftSummary && <p className="mt-1 text-xs text-slate-600">{r.draftSummary}</p>}
                       {r.error && <p className="mt-1 text-xs text-red-600">{r.error}</p>}
                       <DraftLink channel={r.channel} draftUrl={r.draftUrl} eff={eff} />
+                      {r.hasCarousel && <CarouselLinks id={r.id} />}
                       {eff.status === "drafted" && r.draftBody && <DraftReader body={r.draftBody} />}
                     </td>
                     <td className="py-3 pr-4 whitespace-nowrap">
@@ -277,6 +302,7 @@ async function Marketing() {
                 <li key={r.id} className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-2.5">
                   <span className="text-sm text-slate-700">
                     <span className="text-slate-500">{CHANNEL_SPEC[r.channel].label}</span> — {r.topic}
+                    {r.hasCarousel && <CarouselLinks id={r.id} />}
                   </span>
                   <span className="text-xs text-slate-500">
                     {STATUS_LABEL[eff.status]}

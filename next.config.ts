@@ -17,6 +17,16 @@ const nextConfig: NextConfig = {
   compress: true,
 
   /**
+   * The carousel route reads its fonts and logos from disk with a path built
+   * at runtime, which Vercel's file tracer cannot follow. Without this line the
+   * files are missing from the deployed function and every slide fails with
+   * ENOENT — only in production, never locally.
+   */
+  outputFileTracingIncludes: {
+    "/api/crm/carousel/[id]": ["./lib/marketing/carousel-assets/**"],
+  },
+
+  /**
    * Legacy URLs from the pre-Next.js site.
    *
    * Google still has these indexed and they were returning 404, which wastes

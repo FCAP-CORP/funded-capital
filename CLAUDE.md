@@ -688,3 +688,56 @@ Gmail DRAFT titled "Daily blog did not run: …" rather than a note in a session
 **One blog system, not two.** The 7am daily task now works the queue and keeps its device gate — the
 gate is why it has always worked. The three-times-daily marketing-queue task is disabled; it was
 built around a shell that does not exist.
+
+### Record cards (24 Sep 2026)
+
+Click a borrower on `/crm`, a card on `/crm/board`, or a row on `/crm/dashboard` and a record card
+slides in from the right: contact, loan and properties, next follow-up, **tasks**, deal notes,
+documents (names and status only) and one activity timeline. Salesforce and HubSpot call this the
+record page; here it is a drawer so the list behind it keeps its place.
+
+- **The card is the URL:** `?open=<applicationId>` on whatever page you are on. It can be linked,
+  survives a refresh, and Back closes it. The page function never awaits `searchParams` — the
+  `RecordCardSlot` awaits it inside its own `<Suspense>`, which is the PPR rule above applied to a
+  new input. Guard §8b checks every `/crm` page for this.
+- **`lib/crm/record.server.ts` asserts staff itself** and reads everything in one `db.batch`, so a
+  card costs one round trip to Neon. The Drive file id of a document never leaves that module.
+- **Tasks are new: `crm_tasks`, migration 0010.** Title 1–200 characters, an optional due DATE (a New
+  York calendar day, never in the past), done/undone, soft delete. Rules in `lib/crm/tasks.ts`.
+  Tasks do not write to the activity timeline yet.
+- **Every action the card calls takes `from`** and refreshes that one route; `setApplicationNotes`
+  and `setContactField` gained the argument, so they no longer refresh a hard-coded route from
+  whichever page they are called on. `/crm/contacts` joined `CRM_ROUTES` for that.
+- **On the board, Enter opens the card and Space picks a card up.** A click within 250 ms of a drop
+  is ignored, so letting go of a drag does not open a card. The card's stage menu asks before Funded
+  and requires a lost reason like the board; the table's dropdown still does not.
+- Opening a card re-renders the page it sits on, including its main query. If that ever feels slow,
+  intercepting routes are the fix — a bigger change, not needed yet.
+
+### LinkedIn carousels are drawn by the site (24 Sep 2026)
+
+The daily blog task used to draw carousels with a Python script in its sandbox and upload PNGs to
+Drive. The upload failed from the cloud, and every design change meant editing a script outside
+this repo. Now the task sends only the **words** — a small JSON spec — and the site draws the
+slides on request.
+
+- **`POST /api/crm/content-queue` with `{ id, carouselSpec }` and no `status`** attaches a carousel
+  to a drafted or published blog request, replacing any earlier one. It never changes the status,
+  and sending it together with a status is refused (guard §9).
+- **`lib/marketing/carousel.ts` refuses anything that would draw badly**, with a sentence the task
+  can act on: text past the length that fits, too many rows, a missing source on a chart, and any
+  character outside the Latin subset of Inter (arrows, the approx sign, check marks, emoji) — those
+  render as blank boxes. The limits were set by rendering a deck with every field at its maximum
+  and looking at it; change a font size in the renderer and re-run that check
+  (`scripts/carousel-preview.tsx`).
+- **`app/api/crm/carousel/[id]`** returns the PDF LinkedIn's document post takes, or `?slide=N` as a
+  PNG. Two doors only: a staff session, or the queue token (so the task can look at what it made).
+  Everyone else gets a 404. The route reads no table itself (guard §9).
+- **The design lives in `lib/marketing/carousel.render.tsx`** (next/og, which ships with Next, plus
+  `pdf-lib` for the PDF). Change it there and every carousel changes on the next push — including
+  old ones, which are redrawn from their words.
+- **Fonts and logos are read from `lib/marketing/carousel-assets/` at runtime**, which Vercel's
+  file tracer cannot follow. `outputFileTracingIncludes` in `next.config.ts` ships them with the
+  function; without it every slide fails with ENOENT in production only.
+- Test a deck without the site:
+  `npx tsx --conditions=react-server scripts/carousel-preview.tsx spec.json out-folder`.

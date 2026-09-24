@@ -22,6 +22,7 @@ import {
   type ContentChannel,
   type ContentStatus,
 } from "./requests";
+import { parseCarouselSpec, type CarouselSpec } from "./carousel";
 
 type Row = Record<string, unknown>;
 const rowsOf = (r: unknown): Row[] => (r as { rows?: Row[] }).rows ?? (r as Row[]);
@@ -51,6 +52,8 @@ export interface RequestRow {
    * page. Null for every other row — see listRequests.
    */
   draftBody: string | null;
+  /** True when a LinkedIn carousel is attached; the slides are drawn on request. */
+  hasCarousel: boolean;
   publishedAt: string | null;
   publishedUrl: string | null;
   error: string | null;
@@ -81,6 +84,8 @@ export async function listRequests(limit = 100): Promise<RequestRow[]> {
       draftUrl: contentRequests.draftUrl,
       draftSummary: contentRequests.draftSummary,
       draftBody: sql<string | null>`CASE WHEN ${contentRequests.status} = 'drafted' AND ${contentRequests.channel} = 'blog' THEN ${contentRequests.draftBody} END`,
+      // A yes/no, not the spec: the page links to the slides, it does not draw them.
+      hasCarousel: sql<boolean>`(${contentRequests.carouselSpec} IS NOT NULL)`,
       publishedAt: contentRequests.publishedAt,
       publishedUrl: contentRequests.publishedUrl,
       error: contentRequests.error,
@@ -102,6 +107,7 @@ export async function listRequests(limit = 100): Promise<RequestRow[]> {
     draftUrl: r.draftUrl,
     draftSummary: r.draftSummary,
     draftBody: r.draftBody ?? null,
+    hasCarousel: r.hasCarousel === true,
     publishedAt: iso(r.publishedAt),
     publishedUrl: r.publishedUrl,
     error: r.error,
@@ -207,4 +213,24 @@ export async function setRequestStatus(
     return { ok: false, error: "Someone or something changed that request while you were looking at it. Reload and try again." };
   }
   return { ok: true, value: null };
+}
+
+/**
+ * A stored carousel, for Luis to preview and download from /crm/marketing.
+ * Staff-only like everything in this file; the scheduled task reads the same
+ * data through the token-guarded apiGetCarousel instead.
+ */
+export async function getCarouselForStaff(id: string): Promise<{ spec: CarouselSpec; topic: string } | { error: string } | null> {
+  await assertCrmStaff();
+
+  const rows = await db
+    .select({ spec: contentRequests.carouselSpec, topic: contentRequests.topic })
+    .from(contentRequests)
+    .where(eq(contentRequests.id, id))
+    .limit(1);
+  const row = rows[0];
+  if (!row || row.spec === null || row.spec === undefined) return null;
+  const parsed = parseCarouselSpec(row.spec);
+  if (!parsed.ok) return { error: parsed.error };
+  return { spec: parsed.value, topic: row.topic };
 }

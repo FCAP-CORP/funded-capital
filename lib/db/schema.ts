@@ -24,8 +24,9 @@
 
 import {
   pgTable, pgEnum, uuid, text, integer, numeric, boolean,
-  timestamp, jsonb, index, uniqueIndex,
+  timestamp, jsonb, index, uniqueIndex, date, check,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 /* ------------------------------------------------------------------ enums */
 
@@ -455,6 +456,49 @@ export const documents = pgTable("documents", {
   appIdx: index("documents_application_idx").on(t.applicationId),
 }));
 
+/* -------------------------------------------------------------- crm_tasks */
+
+/**
+ * A to-do on one deal: "order the appraisal", "chase the insurance binder".
+ * Migration 0010.
+ *
+ * Attached to the APPLICATION, like everything else about a deal — a repeat
+ * investor with three files has three separate lists, and a task filed against
+ * the person would not say which deal it was for.
+ *
+ * `due_on` is a calendar DAY, not a moment. "Due Thursday" means Thursday on
+ * Luis's calendar (America/New_York), and a timestamp would make the same task
+ * overdue at 8pm Wednesday in New York because it is already Thursday in UTC.
+ * lib/crm/tasks.ts does every comparison on the New York calendar.
+ *
+ * SOFT DELETE. `deleted_at` hides a task rather than removing the row, so a
+ * task that vanished can be explained afterwards — who removed it, and when.
+ * Nothing reads a deleted task back into the card.
+ *
+ * The title bound (1–200) is enforced here as well as in lib/crm/tasks.ts, so a
+ * write that bypasses the action cannot store an empty or runaway title.
+ */
+export const crmTasks = pgTable("crm_tasks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  applicationId: uuid("application_id").notNull().references(() => applications.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  dueOn: date("due_on", { mode: "string" }),
+  /** Clerk user id of whoever added it. */
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  completedBy: text("completed_by"),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  deletedBy: text("deleted_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  titleLength: check("crm_tasks_title_length_check", sql`char_length(${t.title}) BETWEEN 1 AND 200`),
+  appIdx: index("crm_tasks_application_idx").on(t.applicationId).where(sql`${t.deletedAt} IS NULL`),
+  openDueIdx: index("crm_tasks_open_due_idx").on(t.dueOn).where(sql`${t.completedAt} IS NULL AND ${t.deletedAt} IS NULL`),
+}));
+
+export type CrmTask = typeof crmTasks.$inferSelect;
+
 export type Contact = typeof contacts.$inferSelect;
 export type NewContact = typeof contacts.$inferInsert;
 export type Application = typeof applications.$inferSelect;
@@ -696,6 +740,14 @@ export const contentRequests = pgTable("content_requests", {
   draftSummary: text("draft_summary"),
   /** Blog only: the full MDX, in transit to content/blog. See the note above. */
   draftBody: text("draft_body"),
+  /**
+   * The WORDS of the LinkedIn carousel that goes with a blog post — never
+   * images. The site draws the slides from this on request
+   * (app/api/crm/carousel/[id]), so a better design reaches every carousel on
+   * the next push. Validated by lib/marketing/carousel.ts before it is stored.
+   */
+  carouselSpec: jsonb("carousel_spec").$type<unknown>(),
+  carouselAt: timestamp("carousel_at", { withTimezone: true }),
 
   publishedAt: timestamp("published_at", { withTimezone: true }),
   publishedUrl: text("published_url"),

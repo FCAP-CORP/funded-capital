@@ -4,7 +4,7 @@ import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { activities, applications, contacts, participants, stageTransitions } from "@/lib/db/schema";
+import { activities, applications, contacts, crmTasks, participants, stageTransitions } from "@/lib/db/schema";
 import { STAGE_LABEL } from "@/lib/crm/view";
 import { assertCrmStaff } from "@/lib/crm/access";
 import { parseLostReason } from "@/lib/crm/board";
@@ -15,7 +15,8 @@ import {
   parseSnoozeDate,
   type LoggableKind,
 } from "@/lib/crm/followup";
-import { and, asc, desc, sql as dsql } from "drizzle-orm";
+import { isUuid, parseDueDate, parseTaskTitle } from "@/lib/crm/tasks";
+import { and, asc, desc, isNull, sql as dsql } from "drizzle-orm";
 
 /**
  * Write actions for the CRM grid.
@@ -47,8 +48,8 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
  * back to the action's default rather than being passed to revalidatePath,
  * because a server action's arguments arrive from the browser.
  */
-export type CrmRoute = "/crm" | "/crm/dashboard" | "/crm/board";
-const CRM_ROUTES: readonly string[] = ["/crm", "/crm/dashboard", "/crm/board"];
+export type CrmRoute = "/crm" | "/crm/dashboard" | "/crm/board" | "/crm/contacts";
+const CRM_ROUTES: readonly string[] = ["/crm", "/crm/dashboard", "/crm/board", "/crm/contacts"];
 
 function revalidateFrom(from: unknown, fallback: CrmRoute): void {
   revalidatePath(typeof from === "string" && CRM_ROUTES.includes(from) ? from : fallback);
@@ -175,7 +176,20 @@ export async function markLost(
   }
 }
 
-export async function setApplicationNotes(applicationId: string, notes: string): Promise<ActionResult> {
+/**
+ * The deal's own notes field.
+ *
+ * Takes the caller's route since the record card (2026-09-24) can edit notes
+ * from the dashboard and the board as well as the Pipeline grid. It used to
+ * refresh "/crm" unconditionally, which from any other page is exactly the
+ * cross-route refresh CLAUDE.md forbids. The default keeps the grid's
+ * two-argument call working unchanged.
+ */
+export async function setApplicationNotes(
+  applicationId: string,
+  notes: string,
+  from: CrmRoute = "/crm",
+): Promise<ActionResult> {
   try {
     await requireUser();
     const value = notes.trim();
@@ -183,7 +197,7 @@ export async function setApplicationNotes(applicationId: string, notes: string):
       .update(applications)
       .set({ notes: value || null, updatedAt: new Date() })
       .where(eq(applications.id, applicationId));
-    revalidatePath("/crm");
+    revalidateFrom(from, "/crm");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -202,6 +216,7 @@ export type EditableContactField = (typeof EDITABLE_CONTACT_FIELDS)[number];
  */
 export async function setContactField(
   contactId: string, field: string, value: string,
+  from: CrmRoute = "/crm/contacts",
 ): Promise<ActionResult> {
   try {
     await requireUser();
@@ -213,7 +228,9 @@ export async function setContactField(
       .update(contacts)
       .set({ [field]: v || null, updatedAt: new Date() })
       .where(eq(contacts.id, contactId));
-    revalidatePath("/crm/contacts");
+    // The Contacts grid passes three arguments and gets its own page; the
+    // record card passes the page it is open on. Same rule as setApplicationNotes.
+    revalidateFrom(from, "/crm/contacts");
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -380,5 +397,115 @@ export async function clearSnooze(
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "could not bring that back" };
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Tasks on a deal (migration 0010)                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Add a task to a deal.
+ *
+ * The rules — title 1 to 200 characters, due date optional and never in the
+ * past on the New York calendar — live in lib/crm/tasks.ts and are pinned by
+ * tasks.regress.ts. The database CHECK repeats the title bound, so this is not
+ * the only thing standing between a crafted POST and a blank task.
+ */
+export async function addTask(
+  applicationId: string,
+  title: string,
+  dueOn: string,
+  from: CrmRoute = "/crm",
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+
+    const t = parseTaskTitle(title);
+    if (!t.ok) return { ok: false, error: t.error };
+    const due = parseDueDate(dueOn, new Date());
+    if (!due.ok) return { ok: false, error: due.error };
+    if (!isUuid(applicationId)) return { ok: false, error: "application not found" };
+
+    const [app] = await db
+      .select({ id: applications.id })
+      .from(applications)
+      .where(eq(applications.id, applicationId))
+      .limit(1);
+    if (!app) return { ok: false, error: "application not found" };
+
+    await db.insert(crmTasks).values({
+      applicationId,
+      title: t.value,
+      dueOn: due.value,
+      createdBy: userId,
+    });
+
+    revalidateFrom(from, "/crm");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "could not add that task" };
+  }
+}
+
+/**
+ * Tick a task off, or un-tick it.
+ *
+ * Who finished it is recorded with when. Un-ticking clears both, so a task
+ * reopened by mistake does not keep a completion stamp it no longer has.
+ */
+export async function toggleTask(
+  taskId: string,
+  done: boolean,
+  from: CrmRoute = "/crm",
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    if (!isUuid(taskId)) return { ok: false, error: "task not found" };
+
+    const now = new Date();
+    const updated = await db
+      .update(crmTasks)
+      .set(
+        done === true
+          ? { completedAt: now, completedBy: userId, updatedAt: now }
+          : { completedAt: null, completedBy: null, updatedAt: now },
+      )
+      .where(and(eq(crmTasks.id, taskId), isNull(crmTasks.deletedAt)))
+      .returning({ id: crmTasks.id });
+    if (updated.length === 0) return { ok: false, error: "task not found" };
+
+    revalidateFrom(from, "/crm");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "could not update that task" };
+  }
+}
+
+/**
+ * Remove a task. SOFT: the row stays with who removed it and when, so a task
+ * that disappeared from a deal can be explained afterwards. The card never
+ * reads a removed task back.
+ */
+export async function deleteTask(
+  taskId: string,
+  from: CrmRoute = "/crm",
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    if (!isUuid(taskId)) return { ok: false, error: "task not found" };
+
+    const now = new Date();
+    const removed = await db
+      .update(crmTasks)
+      .set({ deletedAt: now, deletedBy: userId, updatedAt: now })
+      .where(and(eq(crmTasks.id, taskId), isNull(crmTasks.deletedAt)))
+      .returning({ id: crmTasks.id });
+    if (removed.length === 0) return { ok: false, error: "task not found" };
+
+    revalidateFrom(from, "/crm");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "could not remove that task" };
   }
 }

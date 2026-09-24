@@ -31,6 +31,7 @@ import {
 } from "@/lib/crm/board";
 import { PRODUCT_LABEL, STAGE_LABEL, money } from "@/lib/crm/view";
 import { markLost, setStage } from "../actions";
+import { useRecordCard } from "../_record/RecordCardProvider";
 
 /**
  * Every action on this page refreshes THIS page and no other. See CrmRoute in
@@ -53,7 +54,13 @@ const HERE = "/crm/board" as const;
  * with no reason teaches nothing. Those rules live in lib/crm/board.ts.
  *
  * KEYBOARD: focus a card, press Space to pick it up, arrow keys to move between
- * columns, Space to drop, Escape to cancel.
+ * columns, Space to drop, Escape to cancel. Enter opens the card's full record.
+ *
+ * CLICK OPENS, DRAG DRAGS. The mouse sensor only starts a drag after 6px of
+ * movement and the touch sensor after a 200ms press, so a plain click or tap
+ * never becomes a drag. The reverse — a drag ending with a click on the card it
+ * started from — is suppressed for a moment after every drag, so dropping a
+ * card back where it was does not also open it.
  */
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -78,6 +85,14 @@ export default function PipelineBoard({ rows }: { rows: BoardSource[] }) {
   const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [asking, setAsking] = useState<Pending | null>(null);
+  const record = useRecordCard();
+  /** When the last drag ended. A click within the next moment belongs to the drag. */
+  const lastDragEnd = useRef(0);
+
+  function openRecord(id: string) {
+    if (Date.now() - lastDragEnd.current < 250) return;
+    record?.open(id);
+  }
 
   const columns = useMemo(() => buildBoard(optimisticRows), [optimisticRows]);
   const byId = useMemo(() => {
@@ -92,7 +107,9 @@ export default function PipelineBoard({ rows }: { rows: BoardSource[] }) {
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     // On a phone, a short press — otherwise every attempt to scroll the board sideways picks up a card.
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
-    useSensor(KeyboardSensor),
+    // Space picks up and drops. Enter is left free to OPEN the card (dnd-kit's
+    // default would also start a drag on Enter).
+    useSensor(KeyboardSensor, { keyboardCodes: { start: ["Space"], cancel: ["Escape"], end: ["Space"] } }),
   );
 
   const announcements: Announcements = {
@@ -120,6 +137,7 @@ export default function PipelineBoard({ rows }: { rows: BoardSource[] }) {
 
   function onDragEnd(e: DragEndEvent) {
     setActiveId(null);
+    lastDragEnd.current = Date.now();
     const card = byId.get(String(e.active.id));
     if (!card || !e.over) return;
     const to = String(e.over.id);
@@ -145,12 +163,12 @@ export default function PipelineBoard({ rows }: { rows: BoardSource[] }) {
       collisionDetection={collision}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      onDragCancel={() => setActiveId(null)}
+      onDragCancel={() => { setActiveId(null); lastDragEnd.current = Date.now(); }}
       accessibility={{
         announcements,
         screenReaderInstructions: {
           draggable:
-            "To move a deal, press Space to pick it up, use the arrow keys to move it to another stage, and press Space again to drop it. Press Escape to cancel.",
+            "To move a deal, press Space to pick it up, use the arrow keys to move it to another stage, and press Space again to drop it. Press Escape to cancel. Press Enter to open the deal's full record.",
         },
       }}
     >
@@ -198,7 +216,7 @@ export default function PipelineBoard({ rows }: { rows: BoardSource[] }) {
         {columns.map((col) => (
           <Column key={col.stage} stage={col.stage} label={col.label} count={col.count} requested={col.requested}>
             {col.cards.map((card) => (
-              <DraggableCard key={card.id} card={card} />
+              <DraggableCard key={card.id} card={card} onOpen={openRecord} />
             ))}
           </Column>
         ))}
@@ -294,7 +312,7 @@ function OutcomeZone({
 
 /* ------------------------------------------------------------------ cards */
 
-function DraggableCard({ card }: { card: BoardCard }) {
+function DraggableCard({ card, onOpen }: { card: BoardCard; onOpen: (id: string) => void }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: card.id,
     data: { stage: card.stage },
@@ -305,8 +323,18 @@ function DraggableCard({ card }: { card: BoardCard }) {
       style={{ transform: CSS.Translate.toString(transform) }}
       {...listeners}
       {...attributes}
+      onClick={() => onOpen(card.id)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onOpen(card.id);
+          return;
+        }
+        listeners?.onKeyDown?.(e);
+      }}
+      aria-haspopup="dialog"
       aria-roledescription="draggable deal"
-      aria-label={`${card.name}, ${money(card.amount)}, ${stageName(card.stage)}`}
+      aria-label={`${card.name}, ${money(card.amount)}, ${stageName(card.stage)}. Enter to open, Space to move.`}
       className={`cursor-grab touch-manipulation rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-500 active:cursor-grabbing ${
         isDragging ? "opacity-40" : ""
       }`}
