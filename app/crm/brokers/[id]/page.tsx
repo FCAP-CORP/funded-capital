@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Mail, Phone, ShieldCheck } from "lucide-react";
+import { ArrowLeft, FileSearch, Mail, Phone, ShieldCheck } from "lucide-react";
 import { isCrmStaff } from "@/lib/crm/access";
 import { findClaimableDeals, getBroker, listFirms } from "@/lib/broker/admin.server";
 import { canClaimDeal, dealCountLabel } from "@/lib/broker/admin";
@@ -9,12 +9,16 @@ import {
   BROKER_ROLE_LABEL,
   BROKER_STATUS_LABEL,
   PRODUCT_LABEL,
-  STAGE_LABEL,
   label,
   money,
   shortDate,
 } from "@/lib/crm/view";
 import { GridSkeleton } from "../../Skeleton";
+import { PageHeader } from "@/components/ui/page-header";
+import { Card } from "@/components/ui/card";
+import { StageBadge } from "@/components/ui/badge";
+import { EmptyState } from "@/components/ui/empty-state";
+import { FOCUS_RING } from "@/components/ui/focus";
 import { AssignControl, ClaimButton, NotesBox, StatusToggle } from "../Controls";
 
 /**
@@ -37,7 +41,7 @@ export const metadata = {
 function Field({ label: name, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">{name}</p>
+      <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600">{name}</p>
       <p className="mt-0.5 text-sm text-navy-900">{value}</p>
     </div>
   );
@@ -81,16 +85,16 @@ async function BrokerDetail({ params }: { params: Promise<{ id: string }> }) {
   return (
     <>
       <div className="mb-6 grid gap-4 lg:grid-cols-3">
-        <div className="rounded-xl border border-slate-200 bg-white p-5 lg:col-span-2">
+        <Card className="p-5 lg:col-span-2">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-bold text-navy-900">{broker.name || broker.email}</h2>
-              <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500">
-                <Mail size={14} /> {broker.email}
+              <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-600">
+                <Mail size={14} aria-hidden="true" /> {broker.email}
               </p>
               {broker.phone && (
-                <p className="mt-0.5 flex items-center gap-1.5 text-sm text-slate-500">
-                  <Phone size={14} /> {broker.phone}
+                <p className="mt-0.5 flex items-center gap-1.5 text-sm text-slate-600">
+                  <Phone size={14} aria-hidden="true" /> {broker.phone}
                 </p>
               )}
             </div>
@@ -105,7 +109,7 @@ async function BrokerDetail({ params }: { params: Promise<{ id: string }> }) {
           </div>
 
           <div className="mt-5 border-t border-slate-100 pt-5">
-            <p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-slate-600">
               Firm and access
             </p>
             <AssignControl
@@ -115,48 +119,46 @@ async function BrokerDetail({ params }: { params: Promise<{ id: string }> }) {
               currentRole={broker.role}
             />
           </div>
-        </div>
+        </Card>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+        <Card className="p-5">
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-slate-600">
             Your notes
           </p>
           <NotesBox brokerUserId={broker.id} initial={broker.notes ?? ""} />
 
           <div className="mt-5 border-t border-slate-100 pt-4">
-            <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+            <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-600">
               SMS consent
             </p>
             {broker.smsConsentAt ? (
               <p className="mt-1 flex items-center gap-1.5 text-sm text-emerald-700">
-                <ShieldCheck size={14} />
+                <ShieldCheck size={14} aria-hidden="true" />
                 {shortDate(broker.smsConsentAt)}
                 {broker.smsConsentVersion && (
                   <span className="text-xs text-slate-500">({broker.smsConsentVersion})</span>
                 )}
               </p>
             ) : (
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-slate-600">
                 Not given. Do not text this broker.
               </p>
             )}
-            <p className="mt-1 text-xs text-slate-400">
+            <p className="mt-1 text-xs text-slate-500">
               Consent is captured in the portal and mirrored inbound only. It is never set here.
             </p>
           </div>
 
-          <p className="mt-4 text-xs text-slate-400">
+          <p className="mt-4 text-xs text-slate-500">
             First seen {shortDate(broker.firstSeenAt)}
           </p>
-        </div>
+        </Card>
       </div>
 
       {/* ------------------------------------------------- claimable deals */}
       <section>
-        <h2 className="mb-1 text-sm font-semibold uppercase tracking-widest text-slate-500">
-          Deals filed under this email
-        </h2>
-        <p className="mb-3 max-w-3xl text-xs text-slate-500">
+        <h2 className="mb-1 text-lg font-bold text-navy-900">Deals filed under this email</h2>
+        <p className="mb-3 max-w-3xl text-[13px] text-slate-600">
           These came in before the portal recorded who filed them — from the broker sheet. Attaching
           one puts it on this broker&rsquo;s dashboard and, through their firm, on their
           colleagues&rsquo;. Only deals with a broker on them can appear here; a borrower who came to
@@ -164,13 +166,13 @@ async function BrokerDetail({ params }: { params: Promise<{ id: string }> }) {
         </p>
 
         {candidates.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
-            Nothing unattached carries this email.
-          </p>
+          <Card className="border-dashed">
+            <EmptyState icon={FileSearch} title="Nothing unattached carries this email" compact />
+          </Card>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <Card className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-widest text-slate-500">
+              <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-widest text-slate-600">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Borrower</th>
                   <th className="px-4 py-3 font-semibold">Property</th>
@@ -178,7 +180,7 @@ async function BrokerDetail({ params }: { params: Promise<{ id: string }> }) {
                   <th className="px-4 py-3 font-semibold">Stage</th>
                   <th className="px-4 py-3 font-semibold text-right">Amount</th>
                   <th className="px-4 py-3 font-semibold">Filed</th>
-                  <th className="px-4 py-3" />
+                  <th className="px-4 py-3"><span className="sr-only">Attach</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -193,7 +195,7 @@ async function BrokerDetail({ params }: { params: Promise<{ id: string }> }) {
                       <td className="px-4 py-3 text-slate-600">
                         {label(PRODUCT_LABEL, d.product)}
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{label(STAGE_LABEL, d.stage)}</td>
+                      <td className="px-4 py-3"><StageBadge stage={d.stage} /></td>
                       <td className="px-4 py-3 text-right tabular-nums text-slate-700">
                         {money(d.requestedAmount)}
                       </td>
@@ -210,11 +212,11 @@ async function BrokerDetail({ params }: { params: Promise<{ id: string }> }) {
                 })}
               </tbody>
             </table>
-          </div>
+          </Card>
         )}
 
         {!broker.firmId && candidates.length > 0 && (
-          <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
+          <p role="note" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
             Assign a firm above before attaching anything. A deal attached to a broker who has no
             firm is stamped with no firm — permanently — so their colleagues would never see it,
             even after you link them later.
@@ -228,15 +230,18 @@ async function BrokerDetail({ params }: { params: Promise<{ id: string }> }) {
 export default function BrokerPage({ params }: { params: Promise<{ id: string }> }) {
   return (
     <main className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-      <header className="mb-6">
-        <Link
-          href="/crm/brokers"
-          className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-navy-900"
-        >
-          <ArrowLeft size={14} /> All brokers
-        </Link>
-        <h1 className="mt-2 text-2xl font-bold text-navy-900">Broker</h1>
-      </header>
+      <PageHeader
+        eyebrow={
+          <Link
+            href="/crm/brokers"
+            className={`inline-flex items-center gap-1 rounded-sm text-xs font-semibold text-slate-600 hover:text-navy-900 ${FOCUS_RING}`}
+          >
+            <ArrowLeft size={14} aria-hidden="true" /> All brokers
+          </Link>
+        }
+        title="Broker"
+        description="Which firm they are in, what that lets them see, and the older deals that carry their email."
+      />
 
       <Suspense fallback={<GridSkeleton />}>
         <BrokerDetail params={params} />

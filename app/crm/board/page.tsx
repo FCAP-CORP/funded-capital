@@ -4,6 +4,8 @@ import { isCrmStaff } from "@/lib/crm/access";
 import { getPipeline } from "@/lib/db/queries";
 import { offBoard, type BoardSource } from "@/lib/crm/board";
 import ViewToggle from "../ViewToggle";
+import { PageHeader } from "@/components/ui/page-header";
+import { Skeleton } from "@/components/ui/skeleton";
 import PipelineBoard from "./PipelineBoard";
 import { RecordCardProvider } from "../_record/RecordCardProvider";
 import RecordCardSlot from "../_record/RecordCardSlot";
@@ -17,9 +19,9 @@ export const metadata = {
 
 function BoardSkeleton() {
   return (
-    <div className="flex gap-3 overflow-hidden" aria-hidden>
+    <div className="flex gap-3 overflow-hidden" role="status" aria-label="Loading the board">
       {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="h-96 w-64 shrink-0 animate-pulse rounded-xl bg-slate-100" />
+        <Skeleton key={i} className="h-96 w-64 shrink-0 rounded-xl" />
       ))}
     </div>
   );
@@ -56,7 +58,7 @@ async function Board() {
     <>
       <PipelineBoard rows={cards} />
       {parts.length > 0 && (
-        <p className="mt-2 text-xs text-slate-500">
+        <p className="mt-2 text-xs text-slate-600">
           Not on the board: {parts.join(", ")}. The table view shows them.
         </p>
       )}
@@ -73,15 +75,12 @@ export default function BoardPage({
   return (
     <RecordCardProvider here={HERE}>
       <main className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-        <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-navy-900">Pipeline</h1>
-            <p className="mt-1 text-sm text-slate-500">
-              Drag a deal to change its stage, or click it to open the full record. The history is written with every move.
-            </p>
-          </div>
-          <ViewToggle current="board" />
-        </header>
+        <PageHeader
+          title="Pipeline"
+          description="Drag a deal to change its stage, or click it to open the full record. The history is written with every move."
+          actions={<ViewToggle current="board" />}
+          className="mb-5"
+        />
 
         <Suspense fallback={<BoardSkeleton />}>
           <Board />

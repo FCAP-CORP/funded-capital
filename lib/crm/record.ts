@@ -10,6 +10,7 @@ import { LOAN_PURPOSE_OPTIONS } from "../pricing";
 import { STAGE_LABEL, daysSince } from "./view";
 import { STALE_DAYS, isBoardStage } from "./board";
 import { KIND_LABEL } from "./followup";
+import { canRetry, outboundStatusLabel, type Tone } from "../comms/sms";
 
 /* ---------------------------------------------------------------- the stage */
 
@@ -151,6 +152,27 @@ export type ActivityInput = {
   source: string | null;
   subject: string | null;
   body: string | null;
+  /** Provider details: a text's outbox id and keyword, a call's direction. */
+  metadata?: Record<string, unknown> | null;
+};
+
+/**
+ * One row of the texting outbox (lib/db/schema.ts, outbound_messages).
+ *
+ * A text that went out is ALSO an `sms_out` activity, and the timeline shows it
+ * once, from the activity, with this row's delivery status. A text that did
+ * not go out — blocked, refused, stuck — has no activity (an unsent text is not
+ * contact, and the dashboard counts activities), so the timeline shows this
+ * row on its own instead. Either way the person reading the card sees every
+ * attempt.
+ */
+export type OutboundInput = {
+  id: string;
+  status: string;
+  body: string;
+  error: string | null;
+  createdAt: string;
+  lastAttemptAt: string | null;
 };
 
 export type TransitionInput = {
@@ -169,11 +191,23 @@ export type TimelineItem = {
   title: string;
   /** An email's subject line, or a snooze's "Put down until…". */
   subject: string | null;
-  /** The note someone typed. Never an email body — those are not stored. */
+  /** The note someone typed, or a text's words. Never an email body — those are not stored. */
   body: string | null;
   /** Only for stage moves: the lost reason, or why it moved. */
   reason: string | null;
+  /**
+   * A status line under a text or call: "Delivered", "Not sent — …",
+   * "Opted out — replied STOP", "Missed". Null when there is nothing to say.
+   */
+  status?: { label: string; tone: Tone } | null;
+  /** Set on an outbox row a person may retry now; the card shows a Retry button. */
+  retryId?: string | null;
+  /** Texts are shown truncated with a "show all" when longer than this. */
+  long?: boolean;
 };
+
+/** A text longer than this is folded on the timeline, with the rest one click away. */
+export const TIMELINE_TEXT_PREVIEW = 160;
 
 /** Default depth. Past this the card says how many more there are, not nothing. */
 export const TIMELINE_LIMIT = 50;
@@ -184,18 +218,75 @@ export const TIMELINE_LIMIT = 50;
  */
 const LOGGED_VERBS = new Set(Object.values(KIND_LABEL));
 
-function activityItem(a: ActivityInput): TimelineItem {
+const meta = (a: ActivityInput, key: string): unknown => (a.metadata && typeof a.metadata === "object" ? a.metadata[key] : undefined);
+
+/** What an inbound text meant for consent, as the timeline says it. See inboundKeyword(). */
+const KEYWORD_STATUS: Record<string, { label: string; tone: Tone }> = {
+  stop: { label: "Opted out — replied STOP. Texting is now blocked.", tone: "bad" },
+  start: {
+    label: "Replied START. Their opt-out is NOT lifted automatically — they need to re-consent on the website form.",
+    tone: "warn",
+  },
+  possible_stop: { label: "This may be a request to stop texting. Read it, and honor it if so.", tone: "warn" },
+  help: { label: "Asked for HELP (Quo answers this automatically).", tone: "muted" },
+};
+
+function activityItem(a: ActivityInput, outbound: ReadonlyMap<string, OutboundInput>): TimelineItem {
   const subject = a.subject?.trim() || null;
+  const body = a.body?.trim() || null;
+  let title = ACTIVITY_LABEL[a.kind] ?? a.kind;
+  let status: TimelineItem["status"] = null;
+
+  if (a.kind === "sms_in") {
+    const k = meta(a, "keyword");
+    status = typeof k === "string" ? KEYWORD_STATUS[k] ?? null : null;
+  } else if (a.kind === "sms_out") {
+    const ob = meta(a, "outboundId");
+    const row = typeof ob === "string" ? outbound.get(ob) : undefined;
+    const st = row?.status ?? (typeof meta(a, "status") === "string" ? String(meta(a, "status")) : null);
+    // A hand-logged "Log text" has no provider status; it gets no badge.
+    status = st ? outboundStatusLabel(st, row?.error) : null;
+    if (meta(a, "sentFrom") === "quo") title = "Text to them (from Quo)";
+  } else if (a.kind === "call" && a.source === "quo") {
+    const dir = meta(a, "direction");
+    title = dir === "incoming" ? "Call from them" : dir === "outgoing" ? "Call to them" : "Call";
+    if (meta(a, "answered") === false) {
+      status = { label: dir === "incoming" ? "Missed call — they tried to reach you" : "Not answered", tone: dir === "incoming" ? "warn" : "muted" };
+    }
+  }
+
+  const isText = a.kind === "sms_in" || a.kind === "sms_out";
   return {
     key: `a:${a.id}`,
     at: a.occurredAt,
     kind: a.kind,
-    title: ACTIVITY_LABEL[a.kind] ?? a.kind,
+    title,
     subject: subject && a.source === "crm" && LOGGED_VERBS.has(subject) ? null : subject,
-    body: a.body?.trim() || null,
+    body,
     reason: null,
+    status,
+    retryId: null,
+    long: isText && !!body && body.length > TIMELINE_TEXT_PREVIEW,
   };
 }
+
+function outboundItem(o: OutboundInput, now: Date | null): TimelineItem {
+  return {
+    key: `o:${o.id}`,
+    at: o.lastAttemptAt ?? o.createdAt,
+    kind: "sms_out",
+    title: o.status === "blocked" ? "Text not sent" : "Text to them",
+    subject: null,
+    body: o.body,
+    reason: null,
+    status: outboundStatusLabel(o.status, o.error),
+    retryId: now && canRetry(o, now) ? o.id : null,
+    long: o.body.length > TIMELINE_TEXT_PREVIEW,
+  };
+}
+
+/** Outbox rows that have no activity of their own: the texts that did not go. */
+const UNSENT = new Set(["queued", "sending", "failed", "blocked"]);
 
 function transitionItem(t: TransitionInput): TimelineItem {
   const to = stageLabel(t.toStage);
@@ -232,12 +323,26 @@ export function buildTimeline(
   moves: TransitionInput[],
   totals: { totalActivities: number; totalTransitions: number },
   limit: number = TIMELINE_LIMIT,
+  opts: { outbound?: OutboundInput[]; now?: Date } = {},
 ): { items: TimelineItem[]; older: number } {
-  const merged = [...acts.map(activityItem), ...moves.map(transitionItem)].sort(
+  const outbound = opts.outbound ?? [];
+  const byId = new Map(outbound.map((o) => [o.id, o]));
+  // An outbox row already shown through its activity (e.g. healed by Quo's
+  // delivery webhook) is not shown twice.
+  const shownViaActivity = new Set(
+    acts.map((a) => (a.metadata && typeof a.metadata.outboundId === "string" ? a.metadata.outboundId : null)).filter(Boolean) as string[],
+  );
+  const unsent = outbound.filter((o) => UNSENT.has(o.status) && !shownViaActivity.has(o.id));
+  const merged = [
+    ...acts.map((a) => activityItem(a, byId)),
+    ...moves.map(transitionItem),
+    ...unsent.map((o) => outboundItem(o, opts.now ?? null)),
+  ].sort(
     (a, b) => t(b.at) - t(a.at) || a.key.localeCompare(b.key),
   );
   const items = merged.slice(0, Math.max(0, limit));
-  const total = Math.max(totals.totalActivities, acts.length) + Math.max(totals.totalTransitions, moves.length);
+  const total =
+    Math.max(totals.totalActivities, acts.length) + Math.max(totals.totalTransitions, moves.length) + unsent.length;
   return { items, older: Math.max(0, total - items.length) };
 }
 

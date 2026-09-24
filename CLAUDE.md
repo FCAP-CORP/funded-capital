@@ -341,8 +341,8 @@ building it, both worth keeping:
   with the same `setStage` as the table, through one shared `moveStage()` in `app/crm/actions.ts`,
   so every move writes its `stage_transitions` row. Funded asks for confirmation (Cancel has
   focus); Closed – Lost requires a reason via `markLost`, which writes `applications.lost_reason`
-  — unused from the first migration until 24 Sep 2026 — and the transition's `reason`. The table's
-  stage dropdown can still close a deal without a reason; that gap is known. Only the seven fields a
+  — unused from the first migration until 24 Sep 2026 — and the transition's `reason`. Since 24 Sep
+  2026 the table's stage dropdown asks the same questions (`app/crm/StageDialogs.tsx`, shared). Only the seven fields a
   card shows are sent to the browser. Rules and tests: `lib/crm/board.ts`.
 - **`/crm` 404s on localhost unless `CRM_STAFF_EMAILS` is set in `.env.local` by hand.**
   `scripts/merge-env.mjs` copies only DATABASE keys across from Vercel (`WANTED` in that
@@ -788,5 +788,51 @@ and its data comes from `lib/crm/dashboard.server.ts`, not `getDashboardApplicat
 - `signedInUser` in `lib/crm/access.ts` caches Clerk's `currentUser()` per request so the greeting
   reuses the staff check's lookup. It is NOT a gate.
 - Guard §8 scans every `.tsx` in `app/crm/dashboard` for action calls and requires `HERE`.
-- Known gap carried over: the stage select in the queue's More menu does not confirm Funded or ask
-  for a lost reason; the board and record card do.
+- Known gap: the stage select in the dashboard queue's More menu does not confirm Funded or ask
+  for a lost reason; the board, table and record card do.
+
+
+### Component kit, ⌘K and pro tables (24 Sep 2026)
+
+- **`components/ui/`** is the shared kit (shadcn/ui style, copied in, themed to the brand tokens):
+  Button, Card, Badge/StageBadge, Tabs, fields, Dialog, DropdownMenu, Tooltip, EmptyState,
+  Skeleton, StatCard, PageHeader, toast. `cn()` lives in `lib/utils.ts`. Read
+  `components/ui/README.md` before building a new screen — new pages use the kit, not ad-hoc classes.
+- **Contrast:** gold-700 on white is 4.05:1 and fails small text. The kit uses navy text with a gold
+  underline/ring; gold is for fills, large type and focus rings.
+- **⌘K / Ctrl K** (`components/workspace/CommandPalette.tsx`, `cmdk`, lazy-loaded on first use):
+  page navigation for everyone; borrower/deal search for staff only, via `/api/crm/search`, which
+  404s non-staff before any query, caps results, and treats `%` and `_` literally.
+  `lib/crm/guards.ui.regress.ts` pins all of that and that no kit package reaches the public site.
+- **Pipeline and Contacts run on TanStack Table v8** (`app/crm/DataTable.tsx`): column visibility and
+  resizing, sticky header, row selection with bulk "Move stage" (through the same `setStage` /
+  `markLost` and the same Funded/Lost questions, capped at 50 per run), CSV export with a
+  formula-injection guard, saved views in localStorage (per browser). Pure logic in
+  `lib/crm/tableView.ts`.
+- New packages, all exact-pinned: `@tanstack/react-table` 8.21.3 (v9 is too new), `cmdk` 1.1.1,
+  `clsx` 2.1.1, `tailwind-merge` 2.6.1 (v3 targets Tailwind 4).
+- The Broker Workspace pages have not been moved onto the kit yet.
+
+### Texting and calling through Quo (24 Sep 2026)
+
+The record card can **Text** (compose panel) and **Call (opens Quo)** (a `tel:` link — Quo cannot
+place calls by API). Calls and texts log themselves from Quo's webhooks.
+
+- **The consent gate is in the executor.** `lib/comms/consent.ts` `canText()` requires an E.164
+  phone, no opt-out, and consent at the CURRENT `CONSENT_VERSION`; the Quo client
+  (`lib/comms/quo.server.ts`) will not send without the permit it returns. BiggerPockets leads have no
+  SMS consent and cannot be texted — intended. Guard §11 pins the order (gate before send).
+- **Outbox** (`outbound_messages`, migration 0011): a browser-generated idempotency key, unique, so a
+  double click sends once. States queued → sending → sent → delivered, or failed / blocked. A
+  timeout leaves `sending` and blocks retry for 15 minutes so a borrower is never texted twice; the
+  delivery receipt settles it. Retry re-checks consent. The `sms_out` activity is written only when
+  Quo accepts the message.
+- **Webhook** `/api/webhooks/quo`: signature first (both Quo schemes; `QUO_WEBHOOK_SECRET`,
+  comma-separated for rotation), then claim `webhook_events(provider, event_id)`, then cheap writes.
+  Dedup keys on activities are Quo's own message/call ids. Unknown numbers are stored, not attached.
+- **STOP is authoritative and one-way.** A whole-message STOP/UNSUBSCRIBE/etc. opts out every
+  contact with that number. START does NOT re-subscribe — they must re-consent on the website form.
+  Opt-out wording inside a longer message is flagged, not applied.
+- **Awaiting reply** on the dashboard now counts inbound texts (`sms_in`) as well as email.
+- Open: quiet hours (TCPA 8am–9pm; Florida FTSA 8am–8pm) are not enforced — counsel question;
+  `webhook_events` keeps full payloads with no purge yet; `call` activities carry no direction.

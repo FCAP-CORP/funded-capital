@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Building2, ChevronRight, CircleAlert, MailCheck } from "lucide-react";
+import { Building2, ChevronRight, CircleAlert, MailCheck, Users } from "lucide-react";
 import { isCrmStaff } from "@/lib/crm/access";
 import { listBrokers, listFirms } from "@/lib/broker/admin.server";
 import { listInvites } from "@/lib/broker/invites.server";
@@ -9,6 +9,11 @@ import { INVITE_STATUS_LABEL, inviteAgeDays, inviteStatus } from "@/lib/broker/i
 import { dealCountLabel, firmLabel } from "@/lib/broker/admin";
 import { BROKER_ROLE_LABEL, BROKER_STATUS_LABEL, label, money, shortDate } from "@/lib/crm/view";
 import { GridSkeleton } from "../Skeleton";
+import { PageHeader } from "@/components/ui/page-header";
+import { Badge } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { FOCUS_RING } from "@/components/ui/focus";
 import { InviteForm, NewFirmForm, RevokeInviteButton, StatusToggle } from "./Controls";
 
 /**
@@ -55,8 +60,8 @@ async function Brokers() {
       )}
 
       {unassigned.length > 0 && (
-        <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <CircleAlert size={18} className="mt-0.5 shrink-0 text-amber-600" />
+        <div role="status" className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <CircleAlert size={18} className="mt-0.5 shrink-0 text-amber-700" aria-hidden="true" />
           <div>
             <p className="text-sm font-semibold text-amber-900">
               {unassigned.length} {unassigned.length === 1 ? "broker is" : "brokers are"} waiting to be
@@ -82,25 +87,23 @@ async function Brokers() {
       {/* ------------------------------------------------------- invitations */}
       {invites.length > 0 && (
         <section className="mb-10">
-          <h2 className="mb-1 text-sm font-semibold uppercase tracking-widest text-slate-500">
-            Invitations
-          </h2>
-          <p className="mb-3 max-w-3xl text-xs text-slate-500">
+          <h2 className="mb-1 text-lg font-bold text-navy-900">Invitations</h2>
+          <p className="mb-3 max-w-3xl text-[13px] text-slate-600">
             Nobody reaches the portal without one. Revoking blocks a future sign-in &mdash; it does
             NOT remove access from someone who has already signed in. Suspend them on their broker
             page for that.
           </p>
 
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <Card className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-widest text-slate-500">
+              <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-widest text-slate-600">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Email</th>
                   <th className="px-4 py-3 font-semibold">Firm</th>
                   <th className="px-4 py-3 font-semibold">Role</th>
                   <th className="px-4 py-3 font-semibold">Status</th>
                   <th className="px-4 py-3 font-semibold">Invited</th>
-                  <th className="px-4 py-3" />
+                  <th className="px-4 py-3"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -118,23 +121,15 @@ async function Brokers() {
                         {label(BROKER_ROLE_LABEL, i.role)}
                       </td>
                       <td className="px-4 py-3">
-                        <span
-                          className={
-                            status === "accepted"
-                              ? "inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"
-                              : status === "revoked"
-                                ? "text-xs text-slate-500"
-                                : "rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800"
-                          }
-                        >
-                          {status === "accepted" && <MailCheck size={13} />}
+                        <Badge tone={status === "accepted" ? "success" : status === "revoked" ? "muted" : "warning"}>
+                          {status === "accepted" && <MailCheck size={12} aria-hidden="true" />}
                           {INVITE_STATUS_LABEL[status]}
-                        </span>
+                        </Badge>
                       </td>
                       <td className="px-4 py-3 text-slate-500">
                         {shortDate(i.invitedAt)}
                         {status === "pending" && age !== null && age >= 7 && (
-                          <span className="ml-1 text-amber-600">&middot; {age}d</span>
+                          <span className="ml-1 font-semibold text-amber-700">&middot; {age}d</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -147,25 +142,26 @@ async function Brokers() {
                 })}
               </tbody>
             </table>
-          </div>
+          </Card>
         </section>
       )}
 
       {/* ------------------------------------------------------------ firms */}
       <section className="mb-10">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-slate-500">
-          Firms
-        </h2>
+        <h2 className="mb-3 text-lg font-bold text-navy-900">Firms</h2>
 
         {firms.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
-            No firms yet. Add the first one above — Legacy HML is the obvious starting point, with
-            four people and four deals already in the pipeline.
-          </p>
+          <Card className="border-dashed">
+            <EmptyState
+              icon={Building2}
+              title="No firms yet"
+              description="Add the first one above — Legacy HML is the obvious starting point, with four people and four deals already in the pipeline."
+            />
+          </Card>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <Card className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-widest text-slate-500">
+              <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-widest text-slate-600">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Firm</th>
                   <th className="px-4 py-3 font-semibold">People</th>
@@ -179,12 +175,10 @@ async function Brokers() {
                   <tr key={f.id} className={f.status === "suspended" ? "bg-slate-50/60" : undefined}>
                     <td className="px-4 py-3">
                       <span className="flex items-center gap-2 font-medium text-navy-900">
-                        <Building2 size={15} className="text-slate-400" />
+                        <Building2 size={15} className="text-slate-500" aria-hidden="true" />
                         {f.name}
                         {f.status === "suspended" && (
-                          <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                            {label(BROKER_STATUS_LABEL, f.status)}
-                          </span>
+                          <Badge tone="muted" size="xs">{label(BROKER_STATUS_LABEL, f.status)}</Badge>
                         )}
                       </span>
                       {f.notes && <p className="mt-0.5 text-xs text-slate-500">{f.notes}</p>}
@@ -201,31 +195,33 @@ async function Brokers() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </Card>
         )}
       </section>
 
       {/* ---------------------------------------------------------- brokers */}
       <section>
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-widest text-slate-500">
-          People
-        </h2>
+        <h2 className="mb-3 text-lg font-bold text-navy-900">People</h2>
 
         {brokers.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
-            Nobody has signed into the broker portal yet.
-          </p>
+          <Card className="border-dashed">
+            <EmptyState
+              icon={Users}
+              title="Nobody has signed into the broker portal yet"
+              description="Send an invitation above. An invited broker lands inside their firm on first sign-in."
+            />
+          </Card>
         ) : (
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <Card className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-widest text-slate-500">
+              <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-widest text-slate-600">
                 <tr>
                   <th className="px-4 py-3 font-semibold">Broker</th>
                   <th className="px-4 py-3 font-semibold">Firm</th>
                   <th className="px-4 py-3 font-semibold">Sees</th>
                   <th className="px-4 py-3 font-semibold">Deals</th>
                   <th className="px-4 py-3 font-semibold">First seen</th>
-                  <th className="px-4 py-3" />
+                  <th className="px-4 py-3"><span className="sr-only">Open</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -239,9 +235,7 @@ async function Brokers() {
                       </td>
                       <td className="px-4 py-3">
                         {waiting ? (
-                          <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
-                            {firmLabel(null)}
-                          </span>
+                          <Badge tone="warning">{firmLabel(null)}</Badge>
                         ) : (
                           <span className="text-slate-700">{firmLabel(b.firmName)}</span>
                         )}
@@ -256,10 +250,11 @@ async function Brokers() {
                       <td className="px-4 py-3 text-right">
                         <Link
                           href={`/crm/brokers/${b.id}`}
-                          className="inline-flex items-center gap-1 text-xs font-semibold text-gold-700 hover:text-gold-600"
+                          aria-label={`${waiting ? "Link" : "Open"} ${b.name || b.email}`}
+                          className={`inline-flex items-center gap-1 rounded-sm text-[13px] font-semibold text-navy-900 underline decoration-gold-500 decoration-2 underline-offset-4 hover:decoration-navy-900 ${FOCUS_RING}`}
                         >
                           {waiting ? "Link them" : "Open"}
-                          <ChevronRight size={14} />
+                          <ChevronRight size={14} aria-hidden="true" />
                         </Link>
                       </td>
                     </tr>
@@ -267,7 +262,7 @@ async function Brokers() {
                 })}
               </tbody>
             </table>
-          </div>
+          </Card>
         )}
       </section>
     </>
@@ -277,13 +272,11 @@ async function Brokers() {
 export default function BrokersPage() {
   return (
     <main className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-navy-900">Brokers</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Who is at which firm, and what each of them can see. Linking someone to a firm is what
-          lets their colleagues see their deals — and what lets them see their colleagues&rsquo;.
-        </p>
-      </header>
+      <PageHeader
+        title="Brokers"
+        description={<>Who is at which firm, and what each of them can see. Linking someone to a firm is what
+          lets their colleagues see their deals — and what lets them see their colleagues&rsquo;.</>}
+      />
 
       <Suspense fallback={<GridSkeleton />}>
         <Brokers />

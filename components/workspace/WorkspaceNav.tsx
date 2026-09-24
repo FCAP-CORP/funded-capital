@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BookOpen,
   Building2,
@@ -15,11 +16,26 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Search,
   Users,
   X,
 } from "lucide-react";
 import { useUser, SignOutButton } from "@clerk/nextjs";
 import { activeHref, activeSection, homeHref, type NavIcon, type NavSection } from "@/lib/workspace/nav";
+import { paletteLinks, shortcutLabel } from "@/lib/workspace/palette";
+import { FOCUS_RING_DARK } from "@/components/ui/focus";
+// clsx, not cn(): this file is in every signed-in page's first load, and cn()
+// brings tailwind-merge (~7 KB gzipped) with it. Nothing here needs merging —
+// no caller passes classes in to override ours.
+import { clsx as cn } from "clsx";
+
+/**
+ * The ⌘K palette, loaded on first use. `cmdk` and the palette's own code are a
+ * separate chunk that no page pays for until someone presses ⌘K / Ctrl K or
+ * clicks Search — hovering the Search button starts the download early.
+ */
+const loadPalette = () => import("./CommandPalette");
+const CommandPalette = dynamic(loadPalette, { ssr: false });
 
 /**
  * The one sidebar for the whole signed-in product.
@@ -52,7 +68,7 @@ import { activeHref, activeSection, homeHref, type NavIcon, type NavSection } fr
  * pricing a deal stopped happening while looking at the person who needed one.
  */
 
-const ICONS: Record<NavIcon, React.ComponentType<{ size?: number }>> = {
+const ICONS: Record<NavIcon, React.ComponentType<{ size?: number; "aria-hidden"?: boolean }>> = {
   overview: GaugeCircle,
   pipeline: GitBranch,
   contacts: Users,
@@ -65,10 +81,39 @@ const ICONS: Record<NavIcon, React.ComponentType<{ size?: number }>> = {
   resources: BookOpen,
 };
 
-export default function WorkspaceNav({ sections }: { sections: NavSection[] }) {
+export default function WorkspaceNav({ sections, canSearch = false }: { sections: NavSection[]; canSearch?: boolean }) {
   const pathname = usePathname() || "";
   const [open, setOpen] = useState(false);
   const { user } = useUser();
+
+  /* ---- ⌘K: the command bar. `paletteMounted` stays true once opened, so the
+     lazily-loaded chunk is fetched once and reopening is instant. */
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteMounted, setPaletteMounted] = useState(false);
+  const [shortcut, setShortcut] = useState<string | null>(null);
+  const links = useMemo(() => paletteLinks(sections), [sections]);
+
+  useEffect(() => {
+    // Read after mount: the server cannot know the visitor's platform, and
+    // guessing would make the first paint disagree with the second.
+    setShortcut(shortcutLabel(navigator.platform || navigator.userAgent));
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteMounted(true);
+        setPaletteOpen((o) => !o);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  function openPalette() {
+    setOpen(false);
+    setPaletteMounted(true);
+    setPaletteOpen(true);
+  }
+  const searchLabel = canSearch ? "Search deals, people, pages" : "Go to a page";
 
   const current = activeHref(pathname, sections);
   const here = activeSection(pathname, sections);
@@ -90,14 +135,27 @@ export default function WorkspaceNav({ sections }: { sections: NavSection[] }) {
           <img src="/LogoWhite.png" alt="Funded Capital" style={{ height: "34px", width: "auto" }} />
           <span className="text-slate-400 text-xs font-medium">{here?.label ?? "Funded Capital"}</span>
         </Link>
-        <button
-          onClick={() => setOpen(!open)}
-          className="p-2 text-slate-300"
-          aria-label={open ? "Close menu" : "Open menu"}
-          aria-expanded={open}
-        >
-          {open ? <X size={20} /> : <Menu size={20} />}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={openPalette}
+            onPointerEnter={() => { void loadPalette(); }}
+            className={cn("grid h-10 w-10 place-items-center rounded-lg text-slate-300 hover:bg-navy-800 hover:text-white", FOCUS_RING_DARK)}
+            aria-label={searchLabel}
+            aria-haspopup="dialog"
+          >
+            <Search size={19} aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setOpen(!open)}
+            className={cn("grid h-10 w-10 place-items-center rounded-lg text-slate-300 hover:bg-navy-800 hover:text-white", FOCUS_RING_DARK)}
+            aria-label={open ? "Close menu" : "Open menu"}
+            aria-expanded={open}
+          >
+            {open ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
+          </button>
+        </div>
       </div>
 
       {/*
@@ -117,14 +175,39 @@ export default function WorkspaceNav({ sections }: { sections: NavSection[] }) {
           </Link>
         </div>
 
+        <div className="hidden lg:block shrink-0 px-4 pt-4">
+          <button
+            type="button"
+            onClick={openPalette}
+            onPointerEnter={() => { void loadPalette(); }}
+            onFocus={() => { void loadPalette(); }}
+            aria-haspopup="dialog"
+            aria-label={searchLabel}
+            aria-keyshortcuts="Meta+K Control+K"
+            className={cn(
+              "flex h-10 w-full items-center gap-2.5 rounded-lg border border-navy-700 bg-navy-800/60 px-3 text-left text-sm text-slate-300",
+              "transition-colors hover:border-slate-500 hover:text-white motion-reduce:transition-none",
+              FOCUS_RING_DARK,
+            )}
+          >
+            <Search size={16} aria-hidden="true" className="shrink-0" />
+            <span className="flex-1 truncate">{canSearch ? "Search" : "Go to…"}</span>
+            {shortcut && (
+              <kbd className="rounded border border-navy-700 bg-navy-900 px-1.5 py-0.5 font-sans text-[11px] font-medium text-slate-400">
+                {shortcut}
+              </kbd>
+            )}
+          </button>
+        </div>
+
         <div className="flex-1 overflow-y-auto px-4 py-5">
           {sections.map((section, i) => (
             <div key={section.id} className={i > 0 ? "mt-6 pt-6 border-t border-navy-800" : ""}>
-              <p className="px-2 text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+              <p className="px-2 text-[11px] font-semibold uppercase tracking-widest text-slate-400">
                 {section.label}
               </p>
               {section.note && (
-                <p className="px-2 mt-1 mb-2 text-[11px] leading-snug text-slate-600">{section.note}</p>
+                <p className="px-2 mt-1 mb-2 text-[11px] leading-snug text-slate-400">{section.note}</p>
               )}
               <nav className={`flex flex-col gap-1 ${section.note ? "" : "mt-2"}`}>
                 {section.items.map(({ label, href, icon }) => {
@@ -136,13 +219,13 @@ export default function WorkspaceNav({ sections }: { sections: NavSection[] }) {
                       href={href}
                       onClick={() => setOpen(false)}
                       aria-current={isActive ? "page" : undefined}
-                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                        isActive
-                          ? "bg-gold-500 text-navy-900"
-                          : "text-slate-300 hover:text-white hover:bg-navy-800"
-                      }`}
+                      className={cn(
+                        "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors motion-reduce:transition-none",
+                        FOCUS_RING_DARK,
+                        isActive ? "bg-gold-500 text-navy-900" : "text-slate-300 hover:text-white hover:bg-navy-800",
+                      )}
                     >
-                      <Icon size={18} />
+                      <Icon size={18} aria-hidden />
                       {label}
                     </Link>
                   );
@@ -170,6 +253,15 @@ export default function WorkspaceNav({ sections }: { sections: NavSection[] }) {
           </SignOutButton>
         </div>
       </aside>
+
+      {paletteMounted && (
+        <CommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          links={links}
+          canSearch={canSearch}
+        />
+      )}
     </>
   );
 }

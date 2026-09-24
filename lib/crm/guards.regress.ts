@@ -294,6 +294,23 @@ const NON_STAFF_SERVER_MODULES: Record<string, string> = {
    * comes first, and that the module writes only the six tables a lead needs.
    */
   "lib/leads/biggerpockets.server.ts": "secret-guarded: BiggerPockets lead intake, via /api/crm/lead-intake only",
+
+  /**
+   * TEXTING (24 Sep 2026). Three modules, none of which can call
+   * `assertCrmStaff()` for the same reason as the two above — or, for the
+   * executor, because its one caller already has. Section 11 pins each:
+   *
+   * - the EXECUTOR is reached only through app/crm/commsActions.ts, whose every
+   *   export asserts staff (section 2). What the executor asserts itself is
+   *   CONSENT, on every send and retry, which cannot depend on who is asking;
+   * - the Quo HTTP client reads no table and takes a TextPermit, so it cannot
+   *   be called without the consent gate; only the executor imports it;
+   * - the webhook writer is SIGNATURE-guarded by its one route, and may only
+   *   ever revoke consent, never grant it.
+   */
+  "lib/comms/outbox.server.ts": "staff-guarded by its one caller (app/crm/commsActions.ts); consent-gated itself",
+  "lib/comms/quo.server.ts": "HTTP client only: reads no table, needs a TextPermit, imported only by the executor",
+  "lib/comms/quoWebhook.server.ts": "signature-guarded: Quo webhooks, via /api/webhooks/quo only",
 };
 
 const exemptPaths = Object.keys(NON_STAFF_SERVER_MODULES);
@@ -668,7 +685,7 @@ if (crmActions) {
 console.log("\n=== 8b. The record card refreshes the page it is open on ===");
 
 const CARD_ACTIONS =
-  /\b(setStage|markLost|logContact|setSnooze|clearSnooze|setApplicationNotes|setContactField|addTask|toggleTask|deleteTask)\(([^()]|\([^()]*\))*\)/g;
+  /\b(setStage|markLost|logContact|setSnooze|clearSnooze|setApplicationNotes|setContactField|addTask|toggleTask|deleteTask|sendText|retryText)\(([^()]|\([^()]*\))*\)/g;
 const RECORD_DIR = join(ROOT, "app", "crm", "_record");
 const recordFiles = walk(RECORD_DIR).filter((f) => f.endsWith(".tsx"));
 check("found the record card's files", recordFiles.length >= 3, `${recordFiles.length} files`);
@@ -843,6 +860,155 @@ const importersOfWriter = [...walk(join(ROOT, "app")), ...walk(join(ROOT, "lib")
 check("the BiggerPockets writer is imported by the intake route and nothing else",
   importersOfWriter.length === 1 && importersOfWriter[0] === INTAKE_ROUTE,
   importersOfWriter.length ? importersOfWriter.join(", ") : "**NOT IMPORTED AT ALL**");
+
+
+/* ------------------------------------------------------ texting (§11) */
+
+/**
+ * Texting through Quo, and Quo's webhooks (24 Sep 2026).
+ *
+ * CLAUDE.md: "Any automated SMS send must verify consent at the current
+ * version before sending, enforced in the executor rather than in
+ * configuration so it cannot be switched off." And: "Consent flows inbound
+ * only." Both are easy to break in a way that looks fine — a text goes out, a
+ * webhook returns 200 — so both are pinned here by reading the source:
+ *
+ *   1. the executor calls canText(…, CONSENT_VERSION) and bails on a refusal
+ *      BEFORE it hands anything to the provider, on both the send and the
+ *      retry path; the provider is called from one private function only;
+ *   2. nothing else can reach Quo's send endpoint: the client is imported by
+ *      the executor alone, and no other file names the API;
+ *   3. the webhook route verifies the signature before it parses the body or
+ *      touches the database, and 401s on failure;
+ *   4. the webhook writer only ever REVOKES: it sets smsOptedOut to true and
+ *      touches no other consent column;
+ *   5. the Quo client is server-only and never logs, and its key goes out as
+ *      Quo documents it (no "Bearer");
+ *   6. the new actions assert staff (section 2 does that automatically) and
+ *      refresh one route through a CrmRoute-typed list.
+ */
+console.log("\n=== 11. Texting: consent in the executor, signatures first, consent inbound only ===");
+
+const readOr = (p: string): string => {
+  try { return readFileSync(join(ROOT, p), "utf8"); }
+  catch { check(p, false, "**FILE MISSING** — renamed? update section 11"); return ""; }
+};
+const EXECUTOR = "lib/comms/outbox.server.ts";
+const QUO_CLIENT = "lib/comms/quo.server.ts";
+const HOOK_WRITER = "lib/comms/quoWebhook.server.ts";
+const HOOK_ROUTE = "app/api/webhooks/quo/route.ts";
+const COMMS_ACTIONS = "app/crm/commsActions.ts";
+const executorSrc = readOr(EXECUTOR);
+const clientSrc = readOr(QUO_CLIENT);
+const hookSrc = readOr(HOOK_WRITER);
+const hookRouteSrc = readOr(HOOK_ROUTE);
+const commsSrc = readOr(COMMS_ACTIONS);
+
+/** A top-level function's body, by name — exported or not. */
+function fnBody(src: string, name: string): string | null {
+  const m = new RegExp(`(?:export\\s+)?async\\s+function\\s+${name}\\s*\\(`).exec(src);
+  if (!m) return null;
+  const rest = src.slice(m.index + 1);
+  const next = rest.search(/\n(?:export\s+)?(?:async\s+)?function\s+\w+\s*\(/);
+  return next < 0 ? src.slice(m.index) : src.slice(m.index, m.index + 1 + next);
+}
+
+if (executorSrc) {
+  const code = codeOnly(executorSrc);
+  for (const name of ["executeSendText", "executeRetryText"]) {
+    const body = fnBody(code, name) ?? "";
+    const gateAt = body.search(/\bcanText\(\s*[^)]*\{\s*currentVersion:\s*CONSENT_VERSION\s*\}\s*\)/);
+    const bailAt = body.search(/if\s*\(\s*!gate\.ok\s*\)\s*\{[\s\S]*?return\b/);
+    const sendAt = body.search(/\bdeliver\(/);
+    check(`  ${EXECUTOR} :: ${name} exists and sends`, body.length > 0 && sendAt >= 0, body ? (sendAt >= 0 ? "calls deliver()" : "**NEVER SENDS?**") : "**NOT FOUND**");
+    check(`  ${name} runs canText(…, { currentVersion: CONSENT_VERSION })`, gateAt >= 0, gateAt >= 0 ? "at the current version" : "**NO CONSENT GATE AT CONSENT_VERSION**");
+    check(`  ${name} returns on a refusal before the provider is reached`,
+      gateAt >= 0 && bailAt > gateAt && sendAt > bailAt,
+      gateAt >= 0 && bailAt > gateAt && sendAt > bailAt ? `gate ${gateAt} < bail ${bailAt} < send ${sendAt}` : "**GATE MISSING, OR AFTER THE SEND**");
+  }
+  const deliverBody = fnBody(code, "deliver") ?? "";
+  check("  deliver() takes a TextPermit — only canText() makes one", /function\s+deliver\([^)]*permit:\s*TextPermit/.test(code), "typed");
+  check("  deliver() is NOT exported (the two executors are the only doors)", !/export\s+async\s+function\s+deliver\b/.test(code), "private");
+  const sendCalls = [...code.matchAll(/\b(?:d\.send|quoSend)\(/g)].map((m) => m.index ?? -1);
+  const deliverStart = code.indexOf(deliverBody);
+  check("  the provider is called in exactly one place, inside deliver()",
+    sendCalls.length === 1 && deliverBody.length > 0 && sendCalls[0] >= deliverStart && sendCalls[0] < deliverStart + deliverBody.length,
+    `${sendCalls.length} call(s)`);
+  check("  the consent version is the constant from lib/consent, not a literal",
+    /import\s*\{\s*CONSENT_VERSION\s*\}\s*from\s*"@\/lib\/consent"/.test(executorSrc) && !/currentVersion:\s*["'`]/.test(code), "CONSENT_VERSION");
+  check("  writes go out through db.batch, never db.transaction", /\.batch\(/.test(code) && !/\.transaction\(/.test(code), "db.batch");
+}
+
+if (clientSrc) {
+  const code = codeOnly(clientSrc);
+  check(`  ${QUO_CLIENT} is server-only`, /^\s*import\s+"server-only";/m.test(clientSrc), "import \"server-only\"");
+  check("  ...never logs anything (a log line is how a key or a borrower's number leaks)", !/\bconsole\.\w+\(/.test(code), "no console");
+  check("  ...sends the key as Quo documents it: Authorization: <key>, no Bearer", /Authorization:\s*apiKey\b/.test(code) && !/Bearer/i.test(code), "raw key header");
+  check("  ...never puts the key in a message", !/\$\{\s*apiKey\s*\}/.test(code) && !/error:[^\n]*apiKey/.test(code), "not interpolated");
+  check("  ...takes a TextPermit as its first argument", /export\s+async\s+function\s+quoSend\(\s*permit:\s*TextPermit/.test(code), "permit");
+  check("  ...times out (8 s) rather than hanging an action", /QUO_TIMEOUT_MS\s*=\s*8000/.test(code) && /AbortController/.test(code), "8 s");
+  check("  ...reads no table", !/from\s+"@\/lib\/db/.test(clientSrc), "no db import");
+}
+
+/* Only the executor may import the client; only the actions may import the executor. */
+const allSource = [...walk(join(ROOT, "app")), ...walk(join(ROOT, "lib")), ...walk(join(ROOT, "scripts")), ...walk(join(ROOT, "components"))]
+  .filter((f) => /\.(ts|tsx|mjs|js)$/.test(f) && !f.endsWith(".regress.ts"));
+const importersOf = (re: RegExp) => allSource.filter((f) => importsOf(readFileSync(f, "utf8")).some((i) => re.test(i))).map(rel);
+const clientImporters = importersOf(/(^|\/)quo\.server$/);
+check("the Quo client is imported by the executor and nothing else",
+  clientImporters.length === 1 && clientImporters[0] === EXECUTOR, clientImporters.join(", ") || "**NOT IMPORTED**");
+const executorImporters = importersOf(/(^|\/)outbox\.server$/);
+check("the executor is imported by app/crm/commsActions.ts and nothing else",
+  executorImporters.length === 1 && executorImporters[0] === COMMS_ACTIONS, executorImporters.join(", ") || "**NOT IMPORTED**");
+const hookImporters = importersOf(/(^|\/)quoWebhook\.server$/);
+check("the webhook writer is imported by its route and nothing else",
+  hookImporters.length === 1 && hookImporters[0] === HOOK_ROUTE, hookImporters.join(", ") || "**NOT IMPORTED**");
+const namesApi = allSource.filter((f) => rel(f) !== QUO_CLIENT && /api\.(openphone|quo)\.com/.test(codeOnly(readFileSync(f, "utf8")))).map(rel);
+check("no other file talks to Quo's API directly (a second sender would skip the gate)", namesApi.length === 0, namesApi.join(", ") || "none");
+
+if (hookRouteSrc) {
+  const code = codeOnly(hookRouteSrc);
+  const post = code.slice(code.indexOf("export async function POST"));
+  const verifyAt = post.search(/verifyQuoSignature\(/);
+  const rejectAt = post.search(/if\s*\(\s*!verdict\.ok\s*\)\s*\{[\s\S]*?status:\s*401/);
+  const firstTouch = [...post.matchAll(/\b(handleQuoEvent\(|db\.|JSON\.parse\(|parseQuoEvent\()/g)].map((m) => m.index ?? -1);
+  const touch = firstTouch.length ? Math.min(...firstTouch) : -1;
+  check(`  ${HOOK_ROUTE} verifies the signature and 401s on failure`, verifyAt >= 0 && rejectAt > verifyAt, verifyAt >= 0 ? "verify + 401" : "**NO SIGNATURE CHECK**");
+  check("  ...BEFORE parsing the body or touching the database",
+    rejectAt >= 0 && touch > rejectAt, touch > rejectAt && rejectAt >= 0 ? `401 at ${rejectAt}, first use at ${touch}` : "**BODY OR DATABASE REACHED BEFORE THE SIGNATURE CHECK**");
+  check("  ...with the secret from QUO_WEBHOOK_SECRET", /process\.env\.QUO_WEBHOOK_SECRET/.test(code), "QUO_WEBHOOK_SECRET");
+  check("  ...reading a capped body, never request.json()", /readTextCapped\(request,\s*MAX_BODY_BYTES\)/.test(code) && !/\brequest\.(json|text)\(\)/.test(code), "capped");
+  check("  ...and never reads the database itself", !/from\s+"@\/lib\/db"/.test(hookRouteSrc), "through the writer only");
+}
+
+if (hookSrc) {
+  const code = codeOnly(hookSrc);
+  const grants = ["smsConsentAt", "smsConsentVersion", "emailSubscribed", "sms_consent", "email_subscribed"].filter((w) => code.includes(w));
+  check(`  ${HOOK_WRITER} never writes consent granted or email status`, grants.length === 0, grants.length ? `**NAMES ${grants.join(", ")}**` : "clean");
+  const optOutWrites = [...code.matchAll(/smsOptedOut\s*:\s*([^,}\s]+)/g)].map((m) => m[1]);
+  check("  ...its only consent write sets smsOptedOut to TRUE (inbound STOP), never false",
+    optOutWrites.length > 0 && optOutWrites.every((v) => v === "true"), optOutWrites.length ? optOutWrites.join(", ") : "**NO OPT-OUT WRITE — STOP IS IGNORED?**");
+  check("  ...and no hand-written SQL touches sms_opted_out", !/sms_opted_out/i.test(code), "none");
+  check("  ...the claim is INSERT … ON CONFLICT DO NOTHING on (provider, event_id)",
+    /onConflictDoNothing\(\{\s*target:\s*\[webhookEvents\.provider,\s*webhookEvents\.eventId\]\s*\}\)/.test(code), "event-id claim");
+  check("  ...it never calls out to Quo or anyone else from inside the handler", !/\bfetch\(/.test(code) && !/quo\.server/.test(code), "no outbound calls");
+}
+
+if (commsSrc) {
+  const code = codeOnly(commsSrc);
+  check(`  ${COMMS_ACTIONS} refreshes through a CrmRoute-typed list`, /const COMMS_ROUTES:\s*readonly CrmRoute\[\]/.test(code) && /function revalidateFrom\(/.test(code), "typed list");
+  for (const name of ["sendText", "retryText"]) {
+    const body = fnBody(code, name) ?? "";
+    const n = (body.match(/revalidatePath\(|revalidateFrom\(/g) ?? []).length;
+    check(`  ${name} refreshes at most one route, through the list`, body.length > 0 && n <= 1 && !body.includes("revalidatePath("), `${n} refresh call(s)`);
+  }
+}
+
+const proxySrc = readOr("proxy.ts");
+if (proxySrc) {
+  const guarded = /isGuardedRoute\s*=\s*createRouteMatcher\(\[([\s\S]*?)\]\)/.exec(codeOnly(proxySrc))?.[1] ?? "";
+  check("/api/webhooks/quo is reachable by Quo (not behind Clerk in proxy.ts)", guarded.length > 0 && !/"\/api/.test(guarded), "not guarded — the signature is the lock");
+}
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

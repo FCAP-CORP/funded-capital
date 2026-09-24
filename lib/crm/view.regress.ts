@@ -11,6 +11,7 @@ import {
   money, percent, shortDate, daysSince, ageLabel, phoneDigits, displayPhone,
   fullName, matchesSearch, compareValues, sortRows, facetCounts,
   label, STAGE_LABEL, PRODUCT_LABEL, STAGE_ORDER, GATE_STAGES,
+  STAGE_TONE, stageTone,
 } from "./view";
 
 let pass = 0, fail = 0;
@@ -112,6 +113,15 @@ console.log("\n=== 8. Names ===");
 check("both parts", fullName("Marcus", "Rivera") === "Marcus Rivera", fullName("Marcus", "Rivera"));
 check("first only", fullName("Hunter", null) === "Hunter", fullName("Hunter", null));
 check("neither is labelled, not blank", fullName(null, null) === "(no name)", fullName(null, null));
+
+console.log("\n=== 9. Stage tones (the status pills) ===");
+check("every stage in STAGE_ORDER has a tone", STAGE_ORDER.every((s) => s in STAGE_TONE), `${STAGE_ORDER.length} stages`);
+check("every tone belongs to a real stage", Object.keys(STAGE_TONE).every((s) => STAGE_ORDER.includes(s)), "no orphans");
+check("both term-sheet gates are gold, as on the dashboard chart", stageTone("term_sheet_issued") === "gold" && stageTone("term_sheet_signed") === "gold", "gold");
+check("funded is success", stageTone("funded") === "success", stageTone("funded"));
+check("closed-lost is danger", stageTone("closed_lost") === "danger", stageTone("closed_lost"));
+check("an unknown stage is neutral, not hidden", stageTone("brand_new") === "neutral", stageTone("brand_new"));
+check("null is neutral", stageTone(null) === "neutral", stageTone(null));
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

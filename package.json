@@ -20,7 +20,10 @@
     "@dnd-kit/core": "6.3.1",
     "@dnd-kit/utilities": "3.2.2",
     "@neondatabase/serverless": "^0.10.4",
+    "@tanstack/react-table": "8.21.3",
     "botid": "^1.5.11",
+    "clsx": "2.1.1",
+    "cmdk": "1.1.1",
     "drizzle-orm": "^0.38.3",
     "gray-matter": "^4.0.3",
     "lucide-react": "^0.469.0",
@@ -29,7 +32,8 @@
     "pdf-lib": "1.17.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "2.6.1"
   },
   "devDependencies": {
     "@types/node": "^22",

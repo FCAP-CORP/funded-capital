@@ -2,13 +2,16 @@
 
 import { useEffect, useId, useOptimistic, useState, useTransition } from "react";
 import {
-  AlarmClock, Check, CircleCheck, Loader2, Mail, MessageSquare, Phone, Plus, StickyNote, Trash2, Undo2,
+  AlarmClock, Check, ChevronDown, CircleCheck, Loader2, Mail, MessageSquare, Phone, PhoneOutgoing, Plus, RotateCw, Send,
+  ShieldAlert, ShieldCheck, StickyNote, Trash2, Undo2,
 } from "lucide-react";
 import { MAX_NOTE_LENGTH } from "@/lib/crm/followup";
 import { LOG_ACTIONS, snoozeOptions, stageOptions, type SnoozeOption } from "@/lib/crm/queueView";
 import { LOST_REASONS, MAX_LOST_NOTE } from "@/lib/crm/board";
 import { MAX_TASK_TITLE, type TaskState } from "@/lib/crm/tasks";
+import { MAX_SMS_BODY, countSegments } from "@/lib/comms/sms";
 import { InlineText } from "../Editable";
+import { retryText, sendText } from "../commsActions";
 import {
   addTask,
   clearSnooze,
@@ -119,26 +122,45 @@ function escapeCloses(onClose: () => void) {
 /* ------------------------------------------------------------ quick actions */
 
 /**
- * Log call / Log email / Log text / Note, and the stage.
+ * What the card can DO — Text and Call — then Log… for things done elsewhere,
+ * and the stage.
  *
- * RECORD ONLY. Every label starts with "Log" and every tooltip says it does not
- * place a call or send anything — the same wording the dashboard uses, from the
- * same LOG_ACTIONS list, so the two screens cannot drift.
+ * TEXT sends a real message through Quo. The compose box shows whether the
+ * consent gate would allow it and why not, but it decides nothing: the server
+ * action's executor re-reads the contact and runs the gate itself
+ * (lib/comms/outbox.server.ts). A disabled button is a courtesy, not a control.
+ *
+ * CALL is a `tel:` link. Quo's desktop and mobile apps register as the phone
+ * handler, so it opens Quo with the number ready; calls cannot be placed
+ * through Quo's API. When the call ends, Quo's webhook logs it on the timeline
+ * by itself.
+ *
+ * LOG… IS RECORD ONLY, folded away so it is not mistaken for the real thing.
+ * Every label starts with "Log" and every tooltip says it does not place a call
+ * or send anything — the same wording the dashboard uses, from the same
+ * LOG_ACTIONS list, so the two screens cannot drift.
  *
  * The stage menu asks before two moves, exactly as the board does: Funded,
  * because it books the deal into the month's numbers, and Closed – Lost,
  * because a lost deal with no reason teaches nothing.
  */
+export type TextGateView = { ok: true; detail: string } | { ok: false; reason: string };
+
 export function QuickActions({
-  applicationId, name, stage, from,
+  applicationId, name, stage, tel, textGate, from,
 }: {
   applicationId: string;
   name: string;
   stage: string;
+  /** `tel:+1…` when the contact has a dialable number, else null. */
+  tel: string | null;
+  /** What the consent gate says right now — for display only. */
+  textGate: TextGateView;
   from: CrmRoute;
 }) {
   const { pending, error, setError, done, run } = useRun();
-  const [panel, setPanel] = useState<null | "note" | "funded" | "lost">(null);
+  const [panel, setPanel] = useState<null | "note" | "funded" | "lost" | "text">(null);
+  const [logOpen, setLogOpen] = useState(false);
   const [note, setNote] = useState("");
   const [stageValue, setStageValue] = useState(stage);
   const [lostChoice, setLostChoice] = useState("");
@@ -159,36 +181,88 @@ export function QuickActions({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-1.5">
-        {LOG_ACTIONS.map((a) => {
-          const Icon = LOG_ICON[a.kind];
-          return (
-            <button
-              key={a.kind}
-              type="button"
-              className={btn}
-              disabled={pending}
-              title={a.hint}
-              aria-label={`${a.label} with ${name}. ${a.hint}`}
-              onClick={() => run(() => logContact(applicationId, a.kind, "", from), a.done)}
-            >
-              <Icon size={13} aria-hidden="true" />
-              {a.label}
-            </button>
-          );
-        })}
+        <button
+          type="button"
+          className={primary}
+          aria-expanded={panel === "text"}
+          aria-controls={`${ids}-text`}
+          title={textGate.ok ? `Send ${name} a text through Quo` : textGate.reason}
+          onClick={() => { setError(null); setPanel(panel === "text" ? null : "text"); }}
+        >
+          <MessageSquare size={13} aria-hidden="true" />
+          Text
+        </button>
+        {tel ? (
+          <a
+            href={tel}
+            className={btn}
+            title="Opens Quo to place the call (Quo must be this device's default calling app). When the call ends it is logged here automatically — no need to press Log call."
+            aria-label={`Call ${name} — opens Quo. The call logs itself on this timeline when it ends.`}
+          >
+            <PhoneOutgoing size={13} aria-hidden="true" />
+            Call (opens Quo)
+          </a>
+        ) : (
+          <span
+            className={`${btn} cursor-not-allowed opacity-50`}
+            title="There is no complete phone number on file to call."
+            aria-disabled="true"
+          >
+            <PhoneOutgoing size={13} aria-hidden="true" />
+            Call (opens Quo)
+          </span>
+        )}
         <button
           type="button"
           className={btn}
-          disabled={pending}
-          aria-expanded={panel === "note"}
-          aria-controls={`${ids}-note`}
-          title="Add a note to the timeline. Notes do not count as contact."
-          onClick={() => { setError(null); setPanel(panel === "note" ? null : "note"); }}
+          aria-expanded={logOpen}
+          aria-controls={`${ids}-log`}
+          title="Record something you already did elsewhere. These do not call, email or text anyone."
+          onClick={() => setLogOpen(!logOpen)}
         >
-          <StickyNote size={13} aria-hidden="true" />
-          Note
+          Log…
+          <ChevronDown size={13} aria-hidden="true" className={logOpen ? "rotate-180" : undefined} />
         </button>
       </div>
+
+      {logOpen && (
+        <div
+          id={`${ids}-log`}
+          role="group"
+          aria-label="Record something you already did"
+          className="flex flex-wrap items-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-white/60 p-2"
+        >
+          {LOG_ACTIONS.map((a) => {
+            const Icon = LOG_ICON[a.kind];
+            return (
+              <button
+                key={a.kind}
+                type="button"
+                className={btn}
+                disabled={pending}
+                title={a.hint}
+                aria-label={`${a.label} with ${name}. ${a.hint}`}
+                onClick={() => run(() => logContact(applicationId, a.kind, "", from), a.done)}
+              >
+                <Icon size={13} aria-hidden="true" />
+                {a.label}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            className={btn}
+            disabled={pending}
+            aria-expanded={panel === "note"}
+            aria-controls={`${ids}-note`}
+            title="Add a note to the timeline. Notes do not count as contact."
+            onClick={() => { setError(null); setPanel(panel === "note" ? null : "note"); }}
+          >
+            <StickyNote size={13} aria-hidden="true" />
+            Note
+          </button>
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         <label htmlFor={`${ids}-stage`} className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
@@ -216,6 +290,17 @@ export function QuickActions({
         </select>
         <Status pending={pending} done={done} error={null} />
       </div>
+
+      {panel === "text" && (
+        <TextComposer
+          id={`${ids}-text`}
+          applicationId={applicationId}
+          name={name}
+          gate={textGate}
+          onClose={closePanel}
+          from={from}
+        />
+      )}
 
       {panel === "note" && (
         <form
@@ -311,6 +396,161 @@ export function QuickActions({
 
       {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ texting */
+
+/** One id per compose. Pressing Send twice sends once: the server dedupes on it. */
+function newSendKey(): string {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  const b = new Uint8Array(16);
+  c.getRandomValues(b);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/**
+ * The compose box.
+ *
+ * The counter is the carrier's arithmetic, not a character count: 160 per
+ * segment in plain text, 70 once a single emoji or curly quote switches the
+ * whole message to Unicode — and each segment is billed. Showing which
+ * character caused the switch is the difference between a 1-segment and a
+ * 3-segment text.
+ *
+ * AFTER A SEND the key is replaced only when it is safe to: a definite refusal
+ * (Quo said no, or the gate said no) gets a fresh key so the next Send is a new
+ * attempt; an UNKNOWN outcome keeps the old key, so pressing Send again asks
+ * the server what happened instead of texting the borrower a second time.
+ */
+function TextComposer({
+  id, applicationId, name, gate, onClose, from,
+}: {
+  id: string;
+  applicationId: string;
+  name: string;
+  gate: TextGateView;
+  onClose: () => void;
+  from: CrmRoute;
+}) {
+  const [text, setText] = useState("");
+  const [key, setKey] = useState(newSendKey);
+  const [pending, start] = useTransition();
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const fieldId = useId();
+
+  const trimmed = text.trim();
+  const seg = countSegments(trimmed);
+  const tooLong = trimmed.length > MAX_SMS_BODY;
+  const canSend = gate.ok && !pending && trimmed.length > 0 && !tooLong;
+
+  function submit() {
+    if (!canSend) return;
+    setResult(null);
+    start(async () => {
+      const res = await sendText({ applicationId }, trimmed, key, from);
+      if (res.ok) {
+        setText("");
+        setKey(newSendKey());
+        setResult({ ok: true, message: res.status === "already_sent" ? "Already sent." : "Sent — it is on the timeline below." });
+        return;
+      }
+      if (res.status === "failed" || res.status === "blocked") setKey(newSendKey());
+      setResult({ ok: false, message: res.error });
+    });
+  }
+
+  return (
+    <form
+      id={id}
+      className="flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white p-3"
+      onKeyDown={escapeCloses(onClose)}
+      onSubmit={(e) => { e.preventDefault(); submit(); }}
+    >
+      <p className={`flex items-start gap-1.5 text-xs ${gate.ok ? "text-emerald-700" : "text-amber-800"}`}>
+        {gate.ok
+          ? <ShieldCheck size={14} aria-hidden="true" className="mt-px shrink-0" />
+          : <ShieldAlert size={14} aria-hidden="true" className="mt-px shrink-0" />}
+        <span>{gate.ok ? gate.detail : gate.reason}</span>
+      </p>
+      <label htmlFor={fieldId} className="sr-only">Text to {name}</label>
+      <textarea
+        id={fieldId}
+        value={text}
+        onChange={(e) => { setText(e.target.value); if (result?.ok) setResult(null); }}
+        onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); submit(); } }}
+        rows={3}
+        maxLength={MAX_SMS_BODY + 200}
+        placeholder={gate.ok ? `Text ${name}…` : "Texting is blocked for this person — see above."}
+        disabled={pending || !gate.ok}
+        autoFocus={gate.ok}
+        className={`${input} w-full`}
+        aria-describedby={`${fieldId}-count`}
+      />
+      <p id={`${fieldId}-count`} className={`text-[11px] tabular-nums ${tooLong ? "text-red-600" : "text-slate-500"}`} aria-live="polite">
+        {trimmed.length.toLocaleString("en-US")} / {MAX_SMS_BODY.toLocaleString("en-US")}
+        {seg.segments > 0 && (
+          <>
+            {" · "}
+            {seg.segments} segment{seg.segments === 1 ? "" : "s"}
+            {" · "}
+            {seg.remaining} left in this one
+          </>
+        )}
+        {seg.encoding === "UCS-2" && (
+          <span className="block text-amber-700">
+            Contains {seg.unicodeChars.slice(0, 5).join(" ")} — special characters and emoji cut each segment from 160 to 70 characters.
+          </span>
+        )}
+      </p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <button type="submit" className={primary} disabled={!canSend} title={gate.ok ? "Send through Quo (Ctrl/⌘ + Enter)" : gate.reason}>
+          {pending ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Send size={13} aria-hidden="true" />}
+          {pending ? "Sending…" : "Send text"}
+        </button>
+        <button type="button" className={btn} disabled={pending} onClick={onClose}>Close</button>
+        <span className="text-[11px] text-slate-500">From Funded Capital&apos;s Quo line. Replies land in Quo and on this timeline.</span>
+      </div>
+      {result && (
+        <p role={result.ok ? "status" : "alert"} className={`inline-flex items-start gap-1 text-xs ${result.ok ? "text-emerald-700" : "text-red-600"}`}>
+          {result.ok && <Check size={12} aria-hidden="true" className="mt-px" />}
+          {result.message}
+        </p>
+      )}
+    </form>
+  );
+}
+
+/**
+ * Retry on a text that did not go. Shown only where the rules allow it
+ * (lib/comms/sms.ts canRetry), and the server re-checks both that and consent.
+ */
+export function RetryTextButton({ outboundId, from }: { outboundId: string; from: CrmRoute }) {
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <button
+        type="button"
+        className={btn}
+        disabled={pending}
+        title="Try sending this text again. Consent is checked again first."
+        onClick={() =>
+          start(async () => {
+            const res = await retryText(outboundId, from);
+            setMsg(res.ok ? { ok: true, text: res.message } : { ok: false, text: res.error });
+          })
+        }
+      >
+        {pending ? <Loader2 size={12} className="animate-spin" aria-hidden="true" /> : <RotateCw size={12} aria-hidden="true" />}
+        Retry
+      </button>
+      {msg && <span role={msg.ok ? "status" : "alert"} className={`text-[11px] ${msg.ok ? "text-emerald-700" : "text-red-600"}`}>{msg.text}</span>}
+    </span>
   );
 }
 

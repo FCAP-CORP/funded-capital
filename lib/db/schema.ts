@@ -764,3 +764,121 @@ export const contentRequests = pgTable("content_requests", {
   /** The cadence indicator reads this one on every page load. */
   publishedIdx: index("content_requests_published_at_idx").on(t.publishedAt),
 }));
+
+/* ------------------------------------------------------- outbound_messages */
+
+/**
+ * The transactional outbox for texts the CRM sends through Quo. Migration 0011.
+ *
+ * EVERY ATTEMPT IS A ROW, INCLUDING THE ONES THAT NEVER LEFT. A text the
+ * consent gate refused is written as `blocked` with the reason, so "why didn't
+ * this person get a text?" has an answer on file. The gate itself is
+ * `canText()` in lib/comms/consent.ts, called by the EXECUTOR
+ * (lib/comms/outbox.server.ts) on every send and every retry — never only by
+ * the screen, which is a convenience and can be bypassed with a crafted POST.
+ *
+ * `idempotency_key` is generated in the browser once per compose, so a
+ * double-click or a network retry of the same Send cannot text anyone twice:
+ * the second insert collides on the unique index and does nothing.
+ *
+ * `consent_version` and `consent_at` record WHICH consent the send relied on,
+ * copied from the contact at the moment of sending. If the wording is later
+ * bumped, this row still shows what the person had agreed to when they were
+ * texted — the TCPA question that matters.
+ *
+ * Status:
+ *   queued       written, no attempt yet (a function that died before trying)
+ *   sending      handed to Quo, no answer yet — OUTCOME UNKNOWN. Never retried
+ *                automatically: Quo may have sent it. Quo's delivery webhook
+ *                heals it to `delivered` if it went.
+ *   sent         Quo accepted it (HTTP 202)
+ *   delivered    Quo's `message.delivered` webhook confirmed it
+ *   undelivered  the carrier refused it (new-format webhooks only)
+ *   failed       Quo refused it; `error` says why in plain English
+ *   blocked      the consent gate refused it; nothing was sent
+ *
+ * `status` is text with a CHECK rather than a pgEnum so a new state does not
+ * need an enum migration, and so schema-sync has nothing to label.
+ */
+export const OUTBOUND_STATUSES = [
+  "queued", "sending", "sent", "delivered", "undelivered", "failed", "blocked",
+] as const;
+export type OutboundStatus = (typeof OUTBOUND_STATUSES)[number];
+
+export const outboundMessages = pgTable("outbound_messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  idempotencyKey: uuid("idempotency_key").notNull(),
+  contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+  applicationId: uuid("application_id").references(() => applications.id, { onDelete: "set null" }),
+  channel: text("channel").notNull().default("sms"),
+  toPhone: text("to_phone"),
+  fromPhone: text("from_phone"),
+  body: text("body").notNull(),
+  status: text("status").$type<OutboundStatus>().notNull().default("queued"),
+  providerMessageId: text("provider_message_id"),
+  /** Why it failed or was blocked, in words Luis can act on. */
+  error: text("error"),
+  consentVersion: text("consent_version"),
+  consentAt: timestamp("consent_at", { withTimezone: true }),
+  attempts: integer("attempts").notNull().default(0),
+  /** Clerk user id of whoever pressed Send. */
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+}, (t) => ({
+  channelCheck: check("outbound_messages_channel_check", sql`${t.channel} IN ('sms')`),
+  statusCheck: check(
+    "outbound_messages_status_check",
+    sql`${t.status} IN ('queued', 'sending', 'sent', 'delivered', 'undelivered', 'failed', 'blocked')`,
+  ),
+  bodyLength: check("outbound_messages_body_length_check", sql`char_length(${t.body}) BETWEEN 1 AND 1000`),
+  idemKey: uniqueIndex("outbound_messages_idempotency_key").on(t.idempotencyKey),
+  providerKey: uniqueIndex("outbound_messages_provider_message_id_key")
+    .on(t.providerMessageId)
+    .where(sql`${t.providerMessageId} IS NOT NULL`),
+  contactIdx: index("outbound_messages_contact_idx").on(t.contactId),
+  appIdx: index("outbound_messages_application_idx").on(t.applicationId),
+  openIdx: index("outbound_messages_open_status_idx")
+    .on(t.status)
+    .where(sql`${t.status} IN ('queued', 'sending', 'failed')`),
+}));
+
+export type OutboundMessage = typeof outboundMessages.$inferSelect;
+
+/* ---------------------------------------------------------- webhook_events */
+
+/**
+ * Every signed webhook delivery we accepted, claimed by the provider's OWN
+ * event id. Migration 0011.
+ *
+ * `INSERT … ON CONFLICT (provider, event_id) DO NOTHING RETURNING id` is the
+ * claim: an at-least-once provider retrying an event gets an empty RETURNING
+ * and a 200, and nothing is written twice. Never a hash of the body — Quo
+ * re-signs retries with a new timestamp, and a body hash would also make two
+ * genuinely different events with identical content collide.
+ *
+ * `processed_at` is set in the same db.batch as the event's own writes. A row
+ * with a null `processed_at` is an event that was claimed and then failed
+ * part-way; the next retry reprocesses it (every write it makes is itself
+ * idempotent) instead of being swallowed as a duplicate.
+ *
+ * `payload` keeps the event so an unmatched text or call — a number not in the
+ * CRM yet — can be replayed onto the contact once they exist.
+ */
+export const webhookEvents = pgTable("webhook_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  provider: text("provider").notNull(),
+  eventId: text("event_id").notNull(),
+  type: text("type").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  /** What processing did, in a few words: "logged text", "no contact for +1…". */
+  outcome: text("outcome"),
+  payload: jsonb("payload").$type<unknown>().notNull(),
+}, (t) => ({
+  providerEventKey: uniqueIndex("webhook_events_provider_event_key").on(t.provider, t.eventId),
+  receivedIdx: index("webhook_events_received_at_idx").on(t.receivedAt),
+}));

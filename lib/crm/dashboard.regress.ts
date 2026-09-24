@@ -199,6 +199,16 @@ check(
   "correct",
 );
 check(
+  "an inbound TEXT 3 days old is awaiting_reply too (Quo, 24 Sep 2026)",
+  reasonOf(app({ lastContactAt: daysAgo(3), lastContactDirection: "sms_in" })) === "awaiting_reply",
+  String(reasonOf(app({ lastContactAt: daysAgo(3), lastContactDirection: "sms_in" }))),
+);
+check(
+  "our own outbound text is never awaiting_reply",
+  reasonOf(app({ lastContactAt: daysAgo(30), lastContactDirection: "sms_out", stageEnteredAt: daysAgo(1) })) === null,
+  String(reasonOf(app({ lastContactAt: daysAgo(30), lastContactDirection: "sms_out", stageEnteredAt: daysAgo(1) }))),
+);
+check(
   "a term sheet unsigned for 10 days",
   reasonOf(app({ stage: "term_sheet_issued", termSheetIssuedAt: daysAgo(10) })) === "term_sheet_cold",
   String(reasonOf(app({ stage: "term_sheet_issued", termSheetIssuedAt: daysAgo(10) }))),

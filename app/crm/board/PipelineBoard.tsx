@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useOptimistic, useRef, useState, useTransition } from "react";
+import { useMemo, useOptimistic, useRef, useState, useTransition } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -21,8 +21,6 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { AlertTriangle, CircleCheck, CircleX, Clock, Loader2, X } from "lucide-react";
 import {
-  LOST_REASONS,
-  MAX_LOST_NOTE,
   applyMove,
   buildBoard,
   dropIntent,
@@ -32,6 +30,7 @@ import {
 import { PRODUCT_LABEL, STAGE_LABEL, money } from "@/lib/crm/view";
 import { markLost, setStage } from "../actions";
 import { useRecordCard } from "../_record/RecordCardProvider";
+import { ConfirmFundedDialog, LostReasonDialog } from "../StageDialogs";
 
 /**
  * Every action on this page refreshes THIS page and no other. See CrmRoute in
@@ -203,7 +202,7 @@ export default function PipelineBoard({ rows }: { rows: BoardSource[] }) {
             <button
               type="button"
               onClick={() => setError(null)}
-              className="ml-1 rounded p-0.5 hover:bg-red-100"
+              className="ml-1 rounded p-0.5 hover:bg-red-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-700"
               aria-label="Dismiss"
             >
               <X className="h-3 w-3" aria-hidden />
@@ -226,28 +225,31 @@ export default function PipelineBoard({ rows }: { rows: BoardSource[] }) {
         {active ? <CardBody card={active} lifted /> : null}
       </DragOverlay>
 
-      {asking?.kind === "funded" && (
-        <ConfirmFunded
-          card={asking.card}
-          onCancel={() => setAsking(null)}
-          onConfirm={() => {
-            const card = asking.card;
-            setAsking(null);
-            commit(card, "funded", () => setStage(card.id, "funded", HERE));
-          }}
-        />
-      )}
-      {asking?.kind === "lost" && (
-        <LostReason
-          card={asking.card}
-          onCancel={() => setAsking(null)}
-          onConfirm={(choice, note) => {
-            const card = asking.card;
-            setAsking(null);
-            commit(card, "closed_lost", () => markLost(card.id, choice, note, HERE));
-          }}
-        />
-      )}
+      {/* The same two questions the Pipeline table asks — one copy, in ../StageDialogs. */}
+      <ConfirmFundedDialog
+        open={asking?.kind === "funded"}
+        names={asking ? [asking.card.name] : []}
+        amount={asking?.card.amount}
+        note="and the deal leaves the board."
+        onCancel={() => setAsking(null)}
+        onConfirm={() => {
+          if (asking?.kind !== "funded") return;
+          const card = asking.card;
+          setAsking(null);
+          commit(card, "funded", () => setStage(card.id, "funded", HERE));
+        }}
+      />
+      <LostReasonDialog
+        open={asking?.kind === "lost"}
+        names={asking ? [asking.card.name] : []}
+        onCancel={() => setAsking(null)}
+        onConfirm={(choice, note) => {
+          if (asking?.kind !== "lost") return;
+          const card = asking.card;
+          setAsking(null);
+          commit(card, "closed_lost", () => markLost(card.id, choice, note, HERE));
+        }}
+      />
     </DndContext>
   );
 }
@@ -277,7 +279,7 @@ function Column({
         <p className="mt-0.5 text-[11px] tabular-nums text-slate-500">{requested > 0 ? money(requested) : "—"}</p>
       </header>
       <div className="flex max-h-[65vh] min-h-[6rem] flex-col gap-2 overflow-y-auto p-2">
-        {count === 0 ? <p className="px-1 py-4 text-center text-[11px] text-slate-400">Nothing here</p> : children}
+        {count === 0 ? <p className="px-1 py-4 text-center text-[11px] text-slate-500">Nothing here</p> : children}
       </div>
     </section>
   );
@@ -335,7 +337,7 @@ function DraggableCard({ card, onOpen }: { card: BoardCard; onOpen: (id: string)
       aria-haspopup="dialog"
       aria-roledescription="draggable deal"
       aria-label={`${card.name}, ${money(card.amount)}, ${stageName(card.stage)}. Enter to open, Space to move.`}
-      className={`cursor-grab touch-manipulation rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-500 active:cursor-grabbing ${
+      className={`cursor-grab touch-manipulation rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-1 active:cursor-grabbing ${
         isDragging ? "opacity-40" : ""
       }`}
     >
@@ -373,109 +375,5 @@ function CardBody({ card, lifted = false }: { card: BoardCard; lifted?: boolean 
         <span className={contact.warn ? "text-amber-700" : "text-slate-500"}>{contact.text}</span>
       </div>
     </article>
-  );
-}
-
-/* ---------------------------------------------------------------- dialogs */
-
-function Dialog({
-  title, onCancel, children,
-}: {
-  title: string; onCancel: () => void; children: React.ReactNode;
-}) {
-  const id = useId();
-  const box = useRef<HTMLDivElement>(null);
-  const cancel = useRef(onCancel);
-  cancel.current = onCancel;
-  // Focus ONCE, when the dialog opens. Re-running this on every render would
-  // pull the cursor out of the note field whenever the board behind it updates.
-  useEffect(() => {
-    box.current?.querySelector<HTMLElement>("[data-autofocus], select, textarea")?.focus();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") cancel.current(); };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-navy-900/40 p-4" onClick={onCancel}>
-      <div
-        ref={box}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={id}
-        onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl"
-      >
-        <h2 id={id} className="text-base font-semibold text-navy-900">{title}</h2>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-const primary =
-  "rounded-lg bg-navy-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-navy-800 " +
-  "focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-500 disabled:opacity-50";
-const secondary =
-  "rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 " +
-  "focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-500";
-
-function ConfirmFunded({ card, onCancel, onConfirm }: { card: BoardCard; onCancel: () => void; onConfirm: () => void }) {
-  return (
-    <Dialog title={`Mark ${card.name} as funded?`} onCancel={onCancel}>
-      <p className="mt-2 text-sm text-slate-600">
-        {card.amount > 0 ? `${money(card.amount)} requested. ` : ""}
-        This counts toward Funded on the dashboard from today, and the deal leaves the board.
-      </p>
-      <div className="mt-5 flex justify-end gap-2">
-        {/* Cancel has focus: a mis-drop followed by a reflex Enter must not book revenue. */}
-        <button type="button" data-autofocus className={secondary} onClick={onCancel}>Cancel</button>
-        <button type="button" className={primary} onClick={onConfirm}>Mark funded</button>
-      </div>
-    </Dialog>
-  );
-}
-
-function LostReason({
-  card, onCancel, onConfirm,
-}: {
-  card: BoardCard; onCancel: () => void; onConfirm: (choice: string, note: string) => void;
-}) {
-  const [choice, setChoice] = useState("");
-  const [note, setNote] = useState("");
-  const needsNote = choice === "Other";
-  const ready = choice !== "" && (!needsNote || note.trim() !== "") && note.length <= MAX_LOST_NOTE;
-  const ids = useId();
-  return (
-    <Dialog title={`Why was ${card.name} lost?`} onCancel={onCancel}>
-      <p className="mt-1 text-sm text-slate-600">It's saved on the deal and in its history, so the reasons can be counted later.</p>
-      <label htmlFor={`${ids}-r`} className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">Reason</label>
-      <select
-        id={`${ids}-r`}
-        value={choice}
-        onChange={(e) => setChoice(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-2 text-sm focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
-      >
-        <option value="" disabled>Pick one…</option>
-        {LOST_REASONS.map((r) => <option key={r} value={r}>{r}</option>)}
-      </select>
-      <label htmlFor={`${ids}-n`} className="mt-3 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-        Detail {needsNote ? "(required)" : "(optional)"}
-      </label>
-      <textarea
-        id={`${ids}-n`}
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        maxLength={MAX_LOST_NOTE}
-        rows={3}
-        placeholder={needsNote ? "What happened?" : "e.g. which lender, what rate"}
-        className="mt-1 w-full rounded-lg border border-slate-300 px-2.5 py-2 text-sm placeholder:text-slate-400 focus:border-gold-500 focus:outline-none focus:ring-1 focus:ring-gold-500"
-      />
-      <div className="mt-5 flex justify-end gap-2">
-        <button type="button" className={secondary} onClick={onCancel}>Cancel</button>
-        <button type="button" className={primary} disabled={!ready} onClick={() => onConfirm(choice, note)}>
-          Close as lost
-        </button>
-      </div>
-    </Dialog>
   );
 }

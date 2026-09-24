@@ -27,9 +27,13 @@ import { nyDayLabel } from "@/lib/crm/queueView";
 import { STALE_DAYS } from "@/lib/crm/board";
 import { GATE_STAGES, PRODUCT_LABEL, SOURCE_LABEL, ageLabel, displayPhone, label, money, shortDate } from "@/lib/crm/view";
 import { CONSENT_VERSION } from "@/lib/consent";
+import { canText } from "@/lib/comms/consent";
+import { TIMELINE_TEXT_PREVIEW } from "@/lib/crm/record";
 import type { CrmRoute } from "../actions";
 import RecordDrawer from "./RecordDrawer";
-import { ContactField, DealNotes, FollowUp, QuickActions, TaskPanel, type TaskView } from "./RecordControls";
+import {
+  ContactField, DealNotes, FollowUp, QuickActions, RetryTextButton, TaskPanel, type TaskView, type TextGateView,
+} from "./RecordControls";
 
 /**
  * The record card: one deal, everything about it, over the page you were on.
@@ -146,10 +150,20 @@ function Card({ card, from }: { card: RecordCardData; from: CrmRoute }) {
     state: taskState(t, now),
   });
 
-  const timeline = buildTimeline(card.activities, card.transitions, {
-    totalActivities: card.totalActivities,
-    totalTransitions: card.totalTransitions,
-  });
+  const timeline = buildTimeline(
+    card.activities,
+    card.transitions,
+    { totalActivities: card.totalActivities, totalTransitions: card.totalTransitions },
+    undefined,
+    { outbound: card.outbound, now },
+  );
+
+  // For DISPLAY: the executor runs the same gate again, on a fresh read, when
+  // Send is pressed. See lib/comms/outbox.server.ts.
+  const gate = canText(contact, { currentVersion: CONSENT_VERSION });
+  const textGate: TextGateView = gate.ok
+    ? { ok: true, detail: `Text consent on file — current wording (${gate.consentVersion}), given ${shortDate(gate.consentAt)}.` }
+    : { ok: false, reason: gate.reason };
 
   const followUpAt = app.nextActionAt ? new Date(app.nextActionAt) : null;
   const followUpPast = followUpAt !== null && followUpAt.getTime() <= now.getTime();
@@ -210,9 +224,10 @@ function Card({ card, from }: { card: RecordCardData; from: CrmRoute }) {
     <RecordDrawer title={name} badges={badges} contactLine={contactLine}>
       {/* ------------------------------------------------ quick actions */}
       <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
-        <QuickActions applicationId={app.id} name={name} stage={app.stage} from={from} />
+        <QuickActions applicationId={app.id} name={name} stage={app.stage} tel={tel} textGate={textGate} from={from} />
         <p className="mt-2 text-[11px] text-slate-500">
-          Log buttons record what you already did. They do not call, email or text anyone.
+          Text sends a real message through Quo. Call opens Quo and logs itself when the call ends. Log… records
+          something you already did elsewhere — it does not call, email or text anyone.
         </p>
       </div>
 
@@ -431,7 +446,7 @@ function Card({ card, from }: { card: RecordCardData; from: CrmRoute }) {
           <p className="text-sm text-slate-500">Nothing recorded yet — no calls, emails, texts, notes or stage moves.</p>
         ) : (
           <ol className="relative space-y-4 border-l border-slate-200 pl-5">
-            {timeline.items.map((item) => <TimelineRow key={item.key} item={item} now={now} />)}
+            {timeline.items.map((item) => <TimelineRow key={item.key} item={item} now={now} from={from} />)}
           </ol>
         )}
         {timeline.older > 0 && (
@@ -492,10 +507,18 @@ const KIND_ICON: Record<string, React.ComponentType<{ className?: string; "aria-
   form_submission: FileText,
 };
 
-function TimelineRow({ item, now }: { item: TimelineItem; now: Date }) {
+const STATUS_TONE: Record<string, string> = {
+  ok: "text-emerald-700",
+  warn: "text-amber-700",
+  bad: "text-red-700",
+  muted: "text-slate-500",
+};
+
+function TimelineRow({ item, now, from }: { item: TimelineItem; now: Date; from: CrmRoute }) {
   const Icon = KIND_ICON[item.kind] ?? History;
   const isMove = item.kind === "stage_move";
-  const inbound = item.kind === "email_in" || item.kind === "sms_in";
+  const inbound = item.kind === "email_in" || item.kind === "sms_in" || item.title === "Call from them";
+  const body = item.body;
   return (
     <li className="relative">
       <span
@@ -510,7 +533,23 @@ function TimelineRow({ item, now }: { item: TimelineItem; now: Date }) {
         <time dateTime={item.at} className="text-[11px] tabular-nums text-slate-500">{whenLabel(item.at, now)}</time>
       </p>
       {item.subject && <p className="break-words text-sm text-slate-700">{item.subject}</p>}
-      {item.body && <p className="whitespace-pre-line break-words text-sm text-slate-600">{item.body}</p>}
+      {body && (item.long ? (
+        // Long texts fold, with no JavaScript: <details> does it natively.
+        <details className="group text-sm text-slate-600">
+          <summary className="cursor-pointer list-none break-words [&::-webkit-details-marker]:hidden">
+            <span className="group-open:hidden">
+              {body.slice(0, TIMELINE_TEXT_PREVIEW).trimEnd()}…{" "}
+              <span className="text-xs font-medium text-gold-700 underline underline-offset-2">Show all</span>
+            </span>
+            <span className="hidden text-xs font-medium text-gold-700 underline underline-offset-2 group-open:inline">Show less</span>
+          </summary>
+          <p className="whitespace-pre-line break-words">{body}</p>
+        </details>
+      ) : (
+        <p className="whitespace-pre-line break-words text-sm text-slate-600">{body}</p>
+      ))}
+      {item.status && <p className={`break-words text-xs ${STATUS_TONE[item.status.tone] ?? "text-slate-500"}`}>{item.status.label}</p>}
+      {item.retryId && <div className="mt-1"><RetryTextButton outboundId={item.retryId} from={from} /></div>}
       {item.reason && <p className="break-words text-xs text-slate-500">{item.reason}</p>}
     </li>
   );

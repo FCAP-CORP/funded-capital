@@ -19,6 +19,11 @@ import { articleWordCount, effectiveStatus, safeHref, type EffectiveStatus } fro
 import { ageLabel, shortDate } from "@/lib/crm/view";
 import { daysSince } from "@/lib/crm/view";
 import { GridSkeleton, StatSkeleton } from "../Skeleton";
+import { PageHeader } from "@/components/ui/page-header";
+import { Badge, type BadgeTone } from "@/components/ui/badge";
+import { Card } from "@/components/ui/card";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Inbox } from "lucide-react";
 import { CancelRequest, MarkPublished, RequestForm, RetryRequest } from "./Controls";
 
 /**
@@ -77,30 +82,36 @@ function CadenceCard({ cadence }: { cadence: Cadence }) {
   const { Icon } = style;
 
   return (
-    <div className={`rounded-xl border p-4 ${style.box}`}>
+    <div className={`rounded-2xl border p-4 sm:p-5 ${style.box}`}>
       <div className="flex items-center justify-between gap-2">
-        <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">{spec.label}</p>
-        <Icon size={15} className={style.value} />
+        <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-slate-600 sm:text-xs">{spec.label}</p>
+        <Icon size={15} className={style.value} aria-hidden="true" />
       </div>
-      <p className={`mt-1 text-xl font-bold ${style.value}`}>{cadence.headline}</p>
-      <p className="mt-0.5 text-xs text-slate-600">
+      <p className={`mt-1 text-xl font-extrabold tracking-tight ${style.value}`}>{cadence.headline}</p>
+      <p className="mt-0.5 text-[13px] text-slate-700">
         {cadence.level === "stalled" && "Well past target. "}
         {cadence.level === "slipping" && "Behind target. "}
         Aiming for {spec.targetDays === 1 ? "one a day" : `one every ${spec.targetDays} days`}.
       </p>
-      {cadence.caveat && <p className="mt-1 text-[11px] leading-snug text-slate-500">{cadence.caveat}</p>}
+      {cadence.caveat && <p className="mt-1 text-[11px] leading-snug text-slate-600">{cadence.caveat}</p>}
     </div>
   );
 }
 
-const STATUS_STYLE: Record<ContentStatus, string> = {
-  requested:   "bg-slate-100 text-slate-700 border-slate-200",
-  in_progress: "bg-sky-50 text-sky-800 border-sky-200",
-  drafted:     "bg-gold-400/20 text-gold-700 border-gold-400/40",
-  published:   "bg-emerald-50 text-emerald-800 border-emerald-200",
-  failed:      "bg-red-50 text-red-700 border-red-200",
-  cancelled:   "bg-slate-100 text-slate-500 border-slate-200",
+/** Status pills from the kit (components/ui/badge.tsx). Drafted is gold: it is waiting on Luis. */
+const STATUS_TONE: Record<ContentStatus, BadgeTone> = {
+  requested:   "neutral",
+  in_progress: "info",
+  drafted:     "gold",
+  published:   "success",
+  failed:      "danger",
+  cancelled:   "muted",
 };
+
+/** Gold text fails contrast at this size; links are navy with a gold underline, as on the dashboard. */
+const LINK =
+  "inline-flex items-center gap-1 rounded-sm text-xs font-semibold text-navy-900 underline decoration-gold-500 decoration-2 underline-offset-2 " +
+  "hover:decoration-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-700";
 
 /**
  * Where a draft is, in a form that actually opens.
@@ -115,20 +126,18 @@ function DraftLink({ channel, draftUrl, eff }: { channel: string; draftUrl: stri
   if (channel === "blog") {
     if (eff.fromSite && eff.slug) {
       return (
-        <a href={`/blog/${eff.slug}`} target="_blank" rel="noopener noreferrer"
-           className="mt-1 inline-flex items-center gap-1 text-xs text-gold-700 hover:underline">
-          View the live post <ExternalLink size={11} />
+        <a href={`/blog/${eff.slug}`} target="_blank" rel="noopener noreferrer" className={`mt-1 ${LINK}`}>
+          View the live post <ExternalLink size={11} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span>
         </a>
       );
     }
-    return <p className="mt-1 font-mono text-[11px] text-slate-500 break-all">{draftUrl}</p>;
+    return <p className="mt-1 font-mono text-[11px] text-slate-600 break-all">{draftUrl}</p>;
   }
   const href = safeHref(draftUrl);
-  if (!href) return <p className="mt-1 text-[11px] text-slate-500 break-all">{draftUrl}</p>;
+  if (!href) return <p className="mt-1 text-[11px] text-slate-600 break-all">{draftUrl}</p>;
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer"
-       className="mt-1 inline-flex items-center gap-1 text-xs text-gold-700 hover:underline">
-      Open the draft <ExternalLink size={11} />
+    <a href={href} target="_blank" rel="noopener noreferrer" className={`mt-1 ${LINK}`}>
+      Open the draft <ExternalLink size={11} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span>
     </a>
   );
 }
@@ -153,10 +162,10 @@ function CarouselLinks({ id }: { id: string }) {
       <span className="inline-flex items-center gap-1 font-semibold text-navy-900">
         <GalleryHorizontal size={13} aria-hidden="true" /> LinkedIn carousel
       </span>
-      <a href={`${href}?inline=1`} target="_blank" rel="noopener noreferrer" className="text-gold-700 hover:underline">
+      <a href={`${href}?inline=1`} target="_blank" rel="noopener noreferrer" className={LINK}>
         Preview
       </a>
-      <a href={href} download className="inline-flex items-center gap-1 text-gold-700 hover:underline">
+      <a href={href} download className={LINK}>
         <Download size={12} aria-hidden="true" /> Download PDF
       </a>
     </p>
@@ -167,10 +176,10 @@ function DraftReader({ body }: { body: string }) {
   const words = articleWordCount(body);
   return (
     <details className="mt-2">
-      <summary className="inline-flex cursor-pointer items-center gap-1 text-xs font-medium text-gold-700 hover:underline">
-        <FileText size={11} /> Read the draft · {words.toLocaleString("en-US")} words
+      <summary className={`cursor-pointer ${LINK}`}>
+        <FileText size={11} aria-hidden="true" /> Read the draft · {words.toLocaleString("en-US")} words
       </summary>
-      <p className="mt-1 text-[11px] text-slate-500">
+      <p className="mt-1 text-[11px] text-slate-600">
         To publish it: run fc-pull-drafts.bat, look it over in content\blog, then run publish-blog.bat.
       </p>
       <pre className="mt-2 max-h-96 max-w-2xl overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-700">
@@ -219,9 +228,9 @@ async function Marketing() {
       </div>
 
       {stuck.length > 0 && (
-        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
+        <div role="status" className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-sm font-semibold text-amber-900 flex items-center gap-2">
-            <TriangleAlert size={16} /> {stuck.length} {stuck.length === 1 ? "request has" : "requests have"} been picked up and not finished
+            <TriangleAlert size={16} aria-hidden="true" /> {stuck.length} {stuck.length === 1 ? "request has" : "requests have"} been picked up and not finished
           </p>
           <p className="mt-1 text-xs text-amber-800">
             Something claimed the job and did not come back. Nothing will retry on its own — use
@@ -235,25 +244,27 @@ async function Marketing() {
       <section className="mb-8">
         <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
           <h2 className="text-lg font-bold text-navy-900">In the queue</h2>
-          <p className="text-sm text-slate-500">{live.length === 0 ? "Nothing waiting" : `${live.length} open`}</p>
+          <p className="text-[13px] text-slate-600">{live.length === 0 ? "Nothing waiting" : `${live.length} open`}</p>
         </div>
 
         {live.length === 0 ? (
-          <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
-            <p className="text-sm text-slate-600">
-              Nothing queued. The cadence cards above still tell you whether anything is going out.
-            </p>
-          </div>
+          <Card>
+            <EmptyState
+              icon={Inbox}
+              title="Nothing queued"
+              description="The cadence cards above still tell you whether anything is going out."
+            />
+          </Card>
         ) : (
-          <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
+          <Card className="overflow-x-auto">
             <table className="w-full text-left">
-              <thead>
-                <tr className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+              <thead className="bg-slate-50">
+                <tr className="text-[11px] font-semibold uppercase tracking-widest text-slate-600">
                   <th className="py-2.5 px-4 font-semibold">Channel</th>
                   <th className="py-2.5 pr-4 font-semibold">Topic</th>
                   <th className="py-2.5 pr-4 font-semibold">Status</th>
                   <th className="py-2.5 pr-4 font-semibold">Asked</th>
-                  <th className="py-2.5 pr-4 font-semibold text-right">&nbsp;</th>
+                  <th className="py-2.5 pr-4 font-semibold text-right"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -264,15 +275,13 @@ async function Marketing() {
                       <p className="text-sm font-medium text-navy-900">{r.topic}</p>
                       {r.notes && <p className="mt-0.5 text-xs text-slate-500">{r.notes}</p>}
                       {r.draftSummary && <p className="mt-1 text-xs text-slate-600">{r.draftSummary}</p>}
-                      {r.error && <p className="mt-1 text-xs text-red-600">{r.error}</p>}
+                      {r.error && <p className="mt-1 text-xs text-red-700">{r.error}</p>}
                       <DraftLink channel={r.channel} draftUrl={r.draftUrl} eff={eff} />
                       {r.hasCarousel && <CarouselLinks id={r.id} />}
                       {eff.status === "drafted" && r.draftBody && <DraftReader body={r.draftBody} />}
                     </td>
                     <td className="py-3 pr-4 whitespace-nowrap">
-                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${STATUS_STYLE[eff.status]}`}>
-                        {STATUS_LABEL[eff.status]}
-                      </span>
+                      <Badge tone={STATUS_TONE[eff.status]}>{STATUS_LABEL[eff.status]}</Badge>
                     </td>
                     <td className="py-3 pr-4 text-sm tabular-nums text-slate-600 whitespace-nowrap">
                       {ageLabel(daysSince(r.requestedAt))}
@@ -288,31 +297,32 @@ async function Marketing() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </Card>
         )}
       </section>
 
       {settled.length > 0 && (
         <section>
           <h2 className="text-lg font-bold text-navy-900 mb-3">Done</h2>
-          <ul className="rounded-xl border border-slate-200 bg-white divide-y divide-slate-100">
+          <Card className="p-0">
+          <ul className="divide-y divide-slate-100">
             {settled.slice(0, 25).map(({ r, eff }) => {
               const link = eff.fromSite && eff.slug ? `/blog/${eff.slug}` : safeHref(r.publishedUrl);
               return (
                 <li key={r.id} className="flex flex-wrap items-baseline justify-between gap-2 px-4 py-2.5">
                   <span className="text-sm text-slate-700">
-                    <span className="text-slate-500">{CHANNEL_SPEC[r.channel].label}</span> — {r.topic}
+                    <span className="text-slate-600">{CHANNEL_SPEC[r.channel].label}</span> — {r.topic}
                     {r.hasCarousel && <CarouselLinks id={r.id} />}
                   </span>
-                  <span className="text-xs text-slate-500">
+                  <span className="text-xs text-slate-600">
                     {STATUS_LABEL[eff.status]}
                     {eff.publishedAt && ` · ${shortDate(eff.publishedAt)}`}
                     {eff.fromSite && " · live on the site"}
                     {link && (
                       <>
                         {" · "}
-                        <a href={link} target="_blank" rel="noopener noreferrer" className="text-gold-700 hover:underline">
-                          link
+                        <a href={link} target="_blank" rel="noopener noreferrer" className={LINK}>
+                          link<span className="sr-only"> to {r.topic} (opens in a new tab)</span>
                         </a>
                       </>
                     )}
@@ -321,6 +331,7 @@ async function Marketing() {
               );
             })}
           </ul>
+          </Card>
         </section>
       )}
     </>
@@ -330,14 +341,9 @@ async function Marketing() {
 export default function MarketingPage() {
   return (
     <main className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-navy-900">Marketing</h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Whether anything is going out, and what you have asked for next.
-        </p>
-      </header>
+      <PageHeader title="Marketing" description="Whether anything is going out, and what you have asked for next." />
 
-      <Suspense fallback={<><StatSkeleton /><GridSkeleton /></>}>
+      <Suspense fallback={<><StatSkeleton count={3} /><GridSkeleton /></>}>
         <Marketing />
       </Suspense>
     </main>

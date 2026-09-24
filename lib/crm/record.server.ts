@@ -7,11 +7,11 @@
  * that rendered it. It is listed in STAFF_ONLY_MODULES in guards.regress.ts, so
  * removing that line fails the build.
  *
- * ONE ROUND TRIP. The eight reads go out as a single `db.batch`, which the
- * neon-http driver sends as one HTTP request. Eight awaits in a row would be
- * eight trips to Neon on every card open; `Promise.all` would still be eight
- * requests. The batch is read-only, so running it inside the transaction the
- * driver wraps it in costs nothing.
+ * ONE ROUND TRIP. All ten reads (the texting outbox is the tenth) go out as
+ * a single `db.batch`, which the neon-http driver sends as one HTTP request.
+ * Ten awaits in a row would be ten trips to Neon on every card open;
+ * `Promise.all` would still be ten requests. The batch is read-only, so
+ * running it inside the transaction the driver wraps it in costs nothing.
  *
  * WHICH CONTACT'S HISTORY. An activity can be filed against the deal, or only
  * against the person — the Gmail sync deliberately leaves `application_id`
@@ -39,12 +39,13 @@ import {
   crmTasks,
   documents,
   entities,
+  outboundMessages,
   participants,
   properties,
   stageTransitions,
 } from "@/lib/db/schema";
 import { assertCrmStaff } from "@/lib/crm/access";
-import { TIMELINE_LIMIT, type ActivityInput, type TransitionInput } from "./record";
+import { TIMELINE_LIMIT, type ActivityInput, type OutboundInput, type TransitionInput } from "./record";
 import { isUuid, type TaskLike } from "./tasks";
 
 const iso = (v: unknown): string | null => {
@@ -153,6 +154,8 @@ export type RecordCardData = {
   properties: RecordProperty[];
   activities: ActivityInput[];
   totalActivities: number;
+  /** Texting attempts on this deal (and the person's unattributed ones), newest first. */
+  outbound: OutboundInput[];
   transitions: TransitionInput[];
   totalTransitions: number;
   tasks: RecordTask[];
@@ -183,6 +186,12 @@ export async function getRecordCard(applicationId: string): Promise<RecordCardDa
     eq(activities.applicationId, id),
     and(isNull(activities.applicationId), eq(activities.contactId, primaryContactOf(id))),
   );
+  // The same scope for the texting outbox: this deal's attempts, plus the
+  // primary contact's attempts that were not made from any deal.
+  const outboundScope = or(
+    eq(outboundMessages.applicationId, id),
+    and(isNull(outboundMessages.applicationId), eq(outboundMessages.contactId, primaryContactOf(id))),
+  );
 
   const [
     appRows,
@@ -194,6 +203,7 @@ export async function getRecordCard(applicationId: string): Promise<RecordCardDa
     transitionCount,
     taskRows,
     docRows,
+    outboundRows,
   ] = await db.batch([
     db
       .select({
@@ -248,6 +258,7 @@ export async function getRecordCard(applicationId: string): Promise<RecordCardDa
         source: activities.source,
         subject: activities.subject,
         body: activities.body,
+        metadata: activities.metadata,
       })
       .from(activities)
       .where(timelineScope)
@@ -299,6 +310,22 @@ export async function getRecordCard(applicationId: string): Promise<RecordCardDa
       .from(documents)
       .where(eq(documents.applicationId, id))
       .orderBy(asc(documents.name)),
+
+    // Status and words only. Never the idempotency key or who-sent-it — the
+    // card does not need them.
+    db
+      .select({
+        id: outboundMessages.id,
+        status: outboundMessages.status,
+        body: outboundMessages.body,
+        error: outboundMessages.error,
+        createdAt: outboundMessages.createdAt,
+        lastAttemptAt: outboundMessages.lastAttemptAt,
+      })
+      .from(outboundMessages)
+      .where(outboundScope)
+      .orderBy(desc(outboundMessages.createdAt), desc(outboundMessages.id))
+      .limit(TIMELINE_LIMIT),
   ]);
 
   const row = appRows[0];
@@ -410,8 +437,17 @@ export async function getRecordCard(applicationId: string): Promise<RecordCardDa
       source: r.source,
       subject: r.subject,
       body: r.body,
+      metadata: r.metadata ?? null,
     })),
     totalActivities: Number(activityCount[0]?.n ?? 0),
+    outbound: outboundRows.map((r) => ({
+      id: r.id,
+      status: r.status,
+      body: r.body,
+      error: r.error,
+      createdAt: iso(r.createdAt) ?? new Date(0).toISOString(),
+      lastAttemptAt: iso(r.lastAttemptAt),
+    })),
     transitions: transitionRows.map((r) => ({
       id: r.id,
       fromStage: r.fromStage,

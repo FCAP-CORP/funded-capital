@@ -384,8 +384,10 @@ export function queueReasonFor(
 
   const { thresholds: th } = opts;
 
-  // 1. They wrote to us and nothing went back.
-  if (app.lastContactDirection === "email_in") {
+  // 1. They wrote to us (email or text) and nothing went back.
+  //    Was email-only until 24 Sep 2026, when Quo texts started arriving
+  //    as sms_in — an unanswered text is exactly as urgent as an email.
+  if (isInboundDirection(app.lastContactDirection)) {
     const d = daysSince(app.lastContactAt, now);
     if (d !== null && d >= th.awaitingReplyDays) return { reason: "awaiting_reply", waitingDays: d };
   }

@@ -40,6 +40,50 @@ export const GATE_STAGES = new Set([
   "clear_to_close", "funded",
 ]);
 
+/**
+ * The colour family a status pill uses (components/ui/badge.tsx draws it).
+ * A word, not a class, so this file stays free of styling and testable.
+ */
+export type Tone = "neutral" | "navy" | "gold" | "info" | "success" | "warning" | "danger" | "muted";
+
+/**
+ * One tone per stage, in five groups a glance can separate:
+ *
+ *   neutral  — not yet a deal (lead, qualified)
+ *   gold     — the conversion gate: a term sheet is out or signed. Same gold
+ *              the dashboard's stage chart uses for the same two stages.
+ *   info     — in process: application through docs out
+ *   success  — won: funded and every servicing stage while the loan performs
+ *   muted    — finished without incident (paid off)
+ *   danger   — closed, lost
+ *
+ * Every stage in STAGE_ORDER has an entry; view.regress.ts fails if one is
+ * added without one, the same way schema-sync.regress.ts guards the labels.
+ */
+export const STAGE_TONE: Record<string, Tone> = {
+  lead: "neutral",
+  qualified: "neutral",
+  term_sheet_issued: "gold",
+  term_sheet_signed: "gold",
+  application_in: "info",
+  underwriting: "info",
+  conditional_approval: "info",
+  conditions_clearing: "info",
+  clear_to_close: "info",
+  docs_out: "info",
+  funded: "success",
+  active: "success",
+  draw_cycle: "success",
+  extension: "warning",
+  payoff: "muted",
+  closed_lost: "danger",
+};
+
+/** An unknown stage is shown, neutral, rather than hidden or coloured as something it is not. */
+export function stageTone(stage: string | null | undefined): Tone {
+  return (stage && STAGE_TONE[stage]) || "neutral";
+}
+
 export const PRODUCT_LABEL: Record<string, string> = {
   fix_and_flip: "Fix & Flip",
   ground_up: "Ground-Up",

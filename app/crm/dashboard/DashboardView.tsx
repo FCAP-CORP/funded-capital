@@ -19,6 +19,8 @@ import { RecordLink } from "../_record/RecordCardProvider";
 import { BringBackButton, QueueRowActions } from "./QueueRowActions";
 import { QueueTabs } from "./QueueTabs";
 import { DueTasks, type DueTaskItem } from "./DueTasks";
+import { cardClass } from "@/components/ui/card";
+import { StatCard } from "@/components/ui/stat-card";
 
 /**
  * The dashboard, drawn from a model that has already been computed.
@@ -35,12 +37,13 @@ import { DueTasks, type DueTaskItem } from "./DueTasks";
  * same numbers for screen readers.
  */
 
-const card = "rounded-2xl border border-slate-200 bg-white";
+/** The kit's card surface (components/ui/card.tsx) — identical classes, one definition. */
+const card = cardClass;
 const h2 = "text-lg font-bold text-navy-900";
 const quiet = "text-[13px] text-slate-500";
 const textLink =
   "rounded-sm text-[13px] font-semibold text-navy-900 underline decoration-gold-500 decoration-2 underline-offset-4 " +
-  "hover:decoration-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-500";
+  "hover:decoration-navy-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-700";
 
 /* ------------------------------------------------------------ attention */
 
@@ -86,14 +89,9 @@ function AttentionStrip({ a }: { a: Attention }) {
 
 /* ------------------------------------------------------------------ KPIs */
 
+/** The kit's StatCard was cut from this card; the Pipeline page's strip uses the same one. */
 function KpiCard({ title, kpi }: { title: string; kpi: Kpi }) {
-  return (
-    <div className={`${card} flex flex-col gap-2 p-4 sm:gap-2.5 sm:p-5`}>
-      <p className="text-[11px] font-bold uppercase tracking-[0.1em] text-slate-500 sm:text-xs">{title}</p>
-      <p className="text-2xl font-extrabold tracking-tight text-navy-900 tabular-nums sm:text-[30px] sm:leading-9">{kpi.value}</p>
-      <p className={`text-[13px] ${kpi.tone === "warn" ? "font-semibold text-amber-700" : "text-slate-600"}`}>{kpi.sub}</p>
-    </div>
-  );
+  return <StatCard title={title} value={kpi.value} sub={kpi.sub} tone={kpi.tone === "warn" ? "warn" : "default"} />;
 }
 
 /* ------------------------------------------------------------ work queue */

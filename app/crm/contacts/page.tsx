@@ -4,6 +4,7 @@ import { isCrmStaff } from "@/lib/crm/access";
 import { getContacts } from "@/lib/db/queries";
 import ContactsTable from "./ContactsTable";
 import { GridSkeleton } from "../Skeleton";
+import { PageHeader } from "@/components/ui/page-header";
 
 // No route segment config — see the note in app/crm/page.tsx. Cache Components
 // makes this page a static shell with the data streaming into the boundary.
@@ -23,8 +24,9 @@ async function Contacts() {
 
   return (
     <>
-      <p className="-mt-4 mb-6 text-sm text-slate-500">
-        {rows.length.toLocaleString("en-US")} people · {withDeals.toLocaleString("en-US")} have had a deal
+      <p className="-mt-3 mb-5 text-sm text-slate-600">
+        <span className="font-semibold text-navy-900">{rows.length.toLocaleString("en-US")}</span> people ·{" "}
+        {withDeals.toLocaleString("en-US")} have had a deal
         {unreachable > 0 && ` · ${unreachable.toLocaleString("en-US")} with no email or phone`}
       </p>
       <ContactsTable rows={rows} />
@@ -35,9 +37,10 @@ async function Contacts() {
 export default function ContactsPage() {
   return (
     <main className="px-4 sm:px-6 lg:px-8 py-6 lg:py-8">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-navy-900">Contacts</h1>
-      </header>
+      <PageHeader
+        title="Contacts"
+        description="The whole book, including everyone who has never filed a deal — the list every re-engagement campaign starts from. Tick people or filter, then export."
+      />
 
       <Suspense fallback={<GridSkeleton />}>
         <Contacts />

@@ -6,6 +6,7 @@ import { isCrmStaff, signedInUser } from "@/lib/crm/access";
 import { getDashboardData } from "@/lib/crm/dashboard.server";
 import { buildDashboardModel, dateLine, greeting } from "@/lib/crm/dashboardView";
 import { DashboardBody } from "./DashboardView";
+import { buttonVariants } from "@/components/ui/button";
 import { RecordCardProvider } from "../_record/RecordCardProvider";
 import RecordCardSlot from "../_record/RecordCardSlot";
 
@@ -127,7 +128,7 @@ export default function DashboardPage({
           </Suspense>
           <Link
             href="/broker-portal/apply"
-            className="inline-flex h-11 items-center gap-2 self-start rounded-xl bg-navy-900 px-[18px] text-sm font-semibold text-white hover:bg-navy-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-500 focus-visible:ring-offset-2 sm:self-auto"
+            className={buttonVariants({ size: "lg", className: "gap-2 self-start sm:self-auto" })}
           >
             <Plus size={16} strokeWidth={2.4} className="text-gold-400" aria-hidden="true" />
             New application
