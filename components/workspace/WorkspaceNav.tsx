@@ -3,7 +3,7 @@
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BookOpen,
   Building2,
@@ -93,6 +93,17 @@ export default function WorkspaceNav({ sections, canSearch = false }: { sections
   const [shortcut, setShortcut] = useState<string | null>(null);
   const links = useMemo(() => paletteLinks(sections), [sections]);
 
+  // Keys typed between opening the palette and its input taking focus.
+  const early = useRef("");
+  const waiting = useRef(false);
+  const takeEarlyKeys = useCallback(() => {
+    waiting.current = false;
+    const keys = early.current;
+    early.current = "";
+    return keys;
+  }, []);
+
+
   useEffect(() => {
     // Read after mount: the server cannot know the visitor's platform, and
     // guessing would make the first paint disagree with the second.
@@ -101,16 +112,38 @@ export default function WorkspaceNav({ sections, canSearch = false }: { sections
       if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setPaletteMounted(true);
-        setPaletteOpen((o) => !o);
+        setPaletteOpen((o) => {
+          waiting.current = !o;
+          if (!o) early.current = "";
+          return !o;
+        });
+        return;
+      }
+      // Typing straight after ⌘K, before the palette's code has arrived: keep
+      // the keys instead of dropping them on the page. Found live on 24 Sep —
+      // "trevar" typed a second after Ctrl K vanished on the first open.
+      if (waiting.current && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (e.key.length === 1) { early.current += e.key; e.preventDefault(); }
+        else if (e.key === "Backspace") { early.current = early.current.slice(0, -1); e.preventDefault(); }
       }
     }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    // Fetch the palette's code once the page is idle, so the first ⌘K is
+    // instant. It is off the critical path: nothing on the page waits for it.
+    const w = window as Window & { requestIdleCallback?: (cb: () => void) => number };
+    const prefetch = () => { void loadPalette(); };
+    const idle = w.requestIdleCallback ? w.requestIdleCallback(prefetch) : window.setTimeout(prefetch, 2000);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (!w.requestIdleCallback) window.clearTimeout(idle);
+    };
   }, []);
 
   function openPalette() {
     setOpen(false);
     setPaletteMounted(true);
+    waiting.current = true;
+    early.current = "";
     setPaletteOpen(true);
   }
   const searchLabel = canSearch ? "Search deals, people, pages" : "Go to a page";
@@ -257,7 +290,8 @@ export default function WorkspaceNav({ sections, canSearch = false }: { sections
       {paletteMounted && (
         <CommandPalette
           open={paletteOpen}
-          onClose={() => setPaletteOpen(false)}
+          onClose={() => { waiting.current = false; setPaletteOpen(false); }}
+          takeEarlyKeys={takeEarlyKeys}
           links={links}
           canSearch={canSearch}
         />

@@ -477,6 +477,13 @@ function TextComposer({
           : <ShieldAlert size={14} aria-hidden="true" className="mt-px shrink-0" />}
         <span>{gate.ok ? gate.detail : gate.reason}</span>
       </p>
+      {!gate.ok ? (
+        // Blocked: say why and stop. A greyed-out box and a dead Send button
+        // under the reason only invite someone to try anyway.
+        <div>
+          <button type="button" className={btn} onClick={onClose}>Close</button>
+        </div>
+      ) : (<>
       <label htmlFor={fieldId} className="sr-only">Text to {name}</label>
       <textarea
         id={fieldId}
@@ -508,13 +515,14 @@ function TextComposer({
         )}
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
-        <button type="submit" className={primary} disabled={!canSend} title={gate.ok ? "Send through Quo (Ctrl/⌘ + Enter)" : gate.reason}>
+        <button type="submit" className={primary} disabled={!canSend} title="Send through Quo (Ctrl/⌘ + Enter)">
           {pending ? <Loader2 size={13} className="animate-spin" aria-hidden="true" /> : <Send size={13} aria-hidden="true" />}
           {pending ? "Sending…" : "Send text"}
         </button>
         <button type="button" className={btn} disabled={pending} onClick={onClose}>Close</button>
         <span className="text-[11px] text-slate-500">From Funded Capital&apos;s Quo line. Replies land in Quo and on this timeline.</span>
       </div>
+      </>)}
       {result && (
         <p role={result.ok ? "status" : "alert"} className={`inline-flex items-start gap-1 text-xs ${result.ok ? "text-emerald-700" : "text-red-600"}`}>
           {result.ok && <Check size={12} aria-hidden="true" className="mt-px" />}

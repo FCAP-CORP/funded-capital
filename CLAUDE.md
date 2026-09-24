@@ -788,8 +788,8 @@ and its data comes from `lib/crm/dashboard.server.ts`, not `getDashboardApplicat
 - `signedInUser` in `lib/crm/access.ts` caches Clerk's `currentUser()` per request so the greeting
   reuses the staff check's lookup. It is NOT a gate.
 - Guard §8 scans every `.tsx` in `app/crm/dashboard` for action calls and requires `HERE`.
-- Known gap: the stage select in the dashboard queue's More menu does not confirm Funded or ask
-  for a lost reason; the board, table and record card do.
+- The stage select in the dashboard queue's More menu confirms Funded and asks for a lost reason,
+  like the board, table and record card (closed 24 Sep 2026).
 
 
 ### Component kit, ⌘K and pro tables (24 Sep 2026)
@@ -836,3 +836,30 @@ place calls by API). Calls and texts log themselves from Quo's webhooks.
 - **Awaiting reply** on the dashboard now counts inbound texts (`sms_in`) as well as email.
 - Open: quiet hours (TCPA 8am–9pm; Florida FTSA 8am–8pm) are not enforced — counsel question;
   `webhook_events` keeps full payloads with no purge yet; `call` activities carry no direction.
+
+### Contacts showed 0 deals and "never" for everyone (fixed 24 Sep 2026)
+
+**Drizzle writes a column in a single-table SELECT list without its table name.** `${contacts.id}`
+inside a correlated subquery in `.select({...}).from(contacts)` came out as a bare `"id"`, and
+Postgres resolves a bare name to the INNER table first — so `p.contact_id = "id"` compared a
+participant with itself. Every row on `/crm/contacts` said 0 deals and "never" contacted, and the
+header said "0 have had a deal". It ran, returned numbers, and every number was wrong.
+
+- The same column inside a WHERE clause IS qualified, which is why "Never contacted" on `/crm` was
+  right. Only the select list does this.
+- `lib/db/contactSubqueries.ts` writes `"contacts"."id"` out by hand; `contactSubqueries.regress.ts`
+  renders the real query with `drizzle.mock()` (no connection) and fails on a bare `"id"`.
+  Negative-tested, and checked on Postgres 16: old SQL 0 deals / 0 contacted, new 9 / 8 on the
+  same seed.
+- **Rule:** a correlated subquery in a select list names the outer table explicitly. Never
+  `${table.column}` there.
+
+### Polish from the 24 Sep live check
+
+- Pipeline rows were ~107px (a two-row notes box plus a two-line message in every row — six deals
+  to a screen). The notes cell is now one line until focused (`InlineText compact`, still a
+  textarea so line breaks survive) and the borrower's message is one truncated line.
+- ⌘K dropped the first keys typed while its code was still loading. The palette chunk now
+  prefetches when the page is idle, and keys typed before the input exists are kept and handed to
+  it (`takeEarlyKeys` in `WorkspaceNav.tsx`).
+- The Text panel for someone who cannot be texted shows the reason and Close — no greyed-out box.

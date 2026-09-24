@@ -232,18 +232,19 @@ export default function PipelineTable({ rows }: { rows: PipelineRow[] }) {
       size: 256,
       sortable: false,
       render: (r) => (
-        <div className="space-y-1">
+        <div className="space-y-0.5">
           <InlineText
             id={r.id}
             initial={r.notes}
             placeholder="Add a note…"
             multiline
+            compact
             onSave={(id, _field, value) => setApplicationNotes(id, value, HERE)}
           />
           {r.borrowerMessage && (
             // Verbatim from the borrower, never edited here — it is the single
             // best predictor of whether the deal is real.
-            <p className="line-clamp-2 text-[11px] italic text-slate-600" title={r.borrowerMessage}>
+            <p className="truncate px-2 text-[11px] italic text-slate-600" title={r.borrowerMessage}>
               “{r.borrowerMessage}”
             </p>
           )}

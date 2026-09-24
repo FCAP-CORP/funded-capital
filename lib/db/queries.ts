@@ -1,7 +1,8 @@
 import "server-only";
-import { desc, sql as dsql, eq, type SQL, type AnyColumn } from "drizzle-orm";
+import { desc, sql as dsql, eq } from "drizzle-orm";
 import { db } from "./index";
 import { CONTACT_KINDS } from "./contactKinds";
+import { dealCount, lastContactAt, lastContactKind } from "./contactSubqueries";
 import { activities, applications, contacts, participants, properties } from "./schema";
 import { assertCrmStaff } from "@/lib/crm/access";
 import type { DashboardApplication } from "@/lib/crm/dashboard";
@@ -22,28 +23,9 @@ import type { DashboardApplication } from "@/lib/crm/dashboard";
  */
 
 /**
- * Newest real correspondence with a contact, and which way it went.
- *
- * Correlated subqueries rather than a join, because a contact has many
- * activities and joining would multiply the rows before we could collapse them.
- * `activities_contact_idx` covers the lookup.
- *
- * Restricted to email_in / email_out on purpose: a form submission is the
- * borrower raising their hand, not a conversation, and counting it would put
- * every untouched lead back under a reassuring "last contacted" date — which is
- * the illusion this column exists to destroy.
+ * The Contacts list's per-person subqueries (last contact, deal count) live in
+ * ./contactSubqueries — with the reason the contact id is written out by hand.
  */
-
-const LAST_CONTACT_AT = (contactId: SQL | AnyColumn) => dsql<Date | null>`(
-  SELECT max(a.occurred_at) FROM ${activities} a
-  WHERE a.contact_id = ${contactId} AND a.kind IN ${CONTACT_KINDS}
-)`;
-
-const LAST_CONTACT_DIR = (contactId: SQL | AnyColumn) => dsql<string | null>`(
-  SELECT a.kind FROM ${activities} a
-  WHERE a.contact_id = ${contactId} AND a.kind IN ${CONTACT_KINDS}
-  ORDER BY a.occurred_at DESC LIMIT 1
-)`;
 
 /**
  * Reading raw rows back out of drizzle.
@@ -207,11 +189,9 @@ export async function getContacts(): Promise<ContactRow[]> {
       tags: contacts.tags,
       createdAt: contacts.createdAt,
       notes: contacts.notes,
-      deals: dsql<number>`(
-        SELECT count(*)::int FROM ${participants} p WHERE p.contact_id = ${contacts.id}
-      )`,
-      lastContactAt: LAST_CONTACT_AT(contacts.id),
-      lastContactDirection: LAST_CONTACT_DIR(contacts.id),
+      deals: dealCount(),
+      lastContactAt: lastContactAt(),
+      lastContactDirection: lastContactKind(),
     })
     .from(contacts)
     .orderBy(desc(contacts.createdAt));

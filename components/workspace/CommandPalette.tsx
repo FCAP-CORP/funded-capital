@@ -37,10 +37,12 @@ const ITEM =
   "data-[selected=true]:bg-slate-100 data-[disabled=true]:opacity-50";
 
 export default function CommandPalette({
-  open, onClose, links, canSearch,
+  open, onClose, links, canSearch, takeEarlyKeys,
 }: {
   open: boolean;
   onClose: () => void;
+  /** Keys typed before this component had loaded; see WorkspaceNav. */
+  takeEarlyKeys?: () => string;
   links: PaletteLink[];
   canSearch: boolean;
 }) {
@@ -52,15 +54,20 @@ export default function CommandPalette({
   const [status, setStatus] = useState<Status>("idle");
   const inflight = useRef<AbortController | null>(null);
 
-  // A fresh palette every time it opens.
+  // A fresh palette every time it opens — seeded with anything typed while
+  // it was still loading.
   useEffect(() => {
-    if (open) return;
+    if (open) {
+      const typed = takeEarlyKeys?.() ?? "";
+      if (typed) setQuery(typed);
+      return;
+    }
     setQuery("");
     setResults([]);
     setResultsFor("");
     setStatus("idle");
     inflight.current?.abort();
-  }, [open]);
+  }, [open, takeEarlyKeys]);
 
   const trimmed = query.trim();
   const searching = canSearch && trimmed.length >= SEARCH_MIN;

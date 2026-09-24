@@ -107,7 +107,7 @@ export function StageSelect({
  * in a handler, which is not a trade worth making to save eight lines.
  */
 export function InlineText({
-  id, field, initial, placeholder, onSave, multiline = false,
+  id, field, initial, placeholder, onSave, multiline = false, compact = false,
 }: {
   id: string;
   field?: string;
@@ -115,6 +115,13 @@ export function InlineText({
   placeholder: string;
   onSave: (id: string, field: string, value: string) => Promise<Result>;
   multiline?: boolean;
+  /**
+   * One line tall until focused, then it opens up to edit. For table cells:
+   * a two-row textarea in every row made the Pipeline rows ~107px tall, six
+   * deals to a screen. Still a textarea, so a note's line breaks survive an
+   * edit made from the table.
+   */
+  compact?: boolean;
 }) {
   const s = useSaver(initial ?? "", (v) => onSave(id, field ?? "", v));
 
@@ -134,7 +141,8 @@ export function InlineText({
       {multiline ? (
         <textarea
           {...shared}
-          rows={2}
+          rows={compact ? 1 : 2}
+          className={compact ? `${shared.className} h-7 resize-none overflow-hidden focus:h-24 focus:overflow-auto` : shared.className}
           onChange={(e) => s.setValue(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Escape") s.setValue(initial ?? ""); }}
         />

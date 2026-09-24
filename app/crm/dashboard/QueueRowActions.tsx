@@ -6,7 +6,8 @@ import {
 } from "lucide-react";
 import { MAX_NOTE_LENGTH } from "@/lib/crm/followup";
 import { LOG_ACTIONS, snoozeOptions, stageOptions, type SnoozeOption } from "@/lib/crm/queueView";
-import { clearSnooze, logContact, setSnooze, setStage } from "../actions";
+import { clearSnooze, logContact, markLost, setSnooze, setStage } from "../actions";
+import { ConfirmFundedDialog, LostReasonDialog } from "../StageDialogs";
 
 /**
  * Every action on this page refreshes THIS page and no other. See the note on
@@ -78,6 +79,9 @@ export function QueueRowActions({
   const [reason, setReason] = useState("");
   const [options, setOptions] = useState<SnoozeOption[]>([]);
   const [stageValue, setStageValue] = useState(stage);
+  // Funded and Closed – Lost ask first, exactly as the table, board and record
+  // card do. Until 24 Sep this menu moved them without a question.
+  const [ask, setAsk] = useState<null | "funded" | "lost">(null);
   // The menu's contents exist only while it is open: ninety rows each carrying
   // a closed menu with a sixteen-option stage list is weight nobody sees.
   const [menuOpen, setMenuOpen] = useState(false);
@@ -276,6 +280,11 @@ export function QueueRowActions({
                   const next = e.target.value;
                   if (next === stage) { setStageValue(next); return; }
                   setStageValue(next);
+                  if (next === "funded" || next === "closed_lost") {
+                    closeMenu();
+                    setAsk(next === "funded" ? "funded" : "lost");
+                    return;
+                  }
                   // On failure the menu snaps back to what the database actually holds.
                   run(() => setStage(applicationId, next, HERE), "Stage changed", () => closeMenu(), () => setStageValue(stage));
                 }}
@@ -300,6 +309,29 @@ export function QueueRowActions({
         )}
       </span>
       {error && <p role="alert" className="mt-4 max-w-[16rem] text-right text-[11px] text-red-700">{error}</p>}
+
+      {ask === "funded" && (
+        <ConfirmFundedDialog
+          open
+          names={[name]}
+          onCancel={() => { setAsk(null); setStageValue(stage); }}
+          onConfirm={() => {
+            setAsk(null);
+            run(() => setStage(applicationId, "funded", HERE), "Marked funded", undefined, () => setStageValue(stage));
+          }}
+        />
+      )}
+      {ask === "lost" && (
+        <LostReasonDialog
+          open
+          names={[name]}
+          onCancel={() => { setAsk(null); setStageValue(stage); }}
+          onConfirm={(choice, note) => {
+            setAsk(null);
+            run(() => markLost(applicationId, choice, note, HERE), "Marked lost", undefined, () => setStageValue(stage));
+          }}
+        />
+      )}
     </div>
   );
 }
