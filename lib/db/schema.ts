@@ -699,11 +699,11 @@ export const applicationProperties = pgTable("application_properties", {
 /**
  * A request for a blog post, a LinkedIn post or an email — and what became of it.
  *
- * THE PORTAL ASKS; IT DOES NOT WRITE. Nothing in this app calls a model. A row
- * lands here, a scheduled Claude task picks it up, does the work with the brand
- * voice and research skills that already exist, and writes back where the draft
- * is. That keeps one definition of the brand voice instead of two, and keeps an
- * API key out of the web app.
+ * THE PORTAL ASKS; IT DOES NOT PUBLISH. A row lands here and something picks it
+ * up and writes back where the draft is. For LinkedIn and email that is a
+ * scheduled Claude task. For the blog, since 25 Sep 2026, it is the site's own
+ * cron (app/api/cron/daily-blog), which talks to this table only through
+ * /api/crm/content-queue. See CLAUDE.md, "The daily blog is a Vercel cron".
  *
  * `draft_url` points at the Gmail draft, the Klaviyo template or the MDX file;
  * `draft_summary` is one line for the list.
@@ -748,6 +748,13 @@ export const contentRequests = pgTable("content_requests", {
    */
   carouselSpec: jsonb("carousel_spec").$type<unknown>(),
   carouselAt: timestamp("carousel_at", { withTimezone: true }),
+  /**
+   * The LinkedIn caption that goes with a blog post (migration 0012, 25 Sep
+   * 2026). The daily blog now runs as a Vercel cron and cannot leave a Gmail
+   * draft, so the caption waits here, shown on /crm/marketing to copy.
+   * Marketing copy only.
+   */
+  linkedinCaption: text("linkedin_caption"),
 
   publishedAt: timestamp("published_at", { withTimezone: true }),
   publishedUrl: text("published_url"),
@@ -881,4 +888,85 @@ export const webhookEvents = pgTable("webhook_events", {
 }, (t) => ({
   providerEventKey: uniqueIndex("webhook_events_provider_event_key").on(t.provider, t.eventId),
   receivedIdx: index("webhook_events_received_at_idx").on(t.receivedAt),
+}));
+
+/* -------------------------------------------------------- mail_connections */
+
+/**
+ * A staff member's Gmail, connected once for sending from the record card.
+ * Migration 0013.
+ *
+ * `refresh_token_enc` is the Google refresh token ENCRYPTED with
+ * `GMAIL_TOKEN_KEY` (lib/comms/tokenCrypto.ts). The token is a standing key to
+ * send mail as that person; stored in the clear, any database dump could send
+ * email from their address. The key lives only in Vercel.
+ *
+ * One row per mailbox. `email` is the address Google confirmed at connect
+ * time, and it must equal the Lending OS sign-in address — nobody can connect
+ * someone else's mailbox, and nobody can send from someone else's.
+ * `last_error` records a revoked or expired grant, so the card can say
+ * "reconnect" instead of failing mysteriously.
+ */
+export const mailConnections = pgTable("mail_connections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  provider: text("provider").notNull().default("google"),
+  email: text("email").notNull(),
+  clerkUserId: text("clerk_user_id").notNull(),
+  refreshTokenEnc: text("refresh_token_enc").notNull(),
+  scopes: text("scopes").notNull(),
+  connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  lastError: text("last_error"),
+}, (t) => ({
+  providerCheck: check("mail_connections_provider_check", sql`${t.provider} IN ('google')`),
+  providerEmailKey: uniqueIndex("mail_connections_provider_email_key").on(t.provider, sql`lower(${t.email})`),
+}));
+
+/* --------------------------------------------------------- outbound_emails */
+
+/**
+ * The outbox for email sent from the record card through Gmail. Migration 0013.
+ *
+ * Kept apart from `outbound_messages` (texts) on purpose: texting has consent
+ * versions, delivery receipts and a retry window that email does not, and the
+ * texting code reads that table as "texts". Two small tables are easier to
+ * reason about than one table with two meanings.
+ *
+ * Same shape of guarantee as texting: a browser-minted idempotency key, UNIQUE,
+ * so a double-click sends once; every attempt is a row, including the ones the
+ * gate refused (`blocked`, with the reason). A `sending` row that never
+ * finished is an outcome-unknown send — check Gmail's Sent folder before
+ * sending again. The `email_out` activity is written only once Gmail accepts
+ * the message, keyed `gmail:<message id>:<recipient>` — the same key the
+ * Apps Script Gmail sync uses, so the sync finding it later adds nothing.
+ */
+export const OUTBOUND_EMAIL_STATUSES = ["sending", "sent", "failed", "blocked"] as const;
+export type OutboundEmailStatus = (typeof OUTBOUND_EMAIL_STATUSES)[number];
+
+export const outboundEmails = pgTable("outbound_emails", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  idempotencyKey: uuid("idempotency_key").notNull(),
+  contactId: uuid("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+  applicationId: uuid("application_id").references(() => applications.id, { onDelete: "set null" }),
+  fromEmail: text("from_email").notNull(),
+  toEmail: text("to_email").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(),
+  templateKey: text("template_key"),
+  status: text("status").$type<OutboundEmailStatus>().notNull().default("sending"),
+  providerMessageId: text("provider_message_id"),
+  providerThreadId: text("provider_thread_id"),
+  error: text("error"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+}, (t) => ({
+  statusCheck: check("outbound_emails_status_check", sql`${t.status} IN ('sending', 'sent', 'failed', 'blocked')`),
+  subjectLength: check("outbound_emails_subject_length_check", sql`char_length(${t.subject}) BETWEEN 1 AND 200`),
+  bodyLength: check("outbound_emails_body_length_check", sql`char_length(${t.body}) BETWEEN 1 AND 20000`),
+  idemKey: uniqueIndex("outbound_emails_idempotency_key").on(t.idempotencyKey),
+  appIdx: index("outbound_emails_application_idx").on(t.applicationId),
+  contactIdx: index("outbound_emails_contact_idx").on(t.contactId),
 }));

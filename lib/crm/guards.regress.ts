@@ -139,6 +139,9 @@ const STAFF_ONLY_MODULES = [
   // The dashboard's read: the whole book, every borrower's name and email,
   // plus every open task due today.
   "lib/crm/dashboard.server.ts",
+  // Connected Gmail mailboxes: holds (encrypted) the key to send mail as
+  // someone. Section 13 pins the rest.
+  "lib/comms/mailbox.server.ts",
 ];
 
 for (const relPath of STAFF_ONLY_MODULES) {
@@ -311,6 +314,17 @@ const NON_STAFF_SERVER_MODULES: Record<string, string> = {
   "lib/comms/outbox.server.ts": "staff-guarded by its one caller (app/crm/commsActions.ts); consent-gated itself",
   "lib/comms/quo.server.ts": "HTTP client only: reads no table, needs a TextPermit, imported only by the executor",
   "lib/comms/quoWebhook.server.ts": "signature-guarded: Quo webhooks, via /api/webhooks/quo only",
+
+  /**
+   * EMAIL FROM THE RECORD CARD (25 Sep 2026). Section 13 pins both:
+   * - the EXECUTOR is reached only through app/crm/emailActions.ts (every
+   *   export asserts staff, section 2), and every mailbox read it makes goes
+   *   through lib/comms/mailbox.server.ts, which asserts staff again. What it
+   *   asserts itself is the email gate (canEmail) before Gmail is called;
+   * - the Google HTTP client reads no table and logs nothing.
+   */
+  "lib/comms/emailOutbox.server.ts": "staff-guarded by its one caller (app/crm/emailActions.ts); email-gated itself",
+  "lib/comms/gmail.server.ts": "HTTP client only: reads no table, logs nothing, imported by the executor and the Connect Gmail callback",
 };
 
 const exemptPaths = Object.keys(NON_STAFF_SERVER_MODULES);
@@ -1008,6 +1022,117 @@ const proxySrc = readOr("proxy.ts");
 if (proxySrc) {
   const guarded = /isGuardedRoute\s*=\s*createRouteMatcher\(\[([\s\S]*?)\]\)/.exec(codeOnly(proxySrc))?.[1] ?? "";
   check("/api/webhooks/quo is reachable by Quo (not behind Clerk in proxy.ts)", guarded.length > 0 && !/"\/api/.test(guarded), "not guarded — the signature is the lock");
+}
+
+/* --------------------------------------------------- daily blog cron (§12) */
+
+/**
+ * The 7am blog runs as a Vercel cron since 25 Sep 2026 (the scheduled Claude
+ * task was blocked for carrying the queue token out of a Drive file). The route
+ * holds an Anthropic API key and the queue token, and /api is not behind Clerk,
+ * so CRON_SECRET is the only lock. Pinned:
+ *   1. the secret is checked, fail-closed and in constant time, BEFORE any
+ *      outbound call or environment read of the other secrets;
+ *   2. it reaches the queue only through the HTTP API, never the database,
+ *      so draft.ts and the transition rules keep deciding what lands;
+ *   3. it can never mark anything published.
+ */
+console.log("\n=== 12. Daily blog cron: secret first, queue API only, never publishes ===");
+const CRON_ROUTE = "app/api/cron/daily-blog/route.ts";
+let cronSrc = "";
+try { cronSrc = codeOnly(readFileSync(join(ROOT, CRON_ROUTE), "utf8")); }
+catch { check(CRON_ROUTE, false, "**FILE MISSING** — renamed? update this section"); }
+if (cronSrc) {
+  const get = cronSrc.slice(cronSrc.indexOf("export async function GET"));
+  const gate = get.search(/if\s*\(\s*!tokenOk\(bearerFrom\(request\.headers\.get\("authorization"\)\),\s*process\.env\.CRON_SECRET\)\)/);
+  const firstUse = [...get.matchAll(/\b(fetch\(|queue\(|converse\(|process\.env\.(CONTENT_QUEUE_TOKEN|ANTHROPIC_API_KEY))/g)].map((m) => m.index ?? -1);
+  const first = firstUse.length ? Math.min(...firstUse) : -1;
+  check("  CRON_SECRET is checked with tokenOk (fail-closed, constant time)", gate >= 0, gate >= 0 ? "tokenOk" : "**NO SECRET CHECK**");
+  check("  ...before any outbound call or secret read", gate >= 0 && first > gate, `gate at ${gate}, first use at ${first}`);
+  check("  ...and a failed check is a 401", /Not authorised\."\s*\},\s*\{\s*status:\s*401/.test(get), "401");
+  check("  it never imports the database", !/from\s+"@\/lib\/db/.test(cronSrc) && !/queue\.api\.server|requests\.server/.test(cronSrc), "HTTP only");
+  check("  it never sends status published", !/status:\s*"published"/.test(cronSrc) && !/"published"/.test(cronSrc), "claim, draft, fail only");
+  check("  it never logs a secret", !/console\.\w+\([^)]*(apiKey|queueToken|CRON_SECRET)/.test(cronSrc), "clean");
+}
+const vercelJson = readOr("vercel.json");
+check("vercel.json schedules the daily blog cron",
+  !!vercelJson && /"path":\s*"\/api\/cron\/daily-blog"/.test(vercelJson), vercelJson ? "scheduled" : "**NO vercel.json**");
+
+
+/* ------------------------------------------------ email from the record card */
+
+/**
+ * Sending as Luis through Gmail (25 Sep 2026). A refresh token is a standing
+ * key to his mailbox, and /api is not behind Clerk, so every door is pinned.
+ */
+console.log("\n=== 13. Email: gate before Gmail, own mailbox only, token encrypted, staff-only doors ===");
+{
+  const EX = "lib/comms/emailOutbox.server.ts";
+  const GC = "lib/comms/gmail.server.ts";
+  const MB = "lib/comms/mailbox.server.ts";
+  const ACT = "app/crm/emailActions.ts";
+  const CONNECT = "app/api/crm/google/connect/route.ts";
+  const CALLBACK = "app/api/crm/google/callback/route.ts";
+  const exSrc = readOr(EX), gcSrc = readOr(GC), mbSrc = readOr(MB), actSrc = readOr(ACT), conSrc = readOr(CONNECT), cbSrc = readOr(CALLBACK);
+
+  if (exSrc) {
+    const body = fnBody(codeOnly(exSrc), "executeSendEmail") ?? "";
+    const gateAt = body.search(/\bcanEmail\(/);
+    const bailAt = body.search(/if\s*\(\s*!gate\.ok\s*\)\s*\{[\s\S]*?return\b/);
+    const sendAt = body.search(/\bsendMessage\(/);
+    check(`  ${EX} :: executeSendEmail runs canEmail() on a fresh read`, gateAt >= 0, gateAt >= 0 ? "gate" : "**NO EMAIL GATE**");
+    check("  ...and returns on a refusal before Gmail is called", gateAt >= 0 && bailAt > gateAt && sendAt > bailAt, `gate ${gateAt} < bail ${bailAt} < send ${sendAt}`);
+    check("  Gmail's send is called exactly once in the executor", (codeOnly(exSrc).match(/\bsendMessage\(/g) ?? []).length === 1, "one call");
+    check("  the activity is keyed like the Gmail sync (gmailDedupKey), so the two never double up", /dedupKey:\s*gmailDedupKey\(/.test(codeOnly(exSrc)), "gmailDedupKey");
+    check("  the sender is the request's userEmail (from Clerk), never a field of the draft", /const fromEmail = req\.userEmail/.test(codeOnly(exSrc)), "req.userEmail");
+    check("  writes go out through db.batch, never db.transaction", /\.batch\(/.test(exSrc) && !/\.transaction\(/.test(codeOnly(exSrc)), "db.batch");
+  }
+  if (actSrc) {
+    const code = codeOnly(actSrc);
+    check(`  ${ACT} takes the sender from signedInUser(), not from the browser`, /signedInUser\(\)/.test(code) && /userEmail:\s*me\.email/.test(code), "Clerk");
+    const sendBody = fnBody(code, "sendEmail") ?? "";
+    check("  sendEmail has no from-address parameter", !/fromEmail|senderEmail/.test(sendBody.split(")")[0] ?? ""), "none");
+    const n = (sendBody.match(/revalidatePath\(|revalidateFrom\(/g) ?? []).length;
+    check("  sendEmail refreshes at most one route, through the typed list", n <= 1 && !sendBody.includes("revalidatePath(") && /const EMAIL_ROUTES:\s*readonly CrmRoute\[\]/.test(code), `${n} refresh call(s)`);
+  }
+  if (gcSrc) {
+    const code = codeOnly(gcSrc);
+    check(`  ${GC} is server-only`, /^\s*import\s+"server-only";/m.test(gcSrc), "server-only");
+    check("  ...never logs (tokens and addresses leak through logs)", !/\bconsole\.\w+\(/.test(code), "no console");
+    check("  ...reads no table", !/from\s+"@\/lib\/db/.test(gcSrc), "no db import");
+    check("  ...times out every call", /AbortSignal\.timeout\(GOOGLE_TIMEOUT_MS\)/.test(code), "timeout");
+  }
+  if (mbSrc) {
+    const code = codeOnly(mbSrc);
+    check(`  ${MB} encrypts before storing the refresh token`, /encryptToken\(p\.refreshToken/.test(code) && /refresh_token_enc/.test(code), "encryptToken");
+    check("  ...never logs", !/\bconsole\.\w+\(/.test(code), "no console");
+    check("  ...fails closed without GMAIL_TOKEN_KEY", /if \(!key\) return \{ ok: false/.test(code), "no key, no store");
+  }
+  for (const [p, src] of [[CONNECT, conSrc], [CALLBACK, cbSrc]] as const) {
+    if (!src) continue;
+    const get = codeOnly(src).slice(codeOnly(src).indexOf("export async function GET"));
+    const first = get.indexOf("{") + 1;
+    const staffAt = get.search(/if\s*\(\s*!\(await isCrmStaff\(\)\)\)\s*return new NextResponse\(null,\s*\{\s*status:\s*404/);
+    const firstOther = get.slice(first).search(/\b(await|request\.|process\.env)/);
+    check(`  ${p} checks staff first (404 otherwise)`, staffAt >= 0 && staffAt <= first + firstOther + 10, staffAt >= 0 ? "first" : "**NO STAFF CHECK**");
+  }
+  if (cbSrc) {
+    const code = codeOnly(cbSrc);
+    const stateAt = code.search(/sameState\(q\.get\("state"\),\s*flow\.state\)/);
+    const exchangeAt = code.search(/exchangeCode\(/);
+    const matchAt = code.search(/signedIn !== mailbox/);
+    const saveAt = code.search(/saveMailConnection\(/);
+    check("  the callback checks state before trading the code", stateAt >= 0 && exchangeAt > stateAt, `${stateAt} < ${exchangeAt}`);
+    check("  ...and refuses a mailbox that is not the signed-in address before storing anything", matchAt > 0 && saveAt > matchAt, `${matchAt} < ${saveAt}`);
+  }
+  const execImporters = importersOf(/(^|\/)emailOutbox\.server$/);
+  check("the email executor is imported by app/crm/emailActions.ts and nothing else", execImporters.length === 1 && execImporters[0] === ACT, execImporters.join(", ") || "**NOT IMPORTED**");
+  const gcImporters = importersOf(/(^|\/)gmail\.server$/).sort();
+  check("the Google client is imported by the executor and the callback only", JSON.stringify(gcImporters) === JSON.stringify([CALLBACK, EX].sort()), gcImporters.join(", "));
+  const mbImporters = importersOf(/(^|\/)mailbox\.server$/).sort();
+  check("the mailbox store is imported by the executor and the callback only", JSON.stringify(mbImporters) === JSON.stringify([CALLBACK, EX].sort()), mbImporters.join(", "));
+  const talksToGoogle = allSource.filter((f) => rel(f) !== GC && /(gmail|oauth2)\.googleapis\.com/.test(codeOnly(readFileSync(f, "utf8")))).map(rel);
+  check("no other file calls Gmail or Google's token endpoint (a second sender would skip the gate)", talksToGoogle.length === 0, talksToGoogle.join(", ") || "none");
 }
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);

@@ -27,7 +27,9 @@ import { nyDayLabel } from "@/lib/crm/queueView";
 import { STALE_DAYS } from "@/lib/crm/board";
 import { GATE_STAGES, PRODUCT_LABEL, SOURCE_LABEL, ageLabel, displayPhone, label, money, shortDate } from "@/lib/crm/view";
 import { CONSENT_VERSION } from "@/lib/consent";
-import { canText } from "@/lib/comms/consent";
+import { canEmail, canText } from "@/lib/comms/consent";
+import { greetingName } from "@/lib/crm/emailTemplates";
+import type { EmailComposeView } from "./EmailComposer";
 import { TIMELINE_TEXT_PREVIEW } from "@/lib/crm/record";
 import type { CrmRoute } from "../actions";
 import RecordDrawer from "./RecordDrawer";
@@ -165,6 +167,22 @@ function Card({ card, from }: { card: RecordCardData; from: CrmRoute }) {
     ? { ok: true, detail: `Text consent on file — current wording (${gate.consentVersion}), given ${shortDate(gate.consentAt)}.` }
     : { ok: false, reason: gate.reason };
 
+  // Email: who it would go to and what the gate says — for DISPLAY. The email
+  // executor runs canEmail() again on a fresh read when Send is pressed.
+  const eGate = canEmail(contact);
+  const firstProp = card.properties[0] ?? null;
+  const street = firstProp?.addressLine1?.trim() || null;
+  const cityState = [firstProp?.city, firstProp?.state].filter(Boolean).join(" ");
+  const emailView: EmailComposeView = {
+    gate: eGate.ok ? { ok: true, to: eGate.email } : { ok: false, reason: eGate.reason },
+    vars: {
+      firstName: greetingName(contact?.name),
+      street,
+      address: street ? [street, cityState].filter(Boolean).join(", ") : null,
+      program: app.product ? label(PRODUCT_LABEL, app.product) : null,
+    },
+  };
+
   const followUpAt = app.nextActionAt ? new Date(app.nextActionAt) : null;
   const followUpPast = followUpAt !== null && followUpAt.getTime() <= now.getTime();
 
@@ -224,10 +242,10 @@ function Card({ card, from }: { card: RecordCardData; from: CrmRoute }) {
     <RecordDrawer title={name} badges={badges} contactLine={contactLine}>
       {/* ------------------------------------------------ quick actions */}
       <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
-        <QuickActions applicationId={app.id} name={name} stage={app.stage} tel={tel} textGate={textGate} from={from} />
+        <QuickActions applicationId={app.id} name={name} stage={app.stage} tel={tel} textGate={textGate} emailView={emailView} from={from} />
         <p className="mt-2 text-[11px] text-slate-500">
-          Text sends a real message through Quo. Call opens Quo and logs itself when the call ends. Log… records
-          something you already did elsewhere — it does not call, email or text anyone.
+          Text sends a real message through Quo. Email sends from your Gmail. Call opens Quo and logs itself when the
+          call ends. Log… records something you already did elsewhere — it does not call, email or text anyone.
         </p>
       </div>
 

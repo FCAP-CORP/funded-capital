@@ -153,7 +153,8 @@ export type EmailGateContact = { email: string | null; emailSubscribed: boolean 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /**
- * May Funded Capital email this person? Not used to send anything yet.
+ * May Funded Capital email this person? Run by the email executor
+ * (lib/comms/emailOutbox.server.ts) on every send from the record card.
  *
  * Unknown (`null`) is allowed: a borrower who wrote to us about their loan can
  * be written back to, and Klaviyo is the system that decides marketing

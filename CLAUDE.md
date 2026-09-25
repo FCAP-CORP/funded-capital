@@ -923,3 +923,47 @@ so the reason was not visible from Cowork. Changes, all in `lib/comms/quoSignatu
   `[webhooks/quo] rejected: stale scheme=legacy skew=3600s`. Never the secret or the body.
   `no_secret` means the Vercel variable is missing or the deployment predates it.
 - Quo's sample test event (`apiVersion v3`, with `media`) parses correctly — checked.
+
+### Email from the record card, through Gmail (25 Sep 2026)
+
+The record card has an **Email** button next to Text. It sends from the signed-in person's own
+Gmail (`luis@fundedcapital.com`), adds their Gmail signature, lands in their Sent folder, and logs
+`email_out` on the timeline. To the recipient it is identical to an email typed in Gmail — same
+servers, same SPF/DKIM/DMARC (all three checked on 25 Sep: SPF includes Google and Klaviyo,
+`google._domainkey` present, DMARC `p=quarantine`). No tracking pixel, no rewritten links.
+
+- **Connect Gmail is one-time:** `/api/crm/google/connect` → Google → `/api/crm/google/callback`.
+  Two scopes only: `gmail.send` and `gmail.settings.basic` (the signature lives in send-as
+  settings). It cannot read the inbox — replies still reach the timeline through
+  `apps-script/GmailSync.gs`. State + PKCE in a 10-minute httpOnly cookie; the callback refuses a
+  Google account that is not the Lending OS sign-in address (`wrong-account`). Return paths are
+  `/crm…` only (`safeReturnPath`). The result comes back as `?gmail=<status>`, which the card turns
+  into a sentence and removes from the address bar.
+- **The refresh token is encrypted at rest** (`lib/comms/tokenCrypto.ts`, AES-256-GCM, key
+  `GMAIL_TOKEN_KEY` = 32 random bytes, base64, made by `fc-gmail-key.bat`). A database dump alone
+  cannot send mail. Lose the key and the fix is a new key plus Connect Gmail again.
+- **Tables (migration 0013):** `mail_connections` (one row per mailbox, unique on lower(email);
+  `last_error` set when Google revokes the grant, so the card says Reconnect) and `outbound_emails`
+  (the outbox — separate from `outbound_messages` so texting code never sees email rows).
+- **Executor** `lib/comms/emailOutbox.server.ts`, reached only from `app/crm/emailActions.ts`:
+  draft rules → idempotency replay → own mailbox (sender from Clerk, never the request) →
+  `canEmail()` on a fresh read (a Klaviyo unsubscribe mirrored in BLOCKS; only the person can undo
+  it) → `sending` row → access token → signature (no signature read = not sent) → Gmail → `sent` +
+  activity in one `db.batch`. Timeout = outcome unknown: "check your Sent folder", key kept.
+- **The activity key is `gmailDedupKey(id, recipient)`** — the same key `GmailSync.gs` writes when
+  it later finds the message in Sent, so the two never double up.
+- **Subjects never carry HTML entities** (`parseEmailDraft` refuses `&amp;` etc. — the 3 Sep
+  incident), and a line break in a header is refused twice (draft rules and `buildMime`).
+- **Templates** (`lib/crm/emailTemplates.ts`): blank, first reply, follow-up, request documents,
+  term-sheet follow-up. Starting points — the box is editable. Tests refuse rates, amounts,
+  percentages, guarantee/approval language and homebuyer language in any template.
+- Guard §13 pins: gate before Gmail, one send call, sender from Clerk, the Google client
+  logs nothing and reads no table, the token is encrypted before storage, both OAuth routes check
+  staff first, state before code exchange, account match before storing, and no other file talks to
+  Gmail or Google's token endpoint. `mailbox.server.ts` is staff-only (§3).
+- Env (Production): `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GMAIL_TOKEN_KEY`. The
+  Google Cloud OAuth client is "Internal" (Workspace users only) with redirect URIs
+  `https://www.fundedcapital.com/api/crm/google/callback` and the non-www twin.
+- **Not built yet:** replying inside an existing Gmail thread (every send starts a new thread),
+  attachments, scheduling, and showing failed/unknown email attempts on the timeline (they are in
+  `outbound_emails` and the panel says so at the time).

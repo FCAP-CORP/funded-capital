@@ -12,6 +12,7 @@ import { MAX_TASK_TITLE, type TaskState } from "@/lib/crm/tasks";
 import { MAX_SMS_BODY, countSegments } from "@/lib/comms/sms";
 import { InlineText } from "../Editable";
 import { retryText, sendText } from "../commsActions";
+import { EmailComposer, takeGmailNotice, type EmailComposeView } from "./EmailComposer";
 import {
   addTask,
   clearSnooze,
@@ -147,7 +148,7 @@ function escapeCloses(onClose: () => void) {
 export type TextGateView = { ok: true; detail: string } | { ok: false; reason: string };
 
 export function QuickActions({
-  applicationId, name, stage, tel, textGate, from,
+  applicationId, name, stage, tel, textGate, emailView, from,
 }: {
   applicationId: string;
   name: string;
@@ -156,10 +157,19 @@ export function QuickActions({
   tel: string | null;
   /** What the consent gate says right now — for display only. */
   textGate: TextGateView;
+  /** Who an email would go to, what the email gate says, and template fill-ins. Display only. */
+  emailView: EmailComposeView;
   from: CrmRoute;
 }) {
   const { pending, error, setError, done, run } = useRun();
-  const [panel, setPanel] = useState<null | "note" | "funded" | "lost" | "text">(null);
+  const [panel, setPanel] = useState<null | "note" | "funded" | "lost" | "text" | "email">(null);
+  const [gmailNotice, setGmailNotice] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Back from Connect Gmail (?gmail=…): open the Email panel and say how it went.
+  useEffect(() => {
+    const n = takeGmailNotice();
+    if (n) { setGmailNotice(n); setPanel("email"); }
+  }, []);
   const [logOpen, setLogOpen] = useState(false);
   const [note, setNote] = useState("");
   const [stageValue, setStageValue] = useState(stage);
@@ -191,6 +201,17 @@ export function QuickActions({
         >
           <MessageSquare size={13} aria-hidden="true" />
           Text
+        </button>
+        <button
+          type="button"
+          className={primary}
+          aria-expanded={panel === "email"}
+          aria-controls={`${ids}-email`}
+          title={emailView.gate.ok ? `Email ${name} from your Gmail` : emailView.gate.reason}
+          onClick={() => { setError(null); setGmailNotice(null); setPanel(panel === "email" ? null : "email"); }}
+        >
+          <Mail size={13} aria-hidden="true" />
+          Email
         </button>
         {tel ? (
           <a
@@ -298,6 +319,18 @@ export function QuickActions({
           name={name}
           gate={textGate}
           onClose={closePanel}
+          from={from}
+        />
+      )}
+
+      {panel === "email" && (
+        <EmailComposer
+          id={`${ids}-email`}
+          applicationId={applicationId}
+          name={name}
+          view={emailView}
+          notice={gmailNotice}
+          onClose={() => { setGmailNotice(null); closePanel(); }}
           from={from}
         />
       )}
