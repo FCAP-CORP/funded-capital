@@ -24,6 +24,8 @@ const nextConfig: NextConfig = {
    */
   outputFileTracingIncludes: {
     "/api/crm/carousel/[id]": ["./lib/marketing/carousel-assets/**"],
+    // The daily blog cron reads the brand voice guide from disk at run time.
+    "/api/cron/daily-blog": ["./lib/marketing/brand-voice.md"],
   },
 
   /**

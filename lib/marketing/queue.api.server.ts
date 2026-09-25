@@ -237,20 +237,49 @@ export async function apiListDrafts(): Promise<ApiDraft[]> {
 
 /* ------------------------------------------------------------- carousels */
 
+/** Longest LinkedIn caption kept. LinkedIn itself stops at 3,000 characters. */
+export const MAX_CAPTION_CHARS = 3000;
+
 /**
- * Attach a LinkedIn carousel to a blog request. Words only: the site draws the
- * slides itself (app/api/crm/carousel/[id]).
+ * Attach a LinkedIn carousel and/or the LinkedIn caption to a blog request.
+ * Words only: the site draws the slides itself (app/api/crm/carousel/[id]).
  *
- * Allowed while the request is `drafted` or `published` — the carousel is made
- * after the draft is accepted, and the post may already be live by the time it
- * is fixed. Sending it again REPLACES it, which is how the task corrects a
- * slide it did not like the look of. It never changes the request's status.
+ * Allowed while the request is `drafted` or `published` — both are made after
+ * the draft is accepted, and the post may already be live by the time one is
+ * fixed. Sending either again REPLACES it; a field that is not sent is left as
+ * it was. It never changes the request's status.
+ *
+ * The caption (25 Sep 2026) exists because the daily blog now runs as a Vercel
+ * cron, which cannot leave a Gmail draft. It is shown on /crm/marketing next to
+ * the carousel, ready to copy.
  */
-export async function apiAttachCarousel(input: { id: string; carouselSpec: unknown; by?: string | null }): Promise<{ slides: number }> {
+export async function apiAttachCarousel(input: {
+  id: string;
+  carouselSpec?: unknown;
+  linkedinCaption?: unknown;
+  by?: string | null;
+}): Promise<{ slides: number | null; linkedin: boolean }> {
   await assertQueueToken();
 
-  const parsed = parseCarouselSpec(input.carouselSpec);
-  if (!parsed.ok) throw new QueueApiError(400, parsed.error);
+  const hasSpec = input.carouselSpec !== undefined && input.carouselSpec !== null;
+  const hasCaption = input.linkedinCaption !== undefined && input.linkedinCaption !== null;
+  if (!hasSpec && !hasCaption) throw new QueueApiError(400, "Send carouselSpec, linkedinCaption, or both.");
+
+  let spec: CarouselSpec | null = null;
+  if (hasSpec) {
+    const parsed = parseCarouselSpec(input.carouselSpec);
+    if (!parsed.ok) throw new QueueApiError(400, parsed.error);
+    spec = parsed.value;
+  }
+  let caption: string | null = null;
+  if (hasCaption) {
+    if (typeof input.linkedinCaption !== "string") throw new QueueApiError(400, "linkedinCaption must be a string.");
+    caption = input.linkedinCaption.replace(/\r\n/g, "\n").trim();
+    if (caption.length < 40) throw new QueueApiError(400, "The LinkedIn caption is too short to be a post.");
+    if (caption.length > MAX_CAPTION_CHARS) {
+      throw new QueueApiError(400, `The LinkedIn caption must be under ${MAX_CAPTION_CHARS} characters.`);
+    }
+  }
 
   const current = await db.execute(sql`
     SELECT status::text AS status, channel::text AS channel
@@ -265,10 +294,12 @@ export async function apiAttachCarousel(input: { id: string; carouselSpec: unkno
   }
 
   const now = new Date().toISOString();
+  const specJson = spec ? JSON.stringify(spec) : null;
   const result = await db.execute(sql`
     UPDATE content_requests
-    SET carousel_spec = ${JSON.stringify(parsed.value)}::jsonb,
-        carousel_at = ${now}::timestamptz,
+    SET carousel_spec    = CASE WHEN ${hasSpec}::boolean THEN ${specJson}::jsonb ELSE carousel_spec END,
+        carousel_at      = CASE WHEN ${hasSpec}::boolean THEN ${now}::timestamptz ELSE carousel_at END,
+        linkedin_caption = CASE WHEN ${hasCaption}::boolean THEN ${caption}::text ELSE linkedin_caption END,
         updated_at = ${now}::timestamptz
     WHERE id = ${input.id} AND status IN ('drafted', 'published')
     RETURNING id
@@ -276,7 +307,7 @@ export async function apiAttachCarousel(input: { id: string; carouselSpec: unkno
   if (!rowsOf(result).length) {
     throw new QueueApiError(409, "That request changed while you were working on it. Read the queue again.");
   }
-  return { slides: parsed.value.slides.length };
+  return { slides: spec ? spec.slides.length : null, linkedin: hasCaption };
 }
 
 /**

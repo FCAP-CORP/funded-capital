@@ -36,9 +36,10 @@ import { MAX_DRAFT_BYTES } from "@/lib/marketing/draft";
  * GET               → the open queue, oldest first.
  * GET ?view=drafts  → finished blog drafts WITH their MDX, for pull-drafts.mjs.
  * POST → { id, status, draftUrl?, draftSummary?, draftBody?, error?, by? }
- * POST → { id, carouselSpec, by? }   (no status) attaches a LinkedIn carousel
- *        to a drafted or published blog request. Words only; the site draws
- *        the slides at /api/crm/carousel/<id>. Never changes the status.
+ * POST → { id, carouselSpec?, linkedinCaption?, by? }   (no status) attaches a
+ *        LinkedIn carousel and/or the LinkedIn caption to a drafted or published
+ *        blog request. Words only; the site draws the slides at
+ *        /api/crm/carousel/<id>. Never changes the status.
  *
  * `draftBody` is the whole MDX of a blog draft, sent with `drafted`. It is why
  * the daily task no longer needs Luis's laptop awake: the draft lands here and
@@ -161,22 +162,24 @@ export async function POST(request: Request) {
      * only makes one after the draft was accepted, and a bad slide must not be
      * able to undo that acceptance.
      */
-    if (body.carouselSpec !== undefined) {
+    if (body.linkedinCaption !== undefined || body.carouselSpec !== undefined) {
       if (status) {
         return NextResponse.json(
-          { ok: false, error: "Send carouselSpec on its own, without status." },
+          { ok: false, error: "Send carouselSpec and linkedinCaption on their own, without status." },
           { status: 400 },
         );
       }
       const attached = await apiAttachCarousel({
         id,
         carouselSpec: body.carouselSpec,
+        linkedinCaption: body.linkedinCaption,
         by: typeof body.by === "string" ? body.by.trim().slice(0, 120) : null,
       });
       return NextResponse.json({
         ok: true,
-        carousel: true,
+        carousel: attached.slides !== null,
         slides: attached.slides,
+        linkedin: attached.linkedin,
         pdf: `/api/crm/carousel/${id}`,
       });
     }

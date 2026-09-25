@@ -172,6 +172,29 @@ function CarouselLinks({ id }: { id: string }) {
   );
 }
 
+/**
+ * The LinkedIn caption for a post, when the daily cron wrote one.
+ *
+ * Same pattern as DraftReader: a native <details>, escaped text, no JavaScript.
+ * Select-all inside the box copies just the caption. Post it only once the blog
+ * post is live, with the link from the caption's last line as the first comment.
+ */
+function CaptionReader({ caption }: { caption: string }) {
+  return (
+    <details className="mt-2">
+      <summary className={`cursor-pointer ${LINK}`}>
+        <FileText size={11} aria-hidden="true" /> LinkedIn caption
+      </summary>
+      <p className="mt-1 text-[11px] text-slate-600">
+        Post it once the blog post is live. The last line is the first comment, not part of the post.
+      </p>
+      <pre className="mt-2 max-h-96 max-w-2xl overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-700">
+        {caption}
+      </pre>
+    </details>
+  );
+}
+
 function DraftReader({ body }: { body: string }) {
   const words = articleWordCount(body);
   return (
@@ -278,6 +301,7 @@ async function Marketing() {
                       {r.error && <p className="mt-1 text-xs text-red-700">{r.error}</p>}
                       <DraftLink channel={r.channel} draftUrl={r.draftUrl} eff={eff} />
                       {r.hasCarousel && <CarouselLinks id={r.id} />}
+                      {r.linkedinCaption && <CaptionReader caption={r.linkedinCaption} />}
                       {eff.status === "drafted" && r.draftBody && <DraftReader body={r.draftBody} />}
                     </td>
                     <td className="py-3 pr-4 whitespace-nowrap">
@@ -313,6 +337,7 @@ async function Marketing() {
                   <span className="text-sm text-slate-700">
                     <span className="text-slate-600">{CHANNEL_SPEC[r.channel].label}</span> — {r.topic}
                     {r.hasCarousel && <CarouselLinks id={r.id} />}
+                    {r.linkedinCaption && <CaptionReader caption={r.linkedinCaption} />}
                   </span>
                   <span className="text-xs text-slate-600">
                     {STATUS_LABEL[eff.status]}

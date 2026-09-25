@@ -58,3 +58,6 @@ fc-commit-*.bat
 /Claude outputs/
 
 .queue-token
+.cron-secret
+
+.cron-secret

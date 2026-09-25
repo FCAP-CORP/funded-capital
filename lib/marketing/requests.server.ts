@@ -54,6 +54,8 @@ export interface RequestRow {
   draftBody: string | null;
   /** True when a LinkedIn carousel is attached; the slides are drawn on request. */
   hasCarousel: boolean;
+  /** The LinkedIn caption for a blog post, when the daily cron wrote one. */
+  linkedinCaption: string | null;
   publishedAt: string | null;
   publishedUrl: string | null;
   error: string | null;
@@ -86,6 +88,7 @@ export async function listRequests(limit = 100): Promise<RequestRow[]> {
       draftBody: sql<string | null>`CASE WHEN ${contentRequests.status} = 'drafted' AND ${contentRequests.channel} = 'blog' THEN ${contentRequests.draftBody} END`,
       // A yes/no, not the spec: the page links to the slides, it does not draw them.
       hasCarousel: sql<boolean>`(${contentRequests.carouselSpec} IS NOT NULL)`,
+      linkedinCaption: contentRequests.linkedinCaption,
       publishedAt: contentRequests.publishedAt,
       publishedUrl: contentRequests.publishedUrl,
       error: contentRequests.error,
@@ -108,6 +111,7 @@ export async function listRequests(limit = 100): Promise<RequestRow[]> {
     draftSummary: r.draftSummary,
     draftBody: r.draftBody ?? null,
     hasCarousel: r.hasCarousel === true,
+    linkedinCaption: r.linkedinCaption ?? null,
     publishedAt: iso(r.publishedAt),
     publishedUrl: r.publishedUrl,
     error: r.error,
