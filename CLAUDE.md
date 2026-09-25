@@ -551,9 +551,9 @@ problem worse, not better.
 
 **The portal asks; it does not write.** A request inserts a row in `content_requests`. A scheduled
 Claude task reads the queue through `scripts/content-queue.ts`, does the work with the brand-voice
-and research skills that already exist, and writes back where the draft is. Nothing in the Next.js
-app calls a model — one definition of the voice rather than two, and no model API key in a
-public-facing service.
+and research skills that already exist, and writes back where the draft is. ~~Nothing in the Next.js
+app calls a model.~~ **Reversed for the blog on 25 Sep 2026** — see "The daily blog is a Vercel cron"
+below. LinkedIn and email requests are still worked by Claude tasks.
 
 - **Nothing reaches the public without Luis, on any channel.** `autoPublishes` is false for all
   three and `requests.regress.ts` asserts it stays that way. The first version said the blog
@@ -688,6 +688,51 @@ Gmail DRAFT titled "Daily blog did not run: …" rather than a note in a session
 **One blog system, not two.** The 7am daily task now works the queue and keeps its device gate — the
 gate is why it has always worked. The three-times-daily marketing-queue task is disabled; it was
 built around a shell that does not exist.
+
+### The daily blog is a Vercel cron (25 Sep 2026)
+
+**Why it moved.** The 7am scheduled Claude task (`trig_01UWtAw89jQKtYPqoYshPWm4`) had to fetch the
+queue token out of `00-private/content-queue-token.txt` in Drive and send it to
+`/api/crm/content-queue`. On 25 Sep the run's automatic safety check refused that step: an agent
+reading a credential from a file and sending it to a web address is exactly what credential theft
+looks like from outside. No post was written. That check will keep firing on some mornings, so the
+fix was to stop any agent handling the token. Luis chose to move the job into the site.
+
+- **`app/api/cron/daily-blog/route.ts`**, scheduled by `vercel.json` at `0 11 * * *` (7am EDT /
+  6am EST). It answers only to `CRON_SECRET` (Vercel sends it; `tokenOk`, fail-closed, constant
+  time, checked before anything else — guard §12).
+- **It talks to the queue over HTTP**, with `CONTENT_QUEUE_TOKEN` from its own environment, through
+  the same door the task used. So `draft.ts`, the transition rules and "a task may not publish"
+  still decide everything; the route never imports the database. Guard §12 pins all three.
+- **Order is the safety:** secret → config check (nothing claimed if a key is missing) → read queue →
+  skip if a blog draft already landed today (Vercel can repeat a cron; `?force=1` overrides) →
+  claim → research + write → check in code → one repair round → draft → carousel + caption. Any
+  failure after the claim marks the request **failed** with a sentence Luis can act on, shown on
+  `/crm/marketing`. It is never left `in_progress`.
+- **The model call** is a plain `fetch` to the Messages API (no SDK), `web_search_20250305` server
+  tool, `pause_turn` followed. Model is `BLOG_MODEL` or `claude-sonnet-5`. `maxDuration = 300`; the
+  route stops starting new model work at 270 s.
+- **Every check the task ran in its sandbox is now code** in `lib/marketing/dailyBlog.ts` (pure,
+  `dailyBlog.regress.ts`): frontmatter shape and date, category, 5–8 keywords, 4–6 FAQ, 1,200–1,800
+  words, no FAQ section in the body, compliance line exactly once, phone + `/apply`, every
+  `/blog/` link live in the sitemap, own slug not live, banned words, and the four forbidden figures
+  ("44 states", "as little as 5 days", "680 floor", "85% LTC"). A bad carousel never blocks the post.
+- **The brand voice is `lib/marketing/brand-voice.md`**, a copy of
+  `04-brand/voice/funded-capital-brand-voice.md` from the agent-system Drive, shipped with the route
+  by `outputFileTracingIncludes`. **Two copies now — update both**, or the cron and the Claude
+  skills drift apart.
+- **LinkedIn caption** (migration 0012, `content_requests.linkedin_caption`). A cron cannot leave a
+  Gmail draft, so the caption is posted with the carousel (`{ id, carouselSpec?, linkedinCaption? }`,
+  no status) and shown on `/crm/marketing` under "LinkedIn caption".
+- **Secrets:** `CRON_SECRET` (made by `fc-cron-setup.bat`, kept in git-ignored `.cron-secret`) and
+  `ANTHROPIC_API_KEY`, both Production-only in Vercel. The key is read by this one route and never
+  reaches a browser. `fc-run-daily-blog.bat` runs it on demand with `?force=1`.
+- **What it does NOT do:** tell anyone when it fails, beyond the failed row on `/crm/marketing` and
+  Vercel's function logs. The cadence card is the backstop.
+- `scripts/pull-drafts.mjs` now sets `process.exitCode` instead of calling `process.exit()`. On
+  Windows, exiting while fetch's socket was closing crashed Node in libuv
+  (`UV_HANDLE_CLOSING`, `src\win\async.c`), and the .bat reported "Nothing was changed" over a run
+  that had written three drafts.
 
 ### Record cards (24 Sep 2026)
 
@@ -863,3 +908,18 @@ header said "0 have had a deal". It ran, returned numbers, and every number was 
   prefetches when the page is idle, and keys typed before the input exists are kept and handed to
   it (`takeEarlyKeys` in `WorkspaceNav.tsx`).
 - The Text panel for someone who cannot be texted shows the reason and Close — no greyed-out box.
+
+### Quo webhook: the first live test was refused (25 Sep 2026)
+
+Quo's "Send Test Request" got `401 unauthorized`. The Vercel MCP still cannot read runtime logs,
+so the reason was not visible from Cowork. Changes, all in `lib/comms/quoSignature.ts`:
+
+- **The doc contradicts itself on the key.** Its Node example turns the decoded key into a
+  "binary" string and hands that to `createHmac`, which re-encodes it as UTF-8, so any byte of 0x80
+  or above becomes two bytes. Its Python example uses the raw bytes. The legacy scheme now tries
+  both, plus the secret's own text, and the body with all whitespace removed (the doc's wording).
+  Every candidate is still an exact HMAC under the configured secret. Tests §5, negative-tested.
+- **A refusal now logs the check that failed, the scheme and the clock skew**, e.g.
+  `[webhooks/quo] rejected: stale scheme=legacy skew=3600s`. Never the secret or the body.
+  `no_secret` means the Vercel variable is missing or the deployment predates it.
+- Quo's sample test event (`apiVersion v3`, with `media`) parses correctly — checked.
