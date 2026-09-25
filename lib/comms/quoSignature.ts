@@ -33,10 +33,20 @@
  * `QUO_WEBHOOK_SECRET` may hold more than one key separated by commas or
  * spaces — one per webhook, or old and new during a rotation. Any match passes.
  *
- * NOT YET CONFIRMED AGAINST A REAL DELIVERY. The docs were read, but no live
- * Quo request has been checked from this code. The first "Send Test Request"
- * from the Quo app is that check; a 401 there means the scheme differs from
- * the docs, not that the route is down.
+ * THE FIRST LIVE "Send Test Request" (25 Sep 2026) WAS REFUSED with 401, and
+ * Vercel's logs are not readable from Cowork, so the reason could not be seen.
+ * Re-reading the doc found an ambiguity worth covering: its Node example does
+ * `Buffer.from(key, 'base64').toString('binary')` and hands that STRING to
+ * createHmac, which Node re-encodes as UTF-8 — so every decoded byte of 0x80
+ * or above becomes two bytes, a different key from the Python example's raw
+ * bytes. Whichever language Quo signs with, one of the two examples is wrong.
+ * The legacy scheme now tries both derivations, plus the secret's own text as
+ * the key, and the body with all whitespace removed (the doc's literal
+ * wording). Every candidate is still an exact HMAC under the configured
+ * secret; none of them lets anyone without the secret through.
+ *
+ * A refusal now logs WHICH check failed and the clock skew (never the secret
+ * or the body), so the next 401 explains itself in the Vercel log.
  */
 
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -47,7 +57,13 @@ export type HeaderSource = { get(name: string): string | null } | Record<string,
 
 export type VerifyResult =
   | { ok: true; scheme: "legacy" | "standard"; deliveryId: string | null }
-  | { ok: false; reason: "no_secret" | "no_signature" | "malformed" | "stale" | "mismatch" };
+  | {
+      ok: false;
+      reason: "no_secret" | "no_signature" | "malformed" | "stale" | "mismatch";
+      /** Which header set arrived, and how far its timestamp was from now — for the log only. */
+      scheme?: "legacy" | "standard" | "none";
+      skewSeconds?: number;
+    };
 
 function header(h: HeaderSource, name: string): string | null {
   if (typeof (h as { get?: unknown }).get === "function") {
@@ -76,6 +92,33 @@ export function parseSigningSecrets(env: string | undefined | null): Buffer[] {
     .filter((b) => b.length >= 16);
 }
 
+/**
+ * Every key the LEGACY scheme may have used, for each configured secret:
+ *   1. the base64-decoded bytes (the doc's Python example);
+ *   2. those bytes as a "binary" string re-encoded as UTF-8 (what the doc's
+ *      Node example actually does — see the header comment);
+ *   3. the secret's own text, if Quo turns out to sign with it undecoded.
+ * Anything under 16 bytes is still refused.
+ */
+export function legacyKeyCandidates(env: string | undefined | null): Buffer[] {
+  if (!env) return [];
+  const out: Buffer[] = [];
+  const seen = new Set<string>();
+  const add = (b: Buffer) => {
+    if (b.length < 16) return;
+    const k = b.toString("hex");
+    if (!seen.has(k)) { seen.add(k); out.push(b); }
+  };
+  for (const token of env.split(/[\s,]+/).map((t) => t.trim()).filter(Boolean)) {
+    for (const decoded of parseSigningSecrets(token)) {
+      add(decoded);
+      add(Buffer.from(decoded.toString("binary"), "utf8"));
+    }
+    add(Buffer.from(token, "utf8"));
+  }
+  return out;
+}
+
 /** Equal-length, constant-time comparison of two base64 strings. */
 function sameDigest(provided: string, expected: string): boolean {
   const a = Buffer.from(provided, "utf8");
@@ -97,15 +140,20 @@ function toMs(ts: string): number | null {
   return n >= 1e11 ? n : n * 1000;
 }
 
-/** The bodies the legacy scheme may have signed: exactly what arrived, then compact JSON. */
+/**
+ * The bodies the legacy scheme may have signed: exactly what arrived, then
+ * compact JSON, then the doc's literal "all whitespace removed".
+ */
 function legacyBodies(raw: string): string[] {
   const out = [raw];
   try {
     const compact = JSON.stringify(JSON.parse(raw));
-    if (compact !== raw) out.push(compact);
+    if (!out.includes(compact)) out.push(compact);
   } catch {
-    // Not JSON: only the raw form can have been signed. The route rejects it later.
+    // Not JSON: the route rejects it after verification.
   }
+  const stripped = raw.replace(/\s+/g, "");
+  if (!out.includes(stripped)) out.push(stripped);
   return out;
 }
 
@@ -117,7 +165,8 @@ export function verifyQuoSignature(input: {
   toleranceMs?: number;
 }): VerifyResult {
   const keys = parseSigningSecrets(input.secrets);
-  if (keys.length === 0) return { ok: false, reason: "no_secret" };
+  const legacyKeys = legacyKeyCandidates(input.secrets);
+  if (keys.length === 0 && legacyKeys.length === 0) return { ok: false, reason: "no_secret" };
   const tolerance = input.toleranceMs ?? SIGNATURE_TOLERANCE_MS;
   const fresh = (ms: number) => Math.abs(input.nowMs - ms) <= tolerance;
 
@@ -126,9 +175,9 @@ export function verifyQuoSignature(input: {
   if (stdSig !== null) {
     const id = header(input.headers, "webhook-id");
     const ts = header(input.headers, "webhook-timestamp");
-    if (!id || !ts) return { ok: false, reason: "malformed" };
+    if (!id || !ts) return { ok: false, reason: "malformed", scheme: "standard" };
     const ms = /^\d{9,11}$/.test(ts) ? Number(ts) * 1000 : null;
-    if (ms === null) return { ok: false, reason: "malformed" };
+    if (ms === null) return { ok: false, reason: "malformed", scheme: "standard" };
     const provided = stdSig
       .split(" ")
       .map((e) => e.trim())
@@ -138,19 +187,20 @@ export function verifyQuoSignature(input: {
         return at > 0 && e.slice(0, at) === "v1" ? e.slice(at + 1) : null;
       })
       .filter((s): s is string => !!s);
-    if (provided.length === 0) return { ok: false, reason: "malformed" };
-    if (!fresh(ms)) return { ok: false, reason: "stale" };
+    if (provided.length === 0) return { ok: false, reason: "malformed", scheme: "standard" };
+    const skewSeconds = Math.round((input.nowMs - ms) / 1000);
+    if (!fresh(ms)) return { ok: false, reason: "stale", scheme: "standard", skewSeconds };
     const signed = `${id}.${ts}.${input.rawBody}`;
     for (const key of keys) {
       const expected = hmac(key, signed);
       if (provided.some((p) => sameDigest(p, expected))) return { ok: true, scheme: "standard", deliveryId: id };
     }
-    return { ok: false, reason: "mismatch" };
+    return { ok: false, reason: "mismatch", scheme: "standard", skewSeconds };
   }
 
   /* -- Legacy openphone-signature (webhooks made in the Quo app) -- */
   const legacy = header(input.headers, "openphone-signature");
-  if (legacy === null || legacy.trim() === "") return { ok: false, reason: "no_signature" };
+  if (legacy === null || legacy.trim() === "") return { ok: false, reason: "no_signature", scheme: "none" };
 
   const entries = legacy
     .split(",")
@@ -160,20 +210,21 @@ export function verifyQuoSignature(input: {
     .filter((f) => f.length === 4 && f[0] === "hmac" && f[1] === "1" && f[3].length > 0)
     .map((f) => ({ ts: f[2], sig: f[3], ms: toMs(f[2]) }))
     .filter((e): e is { ts: string; sig: string; ms: number } => e.ms !== null);
-  if (entries.length === 0) return { ok: false, reason: "malformed" };
+  if (entries.length === 0) return { ok: false, reason: "malformed", scheme: "legacy" };
 
+  const skewSeconds = Math.round((input.nowMs - entries[0].ms) / 1000);
   const current = entries.filter((e) => fresh(e.ms));
-  if (current.length === 0) return { ok: false, reason: "stale" };
+  if (current.length === 0) return { ok: false, reason: "stale", scheme: "legacy", skewSeconds };
 
   const bodies = legacyBodies(input.rawBody);
   for (const e of current) {
-    for (const key of keys) {
+    for (const key of legacyKeys) {
       for (const body of bodies) {
         if (sameDigest(e.sig, hmac(key, `${e.ts}.${body}`))) return { ok: true, scheme: "legacy", deliveryId: null };
       }
     }
   }
-  return { ok: false, reason: "mismatch" };
+  return { ok: false, reason: "mismatch", scheme: "legacy", skewSeconds };
 }
 
 /** Test helper and documentation in one: how Quo builds a legacy header. */

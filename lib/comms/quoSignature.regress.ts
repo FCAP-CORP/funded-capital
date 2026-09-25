@@ -14,6 +14,7 @@
 import { createHmac, randomBytes } from "node:crypto";
 import {
   SIGNATURE_TOLERANCE_MS,
+  legacyKeyCandidates,
   parseSigningSecrets,
   signLegacyForTest,
   signStandardForTest,
@@ -146,6 +147,42 @@ console.log("\n=== 4. Standard Webhooks (dated API): valid and invalid ===");
   check("space-separated list, one valid → ok", verify(several, compact, secret).ok, "");
   const both = { ...std(TS_S, compact), "openphone-signature": legacyHeader(OTHER, TS_MS, compact) };
   check("both header sets present: the standard one decides", verify(both, compact, secret).ok, "");
+}
+
+console.log("\n=== 5. Legacy key and body variants (added after the first live 401) ===");
+{
+  // A key with high bytes, so the Node "binary string" derivation really differs.
+  const HIGH = Buffer.from(Array.from({ length: 32 }, (_, i) => 0x80 + i)).toString("base64");
+  const nodeKey = Buffer.from(Buffer.from(HIGH, "base64").toString("binary"), "utf8");
+  check("the Node derivation is a different key for high bytes", !nodeKey.equals(Buffer.from(HIGH, "base64")), `${nodeKey.length} bytes`);
+  const nodeSig = createHmac("sha256", Buffer.from(HIGH, "base64").toString("binary")).update(Buffer.from(`${TS_MS}.${compact}`, "utf8")).digest("base64");
+  const r1 = verify({ "openphone-signature": `hmac;1;${TS_MS};${nodeSig}` }, compact, HIGH);
+  check("signed exactly as the doc's Node example → ok", r1.ok, show(r1));
+  const r2 = verify({ "openphone-signature": legacyHeader(HIGH, TS_MS, compact) }, compact, HIGH);
+  check("signed exactly as the doc's Python example → ok", r2.ok, show(r2));
+
+  const TEXT = "qu0-plain-signing-secret-2026-abc";
+  const textSig = createHmac("sha256", Buffer.from(TEXT, "utf8")).update(`${TS_MS}.${compact}`).digest("base64");
+  const r3 = verify({ "openphone-signature": `hmac;1;${TS_MS};${textSig}` }, compact, TEXT);
+  check("signed with the secret's own text as the key → ok", r3.ok, show(r3));
+
+  const spaced = JSON.stringify({ ...event, data: { object: { ...event.data.object, body: "Yes please call me" } } }, null, 2);
+  const stripped = spaced.replace(/\s+/g, "");
+  const r4 = verify({ "openphone-signature": legacyHeader(KEY, TS_MS, stripped) }, spaced);
+  check("signed over the body with ALL whitespace removed → ok", r4.ok, show(r4));
+
+  const r5 = verify({ "openphone-signature": `hmac;1;${TS_MS};${textSig}` }, compact, OTHER);
+  check("…but none of that helps without the right secret → mismatch", show(r5) === "mismatch", show(r5));
+  const r6 = verify({ "openphone-signature": `hmac;1;${TS_MS};${textSig}` }, compact.replace("STOP", "HELP"), TEXT);
+  check("…and a changed body still fails under the text key → mismatch", show(r6) === "mismatch", show(r6));
+  check("a short text secret is still refused → no_secret", show(verify({ "openphone-signature": legacyHeader(KEY, TS_MS, compact) }, compact, "tooshort")) === "no_secret", "");
+  check("legacyKeyCandidates never returns a key under 16 bytes", legacyKeyCandidates(`${KEY},short`).every((k) => k.length >= 16), "");
+  check("legacyKeyCandidates dedupes (low-byte keys give one decoded + one text)", legacyKeyCandidates(Buffer.from("A".repeat(24)).toString("base64")).length === 2, String(legacyKeyCandidates(Buffer.from("A".repeat(24)).toString("base64")).length));
+
+  const stale = verify({ "openphone-signature": legacyHeader(KEY, String(NOW - 3_600_000), compact) }, compact);
+  check("a refusal reports the scheme and skew for the log", !stale.ok && stale.scheme === "legacy" && stale.skewSeconds === 3600, JSON.stringify(stale));
+  const none = verify({}, compact);
+  check("no signature header → scheme none", !none.ok && none.scheme === "none", JSON.stringify(none));
 }
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);

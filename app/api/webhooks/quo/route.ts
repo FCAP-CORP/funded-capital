@@ -72,7 +72,11 @@ export async function POST(request: Request) {
   if (!verdict.ok) {
     // Deliberately uninformative to the caller. The reason goes to the log so
     // a misconfigured secret ("no_secret") is distinguishable from an attack.
-    console.warn(`[webhooks/quo] rejected: ${verdict.reason}`);
+    console.warn(
+      `[webhooks/quo] rejected: ${verdict.reason}` +
+        (verdict.scheme ? ` scheme=${verdict.scheme}` : "") +
+        (verdict.skewSeconds !== undefined ? ` skew=${verdict.skewSeconds}s` : ""),
+    );
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
