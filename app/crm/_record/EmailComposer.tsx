@@ -239,9 +239,11 @@ export function EmailComposer({
         className={`${input} w-full leading-relaxed`}
       />
 
-      <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 px-2.5 py-2">
-        <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Your Gmail signature is added below</p>
-        {info.signature ? (
+      <div className="rounded-md border border-dashed border-slate-200 bg-white px-2.5 py-2">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">Your Gmail signature, exactly as it will be sent</p>
+        {info.signatureHtml ? (
+          <SignaturePreview html={info.signatureHtml} />
+        ) : info.signature ? (
           <p className="mt-1 whitespace-pre-line text-xs text-slate-600">{info.signature}</p>
         ) : null}
         {info.signatureNote && <p className="mt-1 text-[11px] text-slate-500">{info.signatureNote}</p>}
@@ -263,6 +265,38 @@ export function EmailComposer({
         </p>
       )}
     </form>
+  );
+}
+
+/**
+ * The real signature HTML, rendered the way an email client renders it.
+ *
+ * In a SANDBOXED iframe (`sandbox=""`: no scripts, no forms, no navigation of
+ * this page, its own opaque origin) rather than injected into the page. The
+ * HTML comes from Gmail's settings, not from us, so it is treated like any
+ * email content: displayed, never trusted. Images (a logo) load as they would
+ * in the recipient's inbox. The frame's default margin is removed and Gmail's
+ * default font is used, so what you see is what they see.
+ */
+function SignaturePreview({ html }: { html: string }) {
+  // Rendered at a real email width (720px) and scaled down to fit the card, so
+  // a wide designed signature keeps its layout instead of being squeezed.
+  const WIDTH = 720, HEIGHT = 620, SCALE = 0.55;
+  const doc =
+    '<!doctype html><html><head><meta charset="utf-8"><base target="_blank">' +
+    "<style>html,body{margin:0;padding:8px;font-family:Arial,Helvetica,sans-serif;font-size:small;color:#222;background:#fff}</style>" +
+    `</head><body><div><div dir="ltr" class="gmail_signature">${html}</div></div></body></html>`;
+  return (
+    <div className="mt-1 overflow-hidden rounded border border-slate-100" style={{ height: HEIGHT * SCALE }}>
+      <iframe
+        title="Your Gmail signature"
+        sandbox=""
+        srcDoc={doc}
+        referrerPolicy="no-referrer"
+        className="block origin-top-left border-0"
+        style={{ width: WIDTH, height: HEIGHT, transform: `scale(${SCALE})` }}
+      />
+    </div>
   );
 }
 

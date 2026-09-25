@@ -162,10 +162,13 @@ export function buildMime(m: MimeInput): string {
 
   const sigHtml = m.signatureHtml && m.signatureHtml.trim() ? m.signatureHtml : null;
   const sigText = sigHtml ? signatureToText(sigHtml) : "";
-  const text = sigText ? `${m.text}\n\n-- \n${sigText}` : m.text;
-  // Gmail's own layout for a signature, so it looks the same as a hand-sent one.
+  const text = sigText ? `${m.text}\n\n${sigText}` : m.text;
+  // Gmail's own layout for a signature, copied from a message Luis sent from
+  // Gmail on 25 Sep 2026: one blank line after the sign-off, the signature in
+  // `gmail_signature` divs, and NO "-- " line above it (his Gmail does not add
+  // one, so neither do we). The plain-text part follows the same shape.
   const html = sigHtml
-    ? `${textToHtml(m.text)}<br clear="all"><div><br></div><span class="gmail_signature_prefix">-- </span><br><div dir="ltr" class="gmail_signature">${sigHtml}</div>`
+    ? `${textToHtml(m.text)}<br><div><div dir="ltr" class="gmail_signature" data-smartmail="gmail_signature">${sigHtml}</div></div>`
     : textToHtml(m.text);
 
   const boundary = m.boundary ?? `fc_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;

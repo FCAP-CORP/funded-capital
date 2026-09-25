@@ -45,6 +45,8 @@ export type EmailPanelInfo =
       email: string;
       displayName: string | null;
       signature: string | null;
+      /** The signature exactly as Gmail stores it — shown in a sandboxed frame, never as live page HTML. */
+      signatureHtml: string | null;
       signatureNote: string | null;
       senderFirstName: string | null;
     }
@@ -62,6 +64,7 @@ export async function emailPanelInfo(): Promise<EmailPanelInfo> {
         email: info.email,
         displayName: info.displayName,
         signature: info.signatureHtml ? signatureToText(info.signatureHtml) : null,
+        signatureHtml: info.signatureHtml,
         signatureNote: info.signatureError ?? (info.signatureHtml ? null : "Your Gmail has no signature set, so none will be added."),
         senderFirstName: me.firstName,
       };
