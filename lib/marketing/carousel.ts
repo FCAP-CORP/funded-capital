@@ -290,6 +290,27 @@ export function highlightRuns(s: string): { text: string; hi: boolean }[] {
     .filter((p) => p.text.length > 0);
 }
 
+/**
+ * The headline cut into words, each word keeping the colour of every run inside
+ * it — so "*Low*." is one word, not "Low" and a stray ".". See Words() in
+ * carousel.render.tsx.
+ */
+export function wordsOf(text: string): { t: string; hi: boolean }[][] {
+  const words: { t: string; hi: boolean }[][] = [];
+  let cur: { t: string; hi: boolean }[] = [];
+  for (const run of highlightRuns(text)) {
+    run.text.split(" ").forEach((piece, i) => {
+      if (i > 0 && cur.length) {
+        words.push(cur);
+        cur = [];
+      }
+      if (piece) cur.push({ t: piece, hi: run.hi });
+    });
+  }
+  if (cur.length) words.push(cur);
+  return words;
+}
+
 /** The text with the markup removed, for alt text and file names. */
 export function plain(s: string): string {
   return s.replace(/\*/g, "");

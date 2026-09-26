@@ -95,6 +95,16 @@ export const CATEGORIES = [
 export const WORDS_MIN = 1200;
 export const WORDS_MAX = 1800;
 
+/** Distinct links to other Funded Capital posts every draft must carry. */
+export const MIN_INTERNAL_LINKS = 2;
+
+/**
+ * A run of this many words appearing twice in one paragraph is a pasted
+ * repeat, not style. Found on the first cron draft (25 Sep 2026): one sentence about value
+ * appeals was written out twice back to back, and nothing caught it.
+ */
+export const REPEAT_WORDS = 7;
+
 /** Words the brand voice bans outright. Matched as whole words, case-insensitive. */
 export const BANNED_PHRASES = [
   "committed to",
@@ -132,6 +142,9 @@ export const PROGRAM_PAGES = [
 export const SYSTEM_RULES = `You are the Lead Performance Architect for Funded Capital, an asset-based lender to real estate investors (fix & flip, ground-up construction, DSCR rental, bridge). You write one blog post from a brief. A person reviews and publishes it later. Audience: real estate investors and the brokers who serve them. Never homebuyers.
 
 RESEARCH FIRST with the web_search tool. Never invent a figure. Cite every rate, market statistic, regulation or dated claim with its source and publication date in the prose ("according to ..., published ...").
+- Write every sentence yourself. Never paste a search result's wording; paraphrase it and quote only a short phrase in quotation marks when the exact words matter.
+- Credit each claim to ONE source, the one you actually read, in the same sentence. Never start a sentence with one source and end it with another.
+- Read the finished post once for repeated sentences and remove them.
 
 NUMBERS, current as of 23 Sep 2026. Do not copy figures from older posts.
 - Ground-Up leverage: 85% of full cost (purchase + sunk costs + remaining budget) as standard; 90% for builders with five or more completed ground-up projects; a further 5% of cost on top of either finances the interest reserve, so an experienced builder reaches 95% all-in with the reserve financed. After-repair loan-to-value is a second cap and the lower one governs. NEVER write a flat "85% LTC" for ground-up.
@@ -167,7 +180,7 @@ faq:
 ---
 - date and updated are the date given in the brief. category is one of: ${CATEGORIES.join(", ")}. keywords: 5 to 8. faq: 4 to 6 items, plain text. The site renders the faq and emits FAQPage JSON-LD from it, so do NOT write an FAQ section in the body.
 - Body ${WORDS_MIN}-${WORDS_MAX} words, markdown with ## headings. Tables allowed.
-- Link only to /blog/<slug> posts from the list of live posts you are given, and to program pages: ${PROGRAM_PAGES.join(", ")}.
+- Link to at least ${MIN_INTERNAL_LINKS} different posts from the list of live posts you are given, as /blog/<slug>, where they genuinely help the reader. Link only to those posts and to program pages: ${PROGRAM_PAGES.join(", ")}.
 - End with an Apply Now CTA linking /apply and the phone number ${PHONE}.
 - Slug: lowercase letters, digits and single hyphens, 3-120 characters, NOT one of the live slugs.
 
@@ -181,7 +194,7 @@ CAROUSEL: a LinkedIn carousel of 6 to 8 slides as JSON {"slides":[...]}. First s
 {"t":"compare","h":"<=90","left":{"label":"<=40","items":["<=50"]},"right":{"label":"<=40","items":["<=50"]}}  (2 to 4 a side; left is the mistake)
 {"t":"statement","h":"<=90","s":"<=200","gold":false}
 {"t":"cta","eyebrow":"<=48","h":"<=90","s":"<=200","site":"fundedcapital.com"}
-Any slide may carry "eyebrow" and "cap" (<=160). Wrap one to three headline words in *stars* to colour them gold, on the cover and at most two other slides. Plain Latin characters only: no arrows, no approx sign, no check marks, no emoji. Every number on a slide must appear in the post; mark illustrative numbers "Illustrative." in the cap. No compliance line on slides.
+Any slide may carry "eyebrow" and "cap" (<=160). Never put a space before punctuation. Wrap one to three headline words in *stars* to colour them gold, on the cover and at most two other slides. Plain Latin characters only: no arrows, no approx sign, no check marks, no emoji. Every number on a slide must appear in the post; mark illustrative numbers "Illustrative." in the cap. No compliance line on slides.
 
 LINKEDIN CAPTION for Luis's personal profile: 120-220 words, a hook first line, short lines, one question to invite comments, the compliance line "${COMPLIANCE_LINE}" once, 3-5 hashtags. No link in the caption. End with a line "First comment: https://www.fundedcapital.com/blog/<slug>".
 
@@ -265,6 +278,63 @@ export function bodyWordCount(body: string): number {
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/[#>*_|`~-]+/g, " ");
   return text.split(/\s+/).filter((w) => /[A-Za-z0-9$%]/.test(w)).length;
+}
+
+/**
+ * Word runs of REPEAT_WORDS or more that occur twice inside ONE paragraph.
+ *
+ * Why a paragraph and not the whole post: a good post legitimately restates a
+ * rule it explained earlier ("5-10 business days once the file is complete"
+ * appears in two sections of a live post), and a post-wide check flagged six
+ * of eight published posts. The real failure is a sentence pasted twice in the
+ * same place, which is exactly what this finds. Case and punctuation are
+ * ignored; tables are skipped.
+ */
+export function repeatedPassages(body: string, n = REPEAT_WORDS): string[] {
+  const out: string[] = [];
+  for (const para of body.split(/\n\s*\n/)) {
+    if (para.trim().startsWith("|")) continue;
+    const words = para
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .toLowerCase()
+      .replace(/[^a-z0-9$%' ]+/g, " ")
+      .split(/\s+/)
+      .filter(Boolean);
+    const seen = new Map<string, number>();
+    let skipUntil = -1; // one report per repeated stretch, not one per shifted window
+    for (let i = 0; i + n <= words.length; i++) {
+      const key = words.slice(i, i + n).join(" ");
+      const first = seen.get(key);
+      if (first === undefined) seen.set(key, i);
+      else if (i - first >= n && i > skipUntil) {
+        out.push(key);
+        skipUntil = i + n;
+      }
+    }
+  }
+  return out;
+}
+
+/** Distinct /blog/<slug> links in a body. */
+export function internalLinks(body: string): string[] {
+  return [...new Set([...body.matchAll(/\]\(\/blog\/([a-z0-9-]+)\/?[)#?]/g)].map((m) => m[1]))];
+}
+
+/** Slide text with a space before punctuation ("Low ."), which reads as a typo on a slide. */
+export function spaceBeforePunctuation(raw: string): boolean {
+  try {
+    const walk = (v: unknown): boolean =>
+      typeof v === "string"
+        ? /\s[.,!?;:]/.test(v.replace(/\*/g, ""))
+        : Array.isArray(v)
+          ? v.some(walk)
+          : v !== null && typeof v === "object"
+            ? Object.values(v as Record<string, unknown>).some(walk)
+            : false;
+    return walk(JSON.parse(raw));
+  } catch {
+    return false;
+  }
 }
 
 function escapeRe(s: string): string {
@@ -368,6 +438,15 @@ export function checkOutput(
       .map((m) => m[1].replace(/\/$/, ""))
       .filter((s) => !liveSlugs.includes(s));
     if (dead.length) problems.push(`links: not live posts, remove or replace: ${[...new Set(dead)].join(", ")}`);
+
+    const linked = internalLinks(body).filter((s) => liveSlugs.includes(s));
+    if (linked.length < MIN_INTERNAL_LINKS) {
+      problems.push(`links: link to at least ${MIN_INTERNAL_LINKS} different live posts as /blog/<slug> (found ${linked.length})`);
+    }
+
+    for (const r of repeatedPassages(body)) {
+      problems.push(`body: this passage appears twice; keep it once: "${r}"`);
+    }
   }
 
   problems.push(...voiceProblems(out.mdx).map((p) => `post ${p}`));
@@ -379,8 +458,9 @@ export function checkOutput(
   let carouselError: string | null = null;
   try {
     const spec = parseCarouselSpec(JSON.parse(out.carouselRaw));
-    if (spec.ok) carousel = spec.value;
-    else carouselError = spec.error;
+    if (!spec.ok) carouselError = spec.error;
+    else if (spaceBeforePunctuation(out.carouselRaw)) carouselError = "A slide has a space before punctuation (like \"Low .\"); remove it.";
+    else carousel = spec.value;
   } catch {
     carouselError = "The carousel is not valid JSON.";
   }

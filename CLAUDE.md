@@ -710,8 +710,18 @@ fix was to stop any agent handling the token. Luis chose to move the job into th
   failure after the claim marks the request **failed** with a sentence Luis can act on, shown on
   `/crm/marketing`. It is never left `in_progress`.
 - **The model call** is a plain `fetch` to the Messages API (no SDK), `web_search_20250305` server
-  tool, `pause_turn` followed. Model is `BLOG_MODEL` or `claude-sonnet-5`. `maxDuration = 300`; the
-  route stops starting new model work at 270 s.
+  tool, `pause_turn` followed. Model is `BLOG_MODEL` or **`claude-opus-5-5`** (switched from
+  Sonnet the same evening: the first Sonnet draft passed every check but pasted one sentence twice
+  and credited one claim to two sources). **The site is on Vercel Pro**, so `maxDuration = 800` and
+  the route stops starting new model work at 760 s. On Hobby both would have to drop to 300 / 270 s.
+- **Checks added after that first draft:** a run of 7+ words repeated inside one paragraph fails
+  (`repeatedPassages` — paragraph-scoped on purpose: a post-wide version flagged six of eight live
+  posts for legitimate restatement); at least 2 distinct links to live posts; a slide with a space
+  before punctuation is refused. The prompt now says to paraphrase, credit one source per claim, and
+  re-read for repeats.
+- **Carousel renderer fix:** `wordsOf` (carousel.ts) cuts headlines at real spaces only, so
+  `Came Back *Low*.` keeps its full stop. Every run used to be split separately, which drew "Low ."
+  on every carousel with punctuation after a highlight — old decks are redrawn correctly too.
 - **Every check the task ran in its sandbox is now code** in `lib/marketing/dailyBlog.ts` (pure,
   `dailyBlog.regress.ts`): frontmatter shape and date, category, 5–8 keywords, 4–6 FAQ, 1,200–1,800
   words, no FAQ section in the body, compliance line exactly once, phone + `/apply`, every

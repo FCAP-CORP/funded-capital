@@ -8,6 +8,7 @@
  */
 
 import {
+  wordsOf,
   LIMITS,
   MAX_SLIDES,
   MAX_SPEC_BYTES,
@@ -170,6 +171,13 @@ const sn = ["45", "2 hrs", "$750K+", "$12,500,000"].map(statNumberSize);
 check("stat numbers shrink as they lengthen", sn.every((v, k) => k === 0 || v <= sn[k - 1]), sn.join(" >= "));
 refused("a list item over the list limit", deck(big, steps, { t: "list", h: "Do", items: ["ok", "w".repeat(LIMITS.listItem + 1)] }), /items #2/);
 refused("a compare item over the compare limit", deck(big, steps, { t: "compare", h: "Vs", left: { label: "A", items: ["1", "v".repeat(LIMITS.compareItem + 1)] }, right: { label: "B", items: ["1", "2"] } }), /left items #2/);
+
+console.log("\n--- words keep punctuation attached (the \"Low .\" cover, 25 Sep 2026) ---");
+const flat = (t: string) => wordsOf(t).map((w) => w.map((s) => (s.hi ? `[${s.t}]` : s.t)).join(""));
+check("a full stop after a highlight stays on the word", flat("Came Back *Low*.").join("|") === "Came|Back|[Low].", flat("Came Back *Low*.").join("|"));
+check("a highlight inside the word keeps its colour", flat("*Low.*").join("|") === "[Low.]", flat("*Low.*").join("|"));
+check("words split only at spaces", flat("A *term sheet* needs five").join("|") === "A|[term]|[sheet]|needs|five", flat("A *term sheet* needs five").join("|"));
+check("no empty words from double spaces", wordsOf("One  two").length === 2, String(wordsOf("One  two").length));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

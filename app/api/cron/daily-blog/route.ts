@@ -40,16 +40,24 @@ import {
  * shares nothing with a page and adds nothing to any bundle.
  */
 
-/** Vercel's ceiling for a function with fluid compute on every plan. */
-export const maxDuration = 300;
+/**
+ * Opus researches and writes more slowly than Sonnet. 800 s is the Pro plan's
+ * ceiling with fluid compute (confirmed Pro, 25 Sep 2026). On Hobby this would
+ * have to go back to 300 and BUDGET_MS to 270_000.
+ */
+export const maxDuration = 800;
 
 const SITE = "https://www.fundedcapital.com";
 const QUEUE = `${SITE}/api/crm/content-queue`;
 const BY = "daily-blog-cron";
 
 /** Stop starting new model work this long before Vercel would kill the function. */
-const BUDGET_MS = 270_000;
-const MODEL_DEFAULT = "claude-sonnet-5";
+const BUDGET_MS = 760_000;
+/**
+ * Opus since 25 Sep 2026: the first Sonnet draft passed every check but
+ * repeated a sentence and mixed up two sources. BLOG_MODEL in Vercel overrides.
+ */
+const MODEL_DEFAULT = "claude-opus-5-5";
 
 /* ------------------------------------------------------------ plumbing */
 
@@ -109,7 +117,7 @@ async function converse(opts: {
   const messages = [...opts.messages];
   for (let hop = 0; hop < 6; hop++) {
     const left = opts.deadline - Date.now();
-    if (left < 15_000) throw new Stop("Ran out of time while the post was being written. It will be retried tomorrow.");
+    if (left < 15_000) throw new Stop("Ran out of time while the post was being written. Retry it from the Marketing page.");
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -251,7 +259,7 @@ export async function GET(request: Request) {
       } else {
         problems = [parsed.error];
       }
-      if (round === 1 || deadline - Date.now() < 60_000) break;
+      if (round === 1 || deadline - Date.now() < 120_000) break;
       console.log(`[cron/daily-blog] repair round for: ${problems.join(" | ")}`);
       convo = await converse({
         key: apiKey,
@@ -328,7 +336,7 @@ export async function GET(request: Request) {
       err instanceof Stop
         ? err.message
         : err instanceof Error && err.name === "TimeoutError"
-          ? "A step timed out. It will be retried tomorrow."
+          ? "A step timed out. Retry it from the Marketing page."
           : "Something unexpected went wrong while writing the post.";
     if (!(err instanceof Stop)) console.error("[cron/daily-blog]", err);
 

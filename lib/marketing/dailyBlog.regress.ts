@@ -33,8 +33,16 @@ const check = (name: string, cond: boolean, detail = "") => {
 const TODAY = "2026-09-25";
 const LIVE = ["hard-money-loan-document-checklist", "llc-real-estate-loan", "how-to-read-hard-money-term-sheet", "a", "b", "c", "d", "e", "f", "g"];
 
-const sentence = "Investors who run the numbers before they call a lender close faster and argue less about terms. ";
-const paragraph = sentence.repeat(8).trim();
+/** Distinct sentences, so the repeat check has nothing to find in a clean fixture. */
+const NOUNS = ["investors", "brokers", "builders", "lenders", "appraisers", "underwriters", "title agents", "contractors", "partners", "clients"];
+const VERBS = ["check", "price", "review", "compare", "question", "measure", "confirm", "document", "track", "test"];
+const THINGS = ["the budget", "the comps", "the timeline", "the exit", "the draw", "the reserve", "the rent roll", "the scope", "the payoff", "the insurance"];
+let seq = 0;
+function sentenceN(): string {
+  const i = seq++;
+  return `In case ${i}, ${NOUNS[i % 10]} ${VERBS[Math.floor(i / 10) % 10]} ${THINGS[(i * 7) % 10]} before step ${i + 3} of the file.`;
+}
+const paragraph = () => Array.from({ length: 8 }, sentenceN).join(" ");
 
 function mdx(opts: { body?: string; date?: string; category?: string; faqCount?: number; extraBody?: string } = {}): string {
   const faqN = opts.faqCount ?? 4;
@@ -44,9 +52,9 @@ function mdx(opts: { body?: string; date?: string; category?: string; faqCount?:
     [
       "## Why this matters",
       "",
-      Array.from({ length: 10 }, () => paragraph).join("\n\n"),
+      Array.from({ length: 12 }, () => paragraph()).join("\n\n"),
       "",
-      "See the [document checklist](/blog/hard-money-loan-document-checklist) and run the [calculator](/calculator).",
+      "See the [document checklist](/blog/hard-money-loan-document-checklist), the [LLC guide](/blog/llc-real-estate-loan) and run the [calculator](/calculator).",
       "",
       COMPLIANCE_LINE,
       "",
@@ -155,7 +163,9 @@ refused("a slug with capitals", output({ slug: "Bad-Slug" }), /slug:/);
 refused("the wrong date", output({ mdx: mdx({ date: "2026-09-24" }) }), /date must be/);
 refused("an unknown category", output({ mdx: mdx({ category: "Homebuyers" }) }), /category/);
 refused("too few FAQ items", output({ mdx: mdx({ faqCount: 2 }) }), /faq/);
-refused("a body that is too short", output({ mdx: mdx({ body: `${paragraph}\n\n${COMPLIANCE_LINE}\n\n[Apply Now](/apply) ${PHONE}` }) }), /words/);
+refused("a body that is too short", output({ mdx: mdx({ body: `${paragraph()}\n\n${COMPLIANCE_LINE}\n\n[Apply Now](/apply) ${PHONE}` }) }), /words/);
+refused("a sentence written twice", output({ mdx: mdx({ extraBody: "\nA value appeal succeeds on overlooked comparable sales and factual errors in the report. A value appeal succeeds on overlooked comparable sales and factual errors in the report." }) }), /appears twice/);
+refused("fewer than two internal links", output({ mdx: mdx().replace("[LLC guide](/blog/llc-real-estate-loan)", "LLC guide") }), /at least 2 different live posts/);
 refused("an FAQ section in the body", output({ mdx: mdx({ extraBody: "\n## FAQ\n\nQ and A." }) }), /FAQ section/);
 refused("a link to a post that is not live", output({ mdx: mdx({ extraBody: "\nSee [this](/blog/does-not-exist)." }) }), /does-not-exist/);
 refused("\"44 states\"", output({ mdx: mdx({ extraBody: "\nWe lend in 44 states." }) }), /44 states/);
@@ -172,6 +182,10 @@ console.log("\n=== 8. A bad carousel never blocks the post ===");
 const noCarousel = checkOutput(output({ carouselRaw: "{not json" }), TODAY, LIVE);
 check("invalid JSON: post accepted, carousel reported", noCarousel.ok && noCarousel.value.carousel === null && /JSON/.test(noCarousel.value.carouselError ?? ""));
 const arrow = checkOutput(output({ carouselRaw: CAROUSEL.replace("Three models.", "Three → models.") }), TODAY, LIVE);
+const spaced = checkOutput(output({ carouselRaw: CAROUSEL.replace("Three models.", "Three models .") }), TODAY, LIVE);
+check("a space before a full stop on a slide: post accepted, carousel refused", spaced.ok && spaced.value.carousel === null && /space before/.test(spaced.value.carouselError ?? ""), spaced.ok ? String(spaced.value.carouselError) : "");
+const starred = checkOutput(output({ carouselRaw: CAROUSEL.replace("Know *which one* you are", "Know which one you *are*.") }), TODAY, LIVE);
+check("\"*are*.\" is not a space before punctuation", starred.ok && starred.value.carousel !== null, starred.ok ? String(starred.value.carouselError) : "");
 check("an arrow on a slide: post accepted, carousel refused", arrow.ok && arrow.value.carousel === null && !!arrow.value.carouselError, arrow.ok ? String(arrow.value.carouselError) : "");
 
 console.log("\n=== 9. Small pieces ===");

@@ -27,7 +27,7 @@ import {
   statNumberSize,
   groundOf,
   headlineSize,
-  highlightRuns,
+  wordsOf,
   pageLabel,
   plain,
   type CarouselSpec,
@@ -90,19 +90,26 @@ type Ground = "navy" | "light";
 
 /**
  * A headline whose *starred* words are coloured. Satori cannot wrap a line of
- * mixed spans, so each word is its own box in a wrapping row.
+ * mixed spans, so each word is its own box in a wrapping row (wordsOf, in
+ * carousel.ts, where it is tested).
+ *
+ * A WORD CAN SPAN TWO RUNS. "Came Back *Low*." is the runs "Came Back ",
+ * "Low" and "." — the full stop is its own run but not its own word. Until
+ * 25 Sep 2026 every run was split on spaces separately, so the full stop became
+ * a separate box with a word gap before it and the cover read "Low .". Words
+ * are now cut only at real spaces; a word keeps each run's colour inside it.
  */
 function Words({ text, size, color, hi, weight = 800, lineHeight = 1.08, spacing = -0.02 }: {
   text: string; size: number; color: string; hi: string; weight?: number; lineHeight?: number; spacing?: number;
 }) {
-  const words: { w: string; hi: boolean }[] = [];
-  for (const run of highlightRuns(text)) {
-    for (const w of run.text.split(" ").filter(Boolean)) words.push({ w, hi: run.hi });
-  }
   return (
     <div style={{ display: "flex", flexWrap: "wrap", fontSize: size, fontWeight: weight, lineHeight, letterSpacing: `${spacing}em`, color }}>
-      {words.map((x, k) => (
-        <span key={k} style={{ color: x.hi ? hi : color, marginRight: size * 0.26 }}>{x.w}</span>
+      {wordsOf(text).map((segs, k) => (
+        <span key={k} style={{ display: "flex", marginRight: size * 0.26 }}>
+          {segs.map((s, j) => (
+            <span key={j} style={{ color: s.hi ? hi : color }}>{s.t}</span>
+          ))}
+        </span>
       ))}
     </div>
   );
