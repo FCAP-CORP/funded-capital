@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   BarChart3,
+  Sprout,
   BookOpen,
   Building2,
   Calculator,
@@ -76,6 +77,7 @@ const ICONS: Record<NavIcon, React.ComponentType<{ size?: number; "aria-hidden"?
   firms: Building2,
   marketing: Megaphone,
   reports: BarChart3,
+  nurture: Sprout,
   dashboard: LayoutDashboard,
   pricing: Calculator,
   portfolio: Layers,

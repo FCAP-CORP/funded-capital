@@ -970,3 +970,59 @@ export const outboundEmails = pgTable("outbound_emails", {
   appIdx: index("outbound_emails_application_idx").on(t.applicationId),
   contactIdx: index("outbound_emails_contact_idx").on(t.contactId),
 }));
+
+/* ----------------------------------------------------- nurture_enrollments */
+
+/**
+ * Lead nurturing: who Lending OS has put into which Klaviyo programme.
+ * Migration 0014. Rules in lib/nurture/nurture.ts.
+ *
+ * One row per person per programme, EVER (unique contact + program), so the
+ * same person is never put through the same series twice. At most one ACTIVE
+ * row per person (partial unique index), so nobody gets two programmes at once.
+ *
+ * The row is also the outbox for Klaviyo: `sync_state` says what Klaviyo
+ * still needs to be told. The page and the cron write the intent
+ * (pending_add / pending_remove); lib/nurture/sync.server.ts makes the calls
+ * and records the outcome. A row claimed by one run carries `sync_claimed_at`
+ * so a second run cannot make the same call.
+ *
+ * `klaviyo_list_id` is the list at enrolment time, so a removal always targets
+ * the list the person was actually added to.
+ *
+ * Nothing here holds consent. A Klaviyo unsubscribe is mirrored into
+ * `contacts.email_subscribed = false` — the one direction consent may flow.
+ */
+export const NURTURE_SYNC_STATES = ["pending_add", "added", "pending_remove", "removed"] as const;
+
+export const nurtureEnrollments = pgTable("nurture_enrollments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  contactId: uuid("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  program: text("program").notNull(),
+  status: text("status").$type<"active" | "stopped">().notNull().default("active"),
+  enrolledAt: timestamp("enrolled_at", { withTimezone: true }).notNull().defaultNow(),
+  enrolledBy: text("enrolled_by"),
+  stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+  stopReason: text("stop_reason"),
+  stoppedBy: text("stopped_by"),
+  klaviyoListId: text("klaviyo_list_id").notNull(),
+  klaviyoProfileId: text("klaviyo_profile_id"),
+  syncState: text("sync_state").$type<(typeof NURTURE_SYNC_STATES)[number]>().notNull().default("pending_add"),
+  syncAttempts: integer("sync_attempts").notNull().default(0),
+  syncError: text("sync_error"),
+  nextSyncAt: timestamp("next_sync_at", { withTimezone: true }).notNull().defaultNow(),
+  syncClaimedAt: timestamp("sync_claimed_at", { withTimezone: true }),
+  syncedAt: timestamp("synced_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  programCheck: check("nurture_enrollments_program_check", sql`${t.program} IN ('past_borrower', 'bp_no_term_sheet', 'quiet', 'lost')`),
+  statusCheck: check("nurture_enrollments_status_check", sql`${t.status} IN ('active', 'stopped')`),
+  stopReasonCheck: check("nurture_enrollments_stop_reason_check", sql`${t.stopReason} IS NULL OR ${t.stopReason} IN ('replied', 'contacted', 'new_deal', 'deal_moved', 'unsubscribed', 'bounced', 'no_email', 'removed_in_klaviyo', 'stopped_by_staff')`),
+  stoppedConsistent: check("nurture_enrollments_stopped_consistent_check", sql`(${t.status} = 'active') = (${t.stoppedAt} IS NULL)`),
+  syncStateCheck: check("nurture_enrollments_sync_state_check", sql`${t.syncState} IN ('pending_add', 'added', 'pending_remove', 'removed')`),
+  contactProgramKey: uniqueIndex("nurture_enrollments_contact_program_key").on(t.contactId, t.program),
+  oneActiveKey: uniqueIndex("nurture_enrollments_one_active_key").on(t.contactId).where(sql`${t.status} = 'active'`),
+  syncDueIdx: index("nurture_enrollments_sync_due_idx").on(t.nextSyncAt).where(sql`${t.syncState} IN ('pending_add', 'pending_remove')`),
+  programStatusIdx: index("nurture_enrollments_program_status_idx").on(t.program, t.status),
+}));

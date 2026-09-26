@@ -144,6 +144,8 @@ const STAFF_ONLY_MODULES = [
   "lib/comms/mailbox.server.ts",
   // The reports page's read: the whole book (counts and dates, no names).
   "lib/crm/reports.server.ts",
+  // The nurture page: the whole book classified, plus enrol / stop / retry.
+  "lib/nurture/nurture.server.ts",
 ];
 
 for (const relPath of STAFF_ONLY_MODULES) {
@@ -327,6 +329,18 @@ const NON_STAFF_SERVER_MODULES: Record<string, string> = {
    */
   "lib/comms/emailOutbox.server.ts": "staff-guarded by its one caller (app/crm/emailActions.ts); email-gated itself",
   "lib/comms/gmail.server.ts": "HTTP client only: reads no table, logs nothing, imported by the executor and the Connect Gmail callback",
+
+  /**
+   * LEAD NURTURING (26 Sep 2026). Section 14 pins both:
+   * - the SYNC runs from Vercel Cron, which has no Clerk session, so it can
+   *   never assert staff. Its one outside door is /api/cron/nurture, which
+   *   checks CRON_SECRET first. It writes only nurture_enrollments, keyed
+   *   automation activities, and contacts.email_subscribed — to FALSE only;
+   * - the Klaviyo client reads no table, logs nothing, and has no call that
+   *   could subscribe anyone.
+   */
+  "lib/nurture/sync.server.ts": "secret-guarded: Vercel Cron via /api/cron/nurture (and after() from staff actions); consent may only be revoked",
+  "lib/comms/klaviyo.server.ts": "HTTP client only: reads no table, logs nothing, cannot subscribe; imported by the nurture sync only",
 };
 
 const exemptPaths = Object.keys(NON_STAFF_SERVER_MODULES);
@@ -1135,6 +1149,62 @@ console.log("\n=== 13. Email: gate before Gmail, own mailbox only, token encrypt
   check("the mailbox store is imported by the executor and the callback only", JSON.stringify(mbImporters) === JSON.stringify([CALLBACK, EX].sort()), mbImporters.join(", "));
   const talksToGoogle = allSource.filter((f) => rel(f) !== GC && /(gmail|oauth2)\.googleapis\.com/.test(codeOnly(readFileSync(f, "utf8")))).map(rel);
   check("no other file calls Gmail or Google's token endpoint (a second sender would skip the gate)", talksToGoogle.length === 0, talksToGoogle.join(", ") || "none");
+}
+
+/* -------------------------------------------------------- lead nurturing */
+
+/**
+ * Lead nurturing through Klaviyo (26 Sep 2026). Marketing email to hundreds of
+ * people is where a consent mistake stops being one email and becomes a list.
+ */
+console.log("\n=== 14. Nurture: cron secret first, Klaviyo can never subscribe, consent only ever revoked ===");
+{
+  const ROUTE = "app/api/cron/nurture/route.ts";
+  const SYNC = "lib/nurture/sync.server.ts";
+  const KC = "lib/comms/klaviyo.server.ts";
+  const ACT = "app/crm/nurture/actions.ts";
+  const routeSrc = readOr(ROUTE), syncSrc = readOr(SYNC), kcSrc = readOr(KC), actSrc = readOr(ACT);
+
+  if (routeSrc) {
+    const get = codeOnly(routeSrc).slice(codeOnly(routeSrc).indexOf("export async function GET"));
+    const gate = get.search(/if\s*\(\s*!tokenOk\(bearerFrom\(request\.headers\.get\("authorization"\)\),\s*process\.env\.CRON_SECRET\)\)/);
+    const work = get.search(/runNurtureSync\(/);
+    check(`  ${ROUTE} checks CRON_SECRET with tokenOk`, gate >= 0, gate >= 0 ? "tokenOk" : "**NO SECRET CHECK**");
+    check("  ...before any work", gate >= 0 && work > gate, `gate ${gate} < work ${work}`);
+    check("  ...and a failed check is a 401", /Not authorised\."\s*\},\s*\{\s*status:\s*401/.test(get), "401");
+  }
+  check("vercel.json schedules the nurture cron", /"path":\s*"\/api\/cron\/nurture"/.test(readOr("vercel.json")), "scheduled");
+
+  if (kcSrc) {
+    const code = codeOnly(kcSrc);
+    const forbidden = code.match(/profile-subscription|subscription-bulk|\/subscribe|unsuppress|suppression-bulk|push-token|\/events\b|"subscriptions"\s*:/gi) ?? [];
+    check(`  ${KC} has no subscribe / unsuppress / consent call`, forbidden.length === 0, forbidden.length ? `**FOUND ${forbidden.join(", ")}**` : "none");
+    check("  ...is server-only", /^\s*import\s+"server-only";/m.test(kcSrc), "server-only");
+    check("  ...never logs (keys and addresses leak through logs)", !/\bconsole\.\w+\(/.test(code), "no console");
+    check("  ...reads no table", !/from\s+"@\/lib\/db/.test(kcSrc), "no db import");
+    check("  ...times out every call", /AbortSignal\.timeout\(KLAVIYO_TIMEOUT_MS\)/.test(code), "timeout");
+    check("  ...pins Klaviyo's API revision", /revision:\s*KLAVIYO_REVISION/.test(code), "revision");
+  }
+  if (syncSrc) {
+    const code = codeOnly(syncSrc);
+    const consentWrites = code.match(/email_subscribed\s*=\s*\w+/g) ?? [];
+    check(`  ${SYNC} writes email_subscribed only as false`, consentWrites.length >= 1 && consentWrites.every((w) => /=\s*false$/.test(w)), consentWrites.join(" | ") || "**NO MIRROR?**");
+    check("  ...touches no other consent column", !/sms_consent|sms_opted_out|smsConsent|smsOptedOut|emailSubscribed:\s*true/.test(code), "clean");
+    const tables = [...new Set((code.match(/(?:INSERT INTO|(?<!FOR )UPDATE)\s+(\w+)/g) ?? []).map((m) => m.split(/\s+/).pop()))].sort();
+    check("  ...writes only nurture_enrollments, activities and contacts", JSON.stringify(tables) === JSON.stringify(["activities", "contacts", "nurture_enrollments"]), tables.join(", "));
+    check("  ...runs the auto-stop before any Klaviyo call", (fnBody(code, "runNurtureSync") ?? "").search(/applyAutoStops\(/) >= 0 && (fnBody(code, "runNurtureSync") ?? "").search(/applyAutoStops\(/) < (fnBody(code, "runNurtureSync") ?? "").search(/drain\(/), "stops first");
+    check("  ...re-checks consent on a fresh read before adding anyone", /person\.emailSubscribed === false/.test(code), "fresh read");
+    check("  ...never uses db.transaction", !/\.transaction\(/.test(code), "db.batch");
+  }
+  if (actSrc) {
+    const code = codeOnly(actSrc);
+    const n = (code.match(/revalidatePath\(/g) ?? []).length;
+    check(`  ${ACT} refreshes only /crm/nurture`, /const HERE = "\/crm\/nurture"/.test(code) && (code.match(/revalidatePath\(HERE\)/g) ?? []).length === n, `${n} refresh call(s)`);
+  }
+  const kcImporters = importersOf(/(^|\/)klaviyo\.server$/);
+  check("the Klaviyo client is imported by the nurture sync and nothing else", kcImporters.length === 1 && kcImporters[0] === SYNC, kcImporters.join(", ") || "**NOT IMPORTED**");
+  const talksToKlaviyo = allSource.filter((f) => rel(f) !== KC && /a\.klaviyo\.com\/api/.test(codeOnly(readFileSync(f, "utf8")))).map(rel);
+  check("no other file calls Klaviyo's API (a second client would skip these rules)", talksToKlaviyo.length === 0, talksToKlaviyo.join(", ") || "none");
 }
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);

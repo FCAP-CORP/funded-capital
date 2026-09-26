@@ -239,7 +239,7 @@ Full architecture: `docs/lending-os.md`. Decisions already locked, do not reliti
 
 ### Not decided yet
 
-Klaviyo vs ActiveCampaign as system of record (both connected and paid). Seat count and roles.
+~~Klaviyo vs ActiveCampaign~~ — **decided 26 Sep 2026: Klaviyo** is the system of record for marketing email; ActiveCampaign is no longer used. Seat count and roles.
 Whether the broker portal merges in. Whether servicing stays in-portal or moves to a vendor —
 payments, ACH, amortisation, 1098/1099 and investor distributions are regulated, high-consequence,
 and zero differentiation, so buying that layer later is the expected outcome. Keep the API boundary
@@ -1005,3 +1005,50 @@ a source comparison table, loan types requested and lost reasons.
   every chart has a table). The dashboard's "Where leads came from" uses the same four.
 - Next on the roadmap (project doc `claude/lending-os-roadmap.md`): lead nurturing — Gmail follow-up
   sequences for warm leads, Klaviyo campaigns for old ones, auto-stop on reply.
+
+### Lead nurturing through Klaviyo (`/crm/nurture`, 26 Sep 2026)
+
+Klaviyo is the system of record for marketing email (ActiveCampaign is no longer used). **Lending OS
+decides WHO; Klaviyo decides WHAT and WHEN.** Four programmes, each a Klaviyo list created for Lending
+OS alone — Quiet leads `Yq4vxf`, BiggerPockets no term sheet `VYBzq9`, Lost deals `SW9AEq`, Past
+borrowers `WwZmFn`. A Klaviyo flow per list ("Added to list" trigger, flow filter "is in list <that
+list>") sends the emails. Nobody should add people to those lists by hand.
+
+- **Rules are pure and tested** (`lib/nurture/nurture.ts`, `nurture.regress.ts`, 95 tests,
+  mutation-tested): one programme per person at a time and never the same one twice; nobody in touch
+  either way in the last 30 days (Luis's threshold); nobody with a deal from term sheet to closing;
+  no brokers, no `@fundedcapital.com`, no not-our-product / duplicate / spam; unsubscribed never.
+  Priority: past borrower → BiggerPockets → quiet → lost.
+- **Luis reviews, then enrols** (`app/crm/nurture/actions.ts`). The server re-reads and re-classifies
+  every chosen person before inserting, so a stale page cannot enrol someone who just wrote in.
+  `ON CONFLICT DO NOTHING` over two unique indexes (contact + programme; one active per contact)
+  makes double clicks harmless. Enrol and stop each write an `automation` activity on the timeline.
+- **Auto-stop** (`lib/nurture/sync.server.ts`, cron every 15 min, `/api/cron/nurture`, CRON_SECRET):
+  a reply (email_in/sms_in), a new enquiry, a forward stage move (a move INTO closed_lost does not
+  count), Luis reaching out himself, or an unsubscribe → stopped and removed from the list. Stops run
+  BEFORE any Klaviyo call.
+- **Consent flows in only.** The sync reads each list back with consent: UNSUBSCRIBED / spam
+  complaint / user-suppressed → `contacts.email_subscribed = false` (never true — guard §14), which
+  also blocks the record card's Email button; a bounce stops the row without touching consent. The
+  Klaviyo client (`lib/comms/klaviyo.server.ts`) has no subscribe or unsuppress call and sends no
+  phone number and no consent field; adding to a list does not change Klaviyo consent. Klaviyo emails
+  "never subscribed" profiles who are not suppressed, and adds the unsubscribe link and our address.
+- **Outbox in the row**: `nurture_enrollments` (migration 0014) carries `sync_state`
+  (pending_add → added, pending_remove → removed), a 5-minute claim lease, backoff to 6 h, and gives
+  up after 8 tries with a "Try again" button. A 409 from Klaviyo's profile import uses the existing
+  profile Klaviyo names. `after()` drains right after a click; the cron is the backstop.
+- **Arrival for legacy rows** is the contact's sheet date, not the import day, or every legacy lead
+  would look "recent" until mid-October.
+- **Verified on Postgres 16** with Klaviyo faked at `fetch` (44 checks: who qualifies, concurrency,
+  auto-stop, consent mirror, bounce, removed-by-hand, backoff, retry, no key). Harness note: in
+  `@neondatabase/serverless` a batch's PER-QUERY `arrayMode` wins over the transaction's — a fake
+  client that lets the transaction's win turns every raw `db.execute` in a `db.batch` into arrays.
+- **Env**: `KLAVIYO_PRIVATE_KEY` (Production; scopes profiles:read/write, lists:read/write). Without
+  it the page works, enrolments queue, and nothing is sent to Klaviyo.
+- **Email templates** in Klaviyo (plain, from Luis, no rates, compliance line where a speed or
+  leverage claim is made): Quiet 1 `W6rzMJ`, BiggerPockets 1 `S2pwJL`, Lost 1 `TDyTyt`, Past 1
+  `X9Mqe3`, Past 2 `Ws97g2`, shared 2 `WJ3SsH` / 3 `RNwKR7` / 4 `XDyWip`. Plain-text unsubscribe tag
+  is `{% unsubscribe_link %}` (`unsubscribe_url` fails to render).
+- **Not built yet:** Gmail follow-up sequences for warm leads (track A), automatic daily enrolment,
+  mirroring unsubscribes for people who were never enrolled, nurture results on /crm/reports.
+

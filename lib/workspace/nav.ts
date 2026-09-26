@@ -54,6 +54,7 @@ export type NavIcon =
   | "firms"
   | "marketing"
   | "reports"
+  | "nurture"
   | "dashboard"
   | "pricing"
   | "portfolio"
@@ -100,6 +101,7 @@ const LENDING_OS_ITEMS: readonly NavItem[] = [
   { label: "Contacts", href: "/crm/contacts", icon: "contacts" },
   { label: "Brokers", href: "/crm/brokers", icon: "firms" },
   { label: "Marketing", href: "/crm/marketing", icon: "marketing" },
+  { label: "Nurture", href: "/crm/nurture", icon: "nurture" },
   { label: "Reports", href: "/crm/reports", icon: "reports" },
 ];
 
