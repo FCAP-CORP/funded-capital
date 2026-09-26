@@ -13,15 +13,15 @@ import Link from "next/link";
  */
 export default function SmsConsentField() {
   return (
-    <div className="flex items-start gap-3 rounded-xl bg-slate-50 border border-slate-100 p-4">
+    <div className="flex items-start gap-3 rounded-[2px] bg-linen border border-rule p-4">
       <input
         id="smsConsent"
         name="smsConsent"
         type="checkbox"
         value="true"
-        className="mt-1 w-4 h-4 accent-gold-500 shrink-0"
+        className="mt-1 w-4 h-4 accent-brass-500 shrink-0"
       />
-      <label htmlFor="smsConsent" className="text-xs text-slate-500 leading-relaxed">
+      <label htmlFor="smsConsent" className="text-xs text-deep-muted leading-relaxed">
         I agree to receive calls and text messages, including automated ones, from
         Funded Capital at the number provided about my inquiry and loan options.
         Consent is not a condition of any loan or service. Message and data rates
@@ -30,7 +30,7 @@ export default function SmsConsentField() {
         <Link
           href="/privacy"
           target="_blank"
-          className="text-gold-600 underline hover:text-gold-700"
+          className="text-brass-700 underline hover:text-deep"
         >
           Privacy Policy
         </Link>{" "}
@@ -38,7 +38,7 @@ export default function SmsConsentField() {
         <Link
           href="/terms"
           target="_blank"
-          className="text-gold-600 underline hover:text-gold-700"
+          className="text-brass-700 underline hover:text-deep"
         >
           Terms &amp; Conditions
         </Link>

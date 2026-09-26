@@ -1,118 +1,46 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  ArrowRight,
-  CheckCircle2,
-  Shield,
-  TrendingUp,
-  Users,
-  Zap,
-  Building2,
-  Hammer,
-  Home,
-  BarChart3,
-  Layers,
-} from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import { getAllPosts } from "@/lib/blog";
+import { COMPLIANCE, PROGRAMS, STATS } from "@/lib/site/facts";
+import { StepsMark } from "@/components/site/Logo";
+import { ArrowLink, Eyebrow, Ledger, Section, SectionHead } from "@/components/site/ui";
+import { HomePhotoBand } from "@/components/site/HomePhotoBand";
 
 export const metadata: Metadata = {
   title: "Funded Capital | Private Real Estate Lender — Fast, Flexible Loans",
   description:
-    "Funded Capital provides fast private real estate loans for investors and brokers. Fix & Flip, DSCR, New Construction, Multifamily. Apply in minutes. Term sheet in 2 hours.",
+    "Private real estate loans for investors and brokers: fix & flip, DSCR, ground-up and multifamily. $75K–$5M in 45 states. Term sheet in 2 hours on average; close in 5–10 business days.",
 };
 
-// ─── Data ────────────────────────────────────────────────────────────────────
-
-const trustStats = [
-  { value: "$500M+", label: "Loans Funded" },
-  { value: "2 hrs", label: "Avg. Time to Term Sheet" },
-  { value: "1,200+", label: "Deals Closed" },
-  { value: "45 States", label: "Nationwide Lending" },
-];
-
-const loanPrograms = [
-  {
-    icon: Hammer,
-    title: "Fix & Flip",
-    ltv: "Up to 90% LTC",
-    rate: "From 8.75%",
-    term: "12–24 months",
-    highlight: true,
-  },
-  {
-    icon: BarChart3,
-    title: "DSCR / Rental",
-    ltv: "Up to 80% LTV",
-    rate: "From 6.0%",
-    term: "30-year fixed or P/I",
-    highlight: false,
-  },
-  {
-    icon: Building2,
-    title: "New Construction",
-    ltv: "85–90% of cost",
-    rate: "From 8.75%",
-    term: "12–24 months",
-    highlight: false,
-  },
-  {
-    icon: Layers,
-    title: "Multifamily",
-    ltv: "Up to 75% LTV",
-    rate: "From 8.0%",
-    term: "1–10 years",
-    highlight: false,
-  },
-];
+/*
+ * Home ("Ledger", 25 Sep 2026).
+ *
+ * PERFORMANCE: a server component with no client JavaScript of its own and no
+ * hero photograph. The largest paint is the headline text, which renders from
+ * self-hosted fonts with metric-matched fallbacks, so there is no image to
+ * wait for and no layout shift when the fonts arrive.
+ *
+ * CONVERSION: the hero answers the three questions an investor has on landing
+ * (do you lend on this, how much, how fast) with a term-sheet card before any
+ * scrolling. One brass action per screen: Get a term sheet. Price a deal is
+ * the second path for visitors not ready to apply.
+ */
 
 const steps = [
-  {
-    step: "01",
-    title: "Submit Your Loan Request",
-    desc: "Complete our streamlined online application in under 5 minutes.",
-  },
-  {
-    step: "02",
-    title: "Receive a Term Sheet",
-    desc: "Get a preliminary term sheet within 2 hours — no fluff, no runaround.",
-  },
-  {
-    step: "03",
-    title: "Underwriting & Approval",
-    desc: "We move fast. Most loans are fully approved within 5–7 business days.",
-  },
-  {
-    step: "04",
-    title: "Fund & Close",
-    desc: "Loan is disbursed to the title company on the day of closing. You close the deal. We celebrate with you.",
-  },
+  { n: "1", title: "Send the deal", body: "Address, price, rehab budget and your exit. Two minutes, no credit pull to start." },
+  { n: "2", title: "Get real terms", body: `A written term sheet in about ${STATS.termSheet} on average, from a person who can explain every line.` },
+  { n: "3", title: "Close", body: `Appraisal, title and insurance run in parallel. Typical close: ${STATS.close}.` },
 ];
 
-const whyUs = [
-  {
-    icon: Zap,
-    title: "Speed That Wins Deals",
-    desc: "Term sheet in 2 hours. Closings in 5–10 business days. When timing is everything, we deliver.",
-  },
-  {
-    icon: Shield,
-    title: "Transparent Terms",
-    desc: "No hidden fees, no bait-and-switch. What you see in the term sheet is what you get at closing.",
-  },
-  {
-    icon: TrendingUp,
-    title: "Competitive Rates",
-    desc: "Institutional-grade pricing with the flexibility of a private lender. Best of both worlds.",
-  },
-  {
-    icon: Users,
-    title: "Relationship Driven",
-    desc: "Your dedicated loan officer answers the phone. Real people, real decisions — not a black box.",
-  },
+const brokerPoints = [
+  { title: "Instant pricing in your portal", body: "The rate ladder, live, for every file you submit." },
+  { title: "Term sheets under your name", body: "Your logo on the page your client reads." },
+  { title: "Paid at closing", body: "0.5%–3% per closed loan, across every program." },
 ];
-
-// ─── Component ───────────────────────────────────────────────────────────────
 
 export default function HomePage() {
+  const posts = getAllPosts().slice(0, 3);
   const schemaData = {
     "@context": "https://schema.org",
     "@graph": [
@@ -163,285 +91,211 @@ export default function HomePage() {
 
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }}
-      />
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <section className="relative bg-navy-900 overflow-hidden">
-        {/* Dark navy overlay — keeps text fully readable while image shows through */}
-        <div
-          className="absolute inset-0"
-          style={{ background: "linear-gradient(135deg, rgba(15,23,42,0.88) 0%, rgba(15,23,42,0.72) 50%, rgba(15,23,42,0.60) 100%)" }}
-          aria-hidden="true"
-        />
-        {/* Gold accent glow top-right */}
-        <div
-          className="absolute top-0 right-0 w-1/2 h-full opacity-15"
-          style={{
-            background:
-              "radial-gradient(ellipse at top right, #C9A84C 0%, transparent 65%)",
-          }}
-          aria-hidden="true"
-        />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }} />
 
-        <div className="section-container relative z-10 py-20 lg:py-28">
-          <div className="max-w-3xl">
-            {/* Badge */}
-            <div className="inline-flex items-center gap-2 bg-navy-800 border border-navy-700 text-gold-500 text-xs font-semibold px-4 py-2 rounded-full mb-6">
-              <span className="w-1.5 h-1.5 rounded-full bg-gold-500 animate-pulse" />
-              Private Lending — Nationwide
-            </div>
-
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight">
-              Fast Capital for{" "}
-              <span className="text-gold-500">Real Estate</span>{" "}
-              Investors
+      {/* ── Hero ─────────────────────────────────────────────────────── */}
+      <section aria-labelledby="hero-heading" className="relative overflow-hidden bg-deep text-bone on-deep">
+        <StepsMark className="pointer-events-none absolute -bottom-10 -right-24 hidden h-[420px] w-[620px] opacity-[0.06] lg:block" />
+        <div className="section-container relative grid gap-12 py-16 lg:grid-cols-12 lg:gap-6 lg:py-28">
+          <div className="flex flex-col gap-7 lg:col-span-7">
+            <Eyebrow onDeep>Private lending · Real estate investors · {STATS.states} states</Eyebrow>
+            <h1 id="hero-heading" className="text-[52px] leading-[0.98] sm:text-7xl lg:text-[96px] lg:tracking-[-0.03em]">
+              We fund where <span className="text-brass-300">banks</span> won’t.
             </h1>
-
-            <p className="mt-6 text-lg text-slate-300 leading-relaxed max-w-2xl">
-              Funded Capital provides institutional-grade private loans for
-              fix &amp; flip, DSCR, new construction, and multifamily — with
-              term sheets in 2 hours and closings in days, not months.
+            <p className="max-w-xl text-lg leading-relaxed text-[#C9D1DD] sm:text-xl">
+              Asset-based loans from $75K to $5M for fix &amp; flip, DSCR rentals, ground-up and multifamily. We
+              underwrite the deal and the operator, not your W-2, and close in {STATS.close}.
             </p>
-
-            <div className="mt-8 flex flex-col sm:flex-row gap-4">
-              <Link href="/apply" className="btn-primary text-base px-8 py-4">
-                Apply Now
-                <ArrowRight size={18} />
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Link href="/apply" className="btn-primary text-base sm:text-[17px]">
+                Get a term sheet <ArrowRight size={18} aria-hidden="true" />
               </Link>
+              <Link href="/calculator" className="btn-secondary text-base sm:text-[17px]">
+                Price a deal in 5 minutes
+              </Link>
+            </div>
+          </div>
+
+          <aside aria-label="Fix and flip at a glance" className="self-start bg-bone text-deep shadow-[0_30px_80px_rgba(0,0,0,0.35)] lg:col-span-4 lg:col-start-9 lg:mt-6">
+            <div className="flex items-baseline justify-between border-b border-rule px-6 py-5">
+              <p className="font-headline text-2xl font-semibold">Deal snapshot</p>
+              <p className="font-figure text-xs tracking-[0.1em] text-deep-soft">FIX &amp; FLIP</p>
+            </div>
+            <Ledger
+              className="px-6 py-1"
+              rows={[
+                { label: "Rate", value: "from 8.75%" },
+                { label: "Leverage", value: "up to 90% of cost" },
+                { label: "Loan size", value: STATS.loanSizes },
+                { label: "Credit", value: "660+ most programs" },
+                { label: "Close", value: STATS.close },
+              ]}
+            />
+            <p className="bg-linen px-6 py-4 text-xs leading-relaxed text-deep-soft">Ranges, not quotes. {COMPLIANCE}</p>
+          </aside>
+        </div>
+      </section>
+
+      {/* ── Proof strip ──────────────────────────────────────────────── */}
+      <section aria-label="Funded Capital at a glance" className="bg-deep-2 text-bone">
+        <dl className="section-container grid grid-cols-2 gap-y-8 py-10 lg:grid-cols-5">
+          {[
+            { v: STATS.funded, l: "funded" },
+            { v: STATS.deals, l: "deals closed" },
+            { v: STATS.termSheet.replace(" hours", " hrs"), l: "average to term sheet" },
+            { v: "5–10", l: "business days to close" },
+            { v: STATS.states, l: `states · not ${STATS.excludedStates}` },
+          ].map((s) => (
+            <div key={s.l} className="flex flex-col-reverse gap-1 border-l border-bone/20 pl-5">
+              <dt className="text-[13px] text-[#A9B3C2]">{s.l}</dt>
+              <dd className="m-0 font-headline text-3xl font-semibold lg:text-[34px]">{s.v}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      {/* ── Photo band (the site's only photograph) ─────────────────── */}
+      <HomePhotoBand />
+
+      {/* ── Programs ─────────────────────────────────────────────────── */}
+      <Section labelledBy="programs-heading">
+        <SectionHead
+          eyebrow="01 — Loan programs"
+          id="programs-heading"
+          title="Four ways to fund the deal in front of you."
+          action={<ArrowLink href="/loan-programs">Compare every program</ArrowLink>}
+        />
+        <ul className="border-t-2 border-deep">
+          {PROGRAMS.map((p, i) => (
+            <li key={p.href} className="border-b border-rule">
               <Link
-                href="/loan-programs"
-                className="btn-secondary text-base px-8 py-4"
+                href={p.href}
+                className="group grid gap-2 py-7 sm:grid-cols-[64px_1fr] lg:grid-cols-[80px_minmax(0,1fr)_minmax(0,1.3fr)_40px] lg:items-center lg:gap-6 lg:py-9"
               >
-                View Loan Programs
-              </Link>
-            </div>
-
-            {/* Trust signals */}
-            <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2">
-              {[
-                "No upfront fees",
-                "660+ credit score",
-                "Close in 5–10 business days",
-                "Nationwide",
-              ].map((item) => (
-                <span
-                  key={item}
-                  className="flex items-center gap-1.5 text-slate-400 text-sm"
-                >
-                  <CheckCircle2 size={14} className="text-gold-500 shrink-0" />
-                  {item}
+                <span className="font-figure text-sm text-brass-700">{String(i + 1).padStart(2, "0")}</span>
+                <span className="font-headline text-3xl font-semibold sm:text-4xl lg:text-[44px] group-hover:text-brass-700 transition-colors">
+                  {p.name}
                 </span>
-              ))}
+                <span className="flex flex-col gap-1.5 sm:col-start-2 lg:col-start-auto">
+                  <span className="text-[17px] text-deep-muted">{p.pitch}</span>
+                  <span className="font-figure text-sm">{p.figures}</span>
+                </span>
+                <ArrowRight aria-hidden="true" className="hidden h-7 w-7 transition-transform group-hover:translate-x-1 lg:block" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </Section>
+
+      {/* ── How it works ─────────────────────────────────────────────── */}
+      <Section tone="linen" labelledBy="process-heading">
+        <SectionHead
+          eyebrow="02 — How it works"
+          id="process-heading"
+          title="Three steps. No black box."
+          action={<ArrowLink href="/how-it-works">The full process</ArrowLink>}
+        />
+        <ol className="grid gap-10 md:grid-cols-3 md:gap-6">
+          {steps.map((s) => (
+            <li key={s.n} className="flex flex-col gap-4 border-t-2 border-deep pt-7">
+              <span className="font-headline text-6xl font-medium leading-none text-brass-500" aria-hidden="true">
+                {s.n}
+              </span>
+              <h3 className="text-[28px] leading-tight">{s.title}</h3>
+              <p className="text-[17px] leading-relaxed text-deep-muted">{s.body}</p>
+            </li>
+          ))}
+        </ol>
+      </Section>
+
+      {/* ── Calculator ───────────────────────────────────────────────── */}
+      <Section labelledBy="calc-heading">
+        <div className="grid gap-12 lg:grid-cols-12 lg:gap-6">
+          <div className="flex flex-col gap-5 lg:col-span-5">
+            <Eyebrow>03 — Price a deal</Eyebrow>
+            <h2 id="calc-heading" className="text-4xl leading-[1.05] sm:text-5xl lg:text-[56px]">
+              Run the numbers before you call anyone.
+            </h2>
+            <p className="text-lg leading-relaxed text-deep-muted">
+              Purchase price, rehab budget and after-repair value give you a loan amount, cash to close and monthly
+              interest. The same math our underwriters start from.
+            </p>
+            <Link href="/calculator" className="btn-dark self-start text-base">
+              Open the calculator
+            </Link>
+          </div>
+          <div className="grid border border-rule bg-paper sm:grid-cols-2 lg:col-span-6 lg:col-start-7">
+            <div className="flex flex-col gap-2 border-b border-rule p-7 sm:border-b-0 sm:border-r">
+              <p className="font-figure text-xs tracking-[0.12em] text-brass-700">WHAT YOU ENTER</p>
+              <ul className="mt-2 flex flex-col gap-4 text-[17px]">
+                <li className="border-b border-dashed border-rule pb-3">Purchase price</li>
+                <li className="border-b border-dashed border-rule pb-3">Rehab budget</li>
+                <li>After-repair value</li>
+              </ul>
+            </div>
+            <div className="flex flex-col gap-2 bg-deep p-7 text-bone">
+              <p className="font-figure text-xs tracking-[0.12em] text-brass-300">WHAT YOU GET</p>
+              <ul className="mt-2 flex flex-col gap-4 text-[17px]">
+                <li className="border-b border-dashed border-bone/20 pb-3">Loan amount</li>
+                <li className="border-b border-dashed border-bone/20 pb-3">Cash to close</li>
+                <li>Monthly interest</li>
+              </ul>
+              <p className="mt-auto pt-6 text-xs leading-relaxed text-[#A9B3C2]">Rate ranges only. Final terms follow underwriting.</p>
             </div>
           </div>
         </div>
-      </section>
+      </Section>
 
-      {/* ── Trust Stats Bar ───────────────────────────────────────────────── */}
-      <section className="bg-navy-800 border-b border-navy-700" aria-label="Key statistics">
-        <div className="section-container py-8">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 text-center">
-            {trustStats.map((stat) => (
-              <div key={stat.label}>
-                <p className="text-gold-500 font-bold text-2xl lg:text-3xl">
-                  {stat.value}
-                </p>
-                <p className="text-slate-400 text-sm mt-1">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Loan Programs Preview ─────────────────────────────────────────── */}
-      <section className="section-padding bg-slate-50" aria-labelledby="programs-heading">
-        <div className="section-container">
-          <div className="text-center mb-12">
-            <p className="section-label">What We Offer</p>
-            <h2 id="programs-heading" className="section-heading">
-              Loan Programs Built for Investors
+      {/* ── Brokers ──────────────────────────────────────────────────── */}
+      <Section tone="deep" labelledBy="brokers-heading">
+        <div className="grid gap-12 lg:grid-cols-12 lg:gap-6">
+          <div className="flex flex-col gap-6 lg:col-span-6">
+            <Eyebrow onDeep>04 — For brokers</Eyebrow>
+            <h2 id="brokers-heading" className="text-4xl leading-[1.05] sm:text-5xl lg:text-[56px]">
+              Bring us the deal. Keep the client.
             </h2>
-            <p className="section-sub max-w-2xl mx-auto">
-              From single-family flips to large multifamily acquisitions, we have
-              the right capital solution for your strategy.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {loanPrograms.map((program) => {
-              const Icon = program.icon;
-              return (
-                <article
-                  key={program.title}
-                  className={`card flex flex-col gap-4 ${
-                    program.highlight
-                      ? "border-gold-500 ring-1 ring-gold-500/30"
-                      : ""
-                  }`}
-                >
-                  {program.highlight && (
-                    <span className="self-start bg-gold-500 text-navy-900 text-xs font-bold px-2.5 py-1 rounded-full">
-                      Most Popular
-                    </span>
-                  )}
-                  <div className="p-2.5 bg-slate-100 rounded-xl self-start">
-                    <Icon size={20} className="text-navy-900" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-navy-900">{program.title}</h3>
-                    <ul className="mt-2 flex flex-col gap-1 text-sm text-slate-500">
-                      <li>{program.ltv}</li>
-                      <li className="text-gold-600 font-semibold">{program.rate}</li>
-                      <li>{program.term}</li>
-                    </ul>
-                  </div>
-                </article>
-              );
-            })}
-          </div>
-
-          <div className="text-center mt-8">
-            <Link href="/loan-programs" className="btn-primary">
-              See All Programs &amp; Rates
-              <ArrowRight size={16} />
+            <p className="text-lg text-[#C9D1DD]">{STATS.brokers} brokers already place investor loans with us.</p>
+            <Link href="/broker-program" className="btn-primary self-start text-base">
+              Join the broker program
             </Link>
           </div>
+          <ul className="lg:col-span-5 lg:col-start-8">
+            {brokerPoints.map((b) => (
+              <li key={b.title} className="flex flex-col gap-1.5 border-t border-bone/20 py-5 last:border-b">
+                <span className="text-lg font-semibold">{b.title}</span>
+                <span className="text-[15px] text-[#A9B3C2]">{b.body}</span>
+              </li>
+            ))}
+          </ul>
         </div>
-      </section>
+      </Section>
 
-      {/* ── How It Works ─────────────────────────────────────────────────── */}
-      <section className="section-padding bg-white" aria-labelledby="how-heading">
-        <div className="section-container">
-          <div className="text-center mb-12">
-            <p className="section-label">Simple Process</p>
-            <h2 id="how-heading" className="section-heading">
-              From Application to Funding in 4 Steps
-            </h2>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {steps.map((step, i) => (
-              <article key={step.step} className="relative">
-                {i < steps.length - 1 && (
-                  <div
-                    className="hidden lg:block absolute top-7 left-full w-full h-px bg-slate-200 z-0"
-                    aria-hidden="true"
-                  />
-                )}
-                <div className="relative z-10">
-                  <span className="text-gold-500 font-bold text-4xl opacity-30 leading-none">
-                    {step.step}
+      {/* ── Insights ─────────────────────────────────────────────────── */}
+      {posts.length > 0 && (
+        <Section labelledBy="insights-heading">
+          <SectionHead
+            eyebrow="05 — Insights"
+            id="insights-heading"
+            title="Written by the people who underwrite."
+            action={<ArrowLink href="/blog">All articles</ArrowLink>}
+          />
+          <ul className="grid gap-10 md:grid-cols-3 md:gap-6">
+            {posts.map((post) => (
+              <li key={post.slug}>
+                <Link href={`/blog/${post.slug}`} className="group flex h-full flex-col gap-3 border-t-2 border-deep pt-6">
+                  <span className="font-figure text-xs uppercase tracking-[0.1em] text-brass-700">
+                    {post.category} · {post.readTime.replace(" read", "")}
                   </span>
-                  <h3 className="font-bold text-navy-900 text-lg mt-2">
-                    {step.title}
-                  </h3>
-                  <p className="text-slate-500 text-sm mt-2 leading-relaxed">
-                    {step.desc}
-                  </p>
-                </div>
-              </article>
+                  <span className="font-headline text-2xl font-semibold leading-snug group-hover:text-brass-700 transition-colors">
+                    {post.title}
+                  </span>
+                  <span className="text-[15px] leading-relaxed text-deep-muted line-clamp-3">{post.description}</span>
+                </Link>
+              </li>
             ))}
-          </div>
-
-          <div className="text-center mt-10">
-            <Link href="/how-it-works" className="btn-secondary">
-              Learn More About Our Process
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Why Us ───────────────────────────────────────────────────────── */}
-      <section className="section-padding bg-slate-50" aria-labelledby="why-heading">
-        <div className="section-container">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <p className="section-label">Why Funded Capital</p>
-              <h2 id="why-heading" className="section-heading">
-                The Lender Investors Trust to Close
-              </h2>
-              <p className="section-sub">
-                We built Funded Capital for real estate professionals who
-                can&apos;t afford to lose a deal to slow underwriting or vague pricing.
-              </p>
-              <div className="mt-8 flex flex-col sm:flex-row gap-3">
-                <Link href="/apply" className="btn-primary">
-                  Apply Now
-                  <ArrowRight size={16} />
-                </Link>
-                <Link href="/why-us" className="btn-secondary">
-                  Our Story
-                </Link>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {whyUs.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <article key={item.title} className="card">
-                    <div className="p-2 bg-gold-500/10 rounded-lg self-start inline-block mb-3">
-                      <Icon size={20} className="text-gold-600" />
-                    </div>
-                    <h3 className="font-bold text-navy-900 text-sm">
-                      {item.title}
-                    </h3>
-                    <p className="text-slate-500 text-sm mt-1 leading-relaxed">
-                      {item.desc}
-                    </p>
-                  </article>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── Broker CTA Strip ─────────────────────────────────────────────── */}
-      <section className="bg-navy-900 py-14" aria-labelledby="broker-cta-heading">
-        <div className="section-container flex flex-col md:flex-row items-center justify-between gap-6">
-          <div>
-            <p className="section-label">For Brokers</p>
-            <h2 id="broker-cta-heading" className="text-2xl font-bold text-white mt-1">
-              Partner with Us &amp; Earn More on Every Deal
-            </h2>
-            <p className="text-slate-400 text-sm mt-2">
-              Earn up to 3% per closed loan. Dedicated support and fast closings
-              keep your clients coming back.
-            </p>
-          </div>
-          <Link href="/broker-program" className="btn-primary shrink-0">
-            Join Our Broker Program
-            <ArrowRight size={16} />
-          </Link>
-        </div>
-      </section>
-
-      {/* ── Apply Now CTA ────────────────────────────────────────────────── */}
-      <section className="section-padding bg-white" aria-labelledby="apply-cta-heading">
-        <div className="section-container text-center">
-          <p className="section-label">Get Funded Fast</p>
-          <h2 id="apply-cta-heading" className="section-heading">
-            Your Next Deal is One Application Away
-          </h2>
-          <p className="section-sub max-w-xl mx-auto">
-            No commitment required. Get your term sheet within 2 hours and
-            know exactly where you stand before you proceed.
-          </p>
-          <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/apply" className="btn-primary text-base px-10 py-4">
-              Apply Now — It&apos;s Free
-              <ArrowRight size={18} />
-            </Link>
-            <Link href="/contact" className="btn-secondary text-base px-10 py-4">
-              <Home size={16} />
-              Talk to a Loan Officer
-            </Link>
-          </div>
-        </div>
-      </section>
+          </ul>
+        </Section>
+      )}
     </>
   );
 }

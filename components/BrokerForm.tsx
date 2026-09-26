@@ -82,9 +82,9 @@ export default function BrokerForm() {
   }
 
   return (
-    <div className="card">
-      <h2 className="text-xl font-bold text-navy-900 mb-1">Register as a Broker Partner</h2>
-      <p className="text-sm text-slate-500 mb-6">
+    <div className="border border-rule bg-paper p-6 sm:p-8">
+      <h2 className="mb-1 text-3xl text-deep">Register as a Broker Partner</h2>
+      <p className="mb-6 text-sm text-deep-muted">
         Free to register, no minimum volume. A dedicated account manager is
         assigned within 24 hours.
       </p>
@@ -145,7 +145,7 @@ export default function BrokerForm() {
         <div>
           <label htmlFor="statesServed" className="form-label">States You Work In *</label>
           <input id="statesServed" name="statesServed" type="text" required className="form-input" placeholder="FL, GA, TX" />
-          <p className="text-xs text-slate-400 mt-1.5">
+          <p className="mt-1.5 text-xs text-deep-soft">
             We lend nationwide with a handful of exclusions — we&apos;ll confirm your
             states when we set you up.
           </p>
@@ -155,13 +155,13 @@ export default function BrokerForm() {
           <legend className="form-label">Programs You Place</legend>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1.5">
             {PROGRAMS.map((p) => (
-              <label key={p.value} htmlFor={`program-${p.value}`} className="flex items-center gap-2.5 text-sm text-slate-700">
+              <label key={p.value} htmlFor={`program-${p.value}`} className="flex min-h-[44px] items-center gap-2.5 text-sm text-deep">
                 <input
                   id={`program-${p.value}`}
                   name="programs"
                   type="checkbox"
                   value={p.value}
-                  className="h-4 w-4 rounded border-slate-300 text-gold-600 focus:ring-gold-500"
+                  className="h-4 w-4 rounded-[2px] border-rule text-brass-700 accent-brass-500 focus:ring-brass-500"
                 />
                 {p.label}
               </label>
@@ -179,7 +179,7 @@ export default function BrokerForm() {
             <option value="10+">10+</option>
             <option value="varies">It varies</option>
           </select>
-          <p className="text-xs text-slate-400 mt-1.5">No minimum required.</p>
+          <p className="mt-1.5 text-xs text-deep-soft">No minimum required.</p>
         </div>
 
         <div>
@@ -188,7 +188,7 @@ export default function BrokerForm() {
         </div>
 
         {error && (
-          <div className="flex items-start gap-3 rounded-xl bg-red-50 border border-red-200 p-4" role="alert">
+          <div className="flex items-start gap-3 rounded-[2px] bg-red-50 border border-red-200 p-4" role="alert">
             <AlertTriangle size={18} className="text-red-600 shrink-0 mt-0.5" />
             <p className="text-sm text-red-800 leading-relaxed">
               Something went wrong sending your registration — your answers are
@@ -210,7 +210,7 @@ export default function BrokerForm() {
           {!submitting && <ArrowRight size={16} />}
         </button>
 
-        <p className="text-xs text-slate-400 text-center">
+        <p className="text-xs text-deep-soft text-center">
           Free to register. Referral fees are quoted per deal and paid at
           closing; terms are confirmed in your partner agreement.
         </p>

@@ -1,9 +1,34 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import { Suspense } from "react";
 import type { Metadata } from "next";
+import { IBM_Plex_Mono, Inter, Inter_Tight } from "next/font/google";
 import "./globals.css";
 import SiteChrome from "@/components/SiteChrome";
 import Analytics from "@/components/Analytics";
+
+/*
+ * Fonts are self-hosted by next/font: downloaded at build time, served from
+ * this domain, with size-adjusted fallbacks so text does not jump when they
+ * load. They replace a render-blocking Google Fonts @import in globals.css.
+ * Inter is the body face everywhere (portals, CRM, public site). The public
+ * site adds Inter Tight for headlines, the tighter display cut fintech and
+ * lending sites use, and IBM Plex Mono for figures. (Fraunces was tried first
+ * on 25 Sep 2026 and dropped: an editorial serif, with an ornate "&", read as
+ * a magazine rather than a lender.)
+ */
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+const interTight = Inter_Tight({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-headline",
+  display: "swap",
+});
+const plexMono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-plex-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://fundedcapital.com"),
@@ -48,15 +73,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link
-          rel="preconnect"
-          href="https://fonts.gstatic.com"
-          crossOrigin="anonymous"
-        />
-      </head>
+    <html
+      lang="en"
+      className={`${inter.variable} ${interTight.variable} ${plexMono.variable}`}
+    >
       <body className="antialiased">
         {/*
           Next.js 16 Cache Components: Clerk reads live auth data, which is

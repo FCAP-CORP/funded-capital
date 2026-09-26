@@ -1,10 +1,30 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { MDXRemote } from "next-mdx-remote/rsc";
 import remarkGfm from "remark-gfm";
-import { ArrowRight, ArrowLeft, Clock, Tag, UserRound } from "lucide-react";
-import { getAllSlugs, getPostBySlug } from "@/lib/blog";
+import { ArrowLeft, ArrowRight } from "lucide-react";
+import { DEFAULT_AUTHOR, getAllPosts, getAllSlugs, getPostBySlug } from "@/lib/blog";
+import { COMPANY, COMPLIANCE, STATS } from "@/lib/site/facts";
+import { Faq } from "@/components/site/ui";
+
+/*
+ * Article template ("Ledger", 25 Sep 2026).
+ *
+ * PERFORMANCE: a server component. The MDX is compiled on the server and the
+ * page ships no client JavaScript; the FAQ uses native <details>. The only
+ * image is a 52px author photo served by next/image at the exact size.
+ *
+ * CONVERSION: a 700px measure keeps the read comfortable, so visitors reach
+ * the end. The desktop rail keeps "Price a deal" one click away the whole
+ * time, the closing box turns the finished read into one action, and three
+ * related posts keep a researching investor on the site.
+ *
+ * NOTE: `dynamicParams = false` is not used here. With cacheComponents on,
+ * exporting it fails the build ("not compatible with
+ * nextConfig.cacheComponents"); unknown slugs still hit notFound() below.
+ */
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -35,53 +55,72 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 const mdxComponents = {
   h2: (props: React.HTMLAttributes<HTMLHeadingElement>) => (
-    <h2 className="text-2xl font-bold text-navy-900 mt-10 mb-4" {...props} />
+    <h2 className="mb-5 mt-14 text-[32px] leading-[1.15] text-deep sm:text-[36px]" {...props} />
   ),
   h3: (props: React.HTMLAttributes<HTMLHeadingElement>) => (
-    <h3 className="text-xl font-bold text-navy-900 mt-8 mb-3" {...props} />
+    <h3 className="mb-3 mt-10 text-2xl leading-snug text-deep" {...props} />
   ),
-  p: (props: React.HTMLAttributes<HTMLParagraphElement>) => (
-    <p className="text-slate-600 leading-relaxed mb-4" {...props} />
-  ),
+  p: (props: React.HTMLAttributes<HTMLParagraphElement>) => <p className="mb-6" {...props} />,
   ul: (props: React.HTMLAttributes<HTMLUListElement>) => (
-    <ul className="list-disc list-outside ml-6 mb-4 flex flex-col gap-2 text-slate-600" {...props} />
+    <ul className="mb-6 ml-6 flex list-outside list-disc flex-col gap-2 marker:text-brass-700" {...props} />
   ),
   ol: (props: React.HTMLAttributes<HTMLOListElement>) => (
-    <ol className="list-decimal list-outside ml-6 mb-4 flex flex-col gap-2 text-slate-600" {...props} />
+    <ol
+      className="mb-6 ml-6 flex list-outside list-decimal flex-col gap-2 marker:font-figure marker:text-brass-700"
+      {...props}
+    />
   ),
-  li: (props: React.HTMLAttributes<HTMLLIElement>) => (
-    <li className="leading-relaxed" {...props} />
-  ),
-  strong: (props: React.HTMLAttributes<HTMLElement>) => (
-    <strong className="font-semibold text-navy-900" {...props} />
-  ),
+  li: (props: React.HTMLAttributes<HTMLLIElement>) => <li className="pl-1" {...props} />,
+  strong: (props: React.HTMLAttributes<HTMLElement>) => <strong className="font-semibold text-deep" {...props} />,
   a: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-    <a className="text-gold-600 hover:text-gold-700 font-medium underline underline-offset-2 transition-colors" {...props} />
+    <a
+      className="border-b-2 border-brass-500 font-medium text-deep transition-colors hover:text-brass-700"
+      {...props}
+    />
   ),
   table: (props: React.HTMLAttributes<HTMLTableElement>) => (
-    <div className="overflow-x-auto rounded-2xl border border-slate-200 my-6">
-      <table className="w-full text-sm" {...props} />
+    <div className="my-8 overflow-x-auto">
+      <table className="w-full border-collapse text-left text-[16px] leading-normal tabular-nums" {...props} />
     </div>
   ),
   thead: (props: React.HTMLAttributes<HTMLTableSectionElement>) => (
-    <thead className="bg-navy-900" {...props} />
+    <thead className="border-b-2 border-deep" {...props} />
   ),
-  th: (props: React.HTMLAttributes<HTMLTableCellElement>) => (
-    <th className="px-4 py-3 text-left text-white font-semibold text-xs uppercase tracking-wider" {...props} />
+  th: (props: React.ThHTMLAttributes<HTMLTableCellElement>) => (
+    <th
+      scope="col"
+      className="px-3 py-3 font-figure text-xs font-medium uppercase tracking-[0.1em] text-deep first:pl-0"
+      {...props}
+    />
   ),
-  td: (props: React.HTMLAttributes<HTMLTableCellElement>) => (
-    <td className="px-4 py-3 text-slate-700 border-t border-slate-100" {...props} />
+  td: (props: React.TdHTMLAttributes<HTMLTableCellElement>) => (
+    <td className="border-b border-rule px-3 py-3.5 align-top text-[#1E2A3C] first:pl-0" {...props} />
   ),
   blockquote: (props: React.HTMLAttributes<HTMLElement>) => (
-    <blockquote className="border-l-4 border-gold-500 pl-4 my-6 text-slate-600 italic" {...props} />
+    <blockquote
+      className="my-8 border-l-[3px] border-brass-500 py-1 pl-7 font-headline text-2xl font-medium leading-[1.4] text-deep sm:text-[28px] [&>p]:mb-0"
+      {...props}
+    />
   ),
-  hr: () => <hr className="border-slate-200 my-8" />,
+  hr: () => <hr className="my-12 border-rule" />,
 };
+
+function formatDate(date: string) {
+  return new Date(date).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
 export default async function BlogPostPage({ params }: Props) {
   const { slug } = await params;
   const post = getPostBySlug(slug);
   if (!post) notFound();
+
+  const related = getAllPosts()
+    .filter((p) => p.slug !== slug)
+    .slice(0, 3);
 
   const articleSchema = {
     "@context": "https://schema.org",
@@ -121,174 +160,172 @@ export default async function BlogPostPage({ params }: Props) {
 
   const schemaData = faqSchema ? [articleSchema, faqSchema] : [articleSchema];
 
+  const isLuis = post.author === DEFAULT_AUTHOR;
+  const initials = post.author
+    .split(/\s+/)
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  const avatar = (alt: string) =>
+    isLuis ? (
+    <Image
+      src="/profile-luis.png"
+      alt={alt}
+      width={52}
+      height={52}
+      className="h-[52px] w-[52px] shrink-0 rounded-full object-cover"
+    />
+  ) : (
+    <span
+      aria-hidden="true"
+      className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-full bg-deep font-headline text-xl font-semibold text-brass-300"
+    >
+      {initials}
+    </span>
+  );
+
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }} />
 
-      {/* Hero */}
-      <section className="bg-navy-900 py-16 lg:py-20">
-        <div className="section-container max-w-3xl">
-          {/* Breadcrumb */}
-          <nav className="flex items-center gap-2 text-sm text-slate-400 mb-6">
-            <Link href="/" className="hover:text-white transition-colors">Home</Link>
-            <span>/</span>
-            <Link href="/blog" className="hover:text-white transition-colors">Blog</Link>
-            <span>/</span>
-            <span className="text-slate-300 truncate">{post.title}</span>
-          </nav>
-
-          <span className="inline-flex items-center gap-1.5 text-gold-500 text-xs font-semibold uppercase tracking-wider mb-4">
-            <Tag size={12} />
-            {post.category}
-          </span>
-          <h1 className="text-3xl lg:text-4xl font-bold text-white leading-tight">
-            {post.title}
-          </h1>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-4 text-slate-400 text-sm">
-            <span className="flex items-center gap-1.5">
-              <UserRound size={14} className="text-gold-500" />
-              <span className="text-slate-300 font-medium">{post.author}</span>
-              <span className="hidden sm:inline text-slate-500">· {post.authorTitle}</span>
-            </span>
-            <span className="flex items-center gap-1.5">
-              <Clock size={14} />
-              {post.readTime}
-            </span>
-            <span>
-              {new Date(post.date).toLocaleDateString("en-US", {
-                month: "long",
-                day: "numeric",
-                year: "numeric",
-              })}
-            </span>
+      {/* ── Article header ───────────────────────────────────────────── */}
+      <header className="border-b border-rule bg-bone text-deep">
+        <div className="section-container grid py-14 lg:grid-cols-12 lg:gap-6 lg:py-20">
+          <div className="flex flex-col gap-6 lg:col-span-10 lg:col-start-2 xl:col-span-9 xl:col-start-2">
+            <nav aria-label="Breadcrumb" className="font-figure text-[13px] text-deep-soft">
+              <Link href="/" className="hover:text-deep">
+                Home
+              </Link>
+              <span aria-hidden="true" className="mx-2">
+                /
+              </span>
+              <Link href="/blog" className="hover:text-deep">
+                Insights
+              </Link>
+            </nav>
+            <p className="font-figure text-[13px] uppercase tracking-[0.14em] text-brass-700">
+              {post.category} · {post.readTime} · <time dateTime={post.date}>{formatDate(post.date)}</time>
+            </p>
+            <h1 className="text-[40px] leading-[1.04] tracking-[-0.025em] sm:text-5xl lg:text-[64px]">{post.title}</h1>
+            <div className="mt-2 flex items-center gap-4">
+              {avatar("Luis Fajardo")}
+              <div className="flex flex-col gap-0.5">
+                <span className="text-base font-semibold">{post.author}</span>
+                <span className="text-sm text-deep-muted">{post.authorTitle}</span>
+              </div>
+            </div>
           </div>
         </div>
-      </section>
+      </header>
 
-      {/* Content */}
-      <section className="section-padding bg-white">
-        <div className="section-container">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-
-            {/* Article */}
-            <article className="lg:col-span-2 prose-custom max-w-none">
+      {/* ── Body ─────────────────────────────────────────────────────── */}
+      <div className="bg-bone text-deep">
+        <div className="section-container grid gap-12 py-14 lg:grid-cols-12 lg:gap-6 lg:py-20">
+          <article className="min-w-0 lg:col-span-8 lg:col-start-2 xl:col-span-7 xl:col-start-2">
+            <div className="prose-ledger max-w-[700px]">
               <MDXRemote
                 source={post.content}
                 components={mdxComponents}
                 options={{ mdxOptions: { remarkPlugins: [remarkGfm] } }}
               />
+            </div>
 
-              {/* FAQ — rendered from frontmatter so it always matches the FAQPage schema */}
-              {post.faq.length > 0 && (
-                <section className="mt-12 pt-8 border-t border-slate-100">
-                  <h2 className="text-2xl font-bold text-navy-900 mb-6">
-                    Frequently Asked Questions
-                  </h2>
-                  <div className="flex flex-col gap-3">
-                    {post.faq.map((item) => (
-                      <details
-                        key={item.q}
-                        className="group rounded-2xl border border-slate-200 bg-slate-50 open:bg-white transition-colors"
-                      >
-                        <summary className="cursor-pointer list-none px-5 py-4 font-semibold text-navy-900 flex items-start justify-between gap-4">
-                          <span>{item.q}</span>
-                          <span className="text-gold-600 shrink-0 transition-transform group-open:rotate-45 text-xl leading-none mt-0.5">
-                            +
-                          </span>
-                        </summary>
-                        <p className="px-5 pb-5 text-slate-600 leading-relaxed">{item.a}</p>
-                      </details>
-                    ))}
-                  </div>
-                </section>
-              )}
+            {/* FAQ — rendered from frontmatter so it always matches the FAQPage schema */}
+            {post.faq.length > 0 && (
+              <section aria-labelledby="post-faq-heading" className="mt-14 max-w-[700px]">
+                <h2 id="post-faq-heading" className="mb-6 text-[32px] leading-[1.15] sm:text-[36px]">
+                  Frequently Asked Questions
+                </h2>
+                <Faq items={post.faq} idPrefix="post-faq" />
+              </section>
+            )}
 
-              {/* Author byline card */}
-              <div className="mt-10 flex items-center gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-navy-900 text-gold-500">
-                  <UserRound size={22} />
-                </div>
-                <div>
-                  <p className="font-semibold text-navy-900 leading-tight">{post.author}</p>
-                  <p className="text-sm text-slate-500 leading-snug">
-                    {post.authorTitle} · Lending to real estate investors nationwide — $500M+
-                    funded across 1,200+ deals.
-                  </p>
-                </div>
-              </div>
-            </article>
-
-            {/* Sidebar */}
-            <aside className="flex flex-col gap-6">
-              {/* Apply CTA */}
-              <div className="card bg-navy-900 border-navy-800 text-white sticky top-24">
-                <p className="section-label">Get Funded Fast</p>
-                <h3 className="font-bold text-xl mt-2">
-                  Ready to apply?
-                </h3>
-                <p className="text-slate-400 text-sm mt-2 leading-relaxed">
-                  Term sheet in 2 hours. Close in 5–10 business days. No income verification on most programs.
+            {/* Author bio */}
+            <div className="mt-14 flex max-w-[700px] items-center gap-4 border-y border-rule py-6">
+              {avatar("")}
+              <div>
+                <p className="font-semibold leading-tight">{post.author}</p>
+                <p className="mt-1 text-sm leading-snug text-deep-muted">
+                  {post.authorTitle} · Lending to real estate investors nationwide:{" "}
+                  <span className="font-figure">{STATS.funded}</span> funded across{" "}
+                  <span className="font-figure">{STATS.deals}</span> deals.
                 </p>
-                <Link href="/apply" className="btn-primary mt-6 w-full justify-center">
-                  Apply Now — It's Free
-                  <ArrowRight size={16} />
-                </Link>
-                <Link href="/contact" className="btn-secondary border-slate-700 text-slate-300 hover:bg-slate-800 hover:border-slate-600 mt-3 w-full justify-center text-sm">
-                  Talk to a Loan Officer
-                </Link>
               </div>
+            </div>
 
-              {/* Quick Stats */}
-              <div className="card bg-slate-50 border-slate-100">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-4">
-                  Funded Capital at a Glance
+            {/* Closing call to action */}
+            <div className="on-deep mt-10 flex max-w-[700px] flex-col gap-6 bg-deep p-7 text-bone sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-col gap-2">
+                <p className="font-headline text-[26px] font-semibold leading-tight">Have a deal in hand? Send the file.</p>
+                <p className="text-[15px] text-[#C9D1DD]">
+                  Term sheet in <span className="font-figure">{STATS.termSheet}</span> on average. Close in{" "}
+                  <span className="font-figure">{STATS.close}</span>.
                 </p>
-                {[
-                  { value: "$500M+", label: "Loans Funded" },
-                  { value: "2 hrs", label: "Time to Term Sheet" },
-                  { value: "5–10", label: "Business Days to Close" },
-                  { value: "45 States", label: "Nationwide" },
-                ].map((stat) => (
-                  <div key={stat.label} className="flex items-center justify-between py-2 border-b border-slate-200 last:border-0">
-                    <span className="text-slate-500 text-sm">{stat.label}</span>
-                    <span className="font-bold text-navy-900 text-sm">{stat.value}</span>
-                  </div>
-                ))}
               </div>
-            </aside>
-          </div>
+              <Link href="/apply" className="btn-primary shrink-0 text-base">
+                Apply now <ArrowRight size={16} aria-hidden="true" />
+              </Link>
+            </div>
+            <p className="mt-4 max-w-[700px] text-sm text-deep-soft">{COMPLIANCE}</p>
 
-          {/* Back to blog */}
-          <div className="mt-12 pt-8 border-t border-slate-100">
-            <Link href="/blog" className="inline-flex items-center gap-2 text-slate-500 hover:text-navy-900 transition-colors text-sm font-medium">
-              <ArrowLeft size={16} />
-              Back to Blog
-            </Link>
-          </div>
-        </div>
-      </section>
+            <p className="mt-10">
+              <Link
+                href="/blog"
+                className="inline-flex min-h-[44px] items-center gap-2 text-[15px] font-medium text-deep-muted transition-colors hover:text-deep"
+              >
+                <ArrowLeft size={16} aria-hidden="true" />
+                Back to Insights
+              </Link>
+            </p>
+          </article>
 
-      {/* Bottom CTA */}
-      <section className="bg-gold-500 py-14">
-        <div className="section-container text-center">
-          <h2 className="text-2xl font-bold text-navy-900">
-            Experience the Difference Yourself
-          </h2>
-          <p className="text-navy-800 text-sm mt-2">
-            Apply today. Get a term sheet within 2 hours. No obligation, no fees.
-          </p>
-          <Link
-            href="/apply"
-            className="inline-flex items-center gap-2 mt-6 bg-navy-900 hover:bg-navy-800 text-white font-semibold px-8 py-4 rounded-xl transition-colors"
-          >
-            Apply Now
-            <ArrowRight size={16} />
-          </Link>
+          {/* Right rail — desktop only */}
+          <aside aria-label="Price a deal" className="hidden lg:col-span-3 lg:col-start-10 lg:block">
+            <div className="sticky top-28 flex flex-col gap-4 border border-rule bg-paper p-6">
+              <p className="font-figure text-[11px] uppercase tracking-[0.14em] text-brass-700">Price a deal</p>
+              <p className="font-headline text-2xl font-semibold leading-tight">Three inputs. A real number.</p>
+              <p className="text-[15px] leading-relaxed text-deep-muted">
+                Loan amount, monthly interest and estimated profit on your deal, before you apply.
+              </p>
+              <Link href="/calculator" className="btn-dark text-[15px]">
+                Open the calculator
+              </Link>
+              <a
+                href={COMPANY.phoneHref}
+                className="flex min-h-[44px] items-center justify-center font-figure text-[13px] text-deep hover:text-brass-700"
+              >
+                {COMPANY.phone}
+              </a>
+            </div>
+          </aside>
         </div>
-      </section>
+      </div>
+
+      {/* ── Related posts ────────────────────────────────────────────── */}
+      {related.length > 0 && (
+        <section aria-labelledby="related-heading" className="border-t border-rule bg-linen text-deep">
+          <div className="section-container py-16 lg:py-20">
+            <h2 id="related-heading" className="mb-8 text-3xl sm:text-4xl">
+              Keep reading
+            </h2>
+            <ul className="grid grid-cols-1 gap-x-10 md:grid-cols-3">
+              {related.map((p) => (
+                <li key={p.slug} className="border-t-2 border-deep">
+                  <Link href={`/blog/${p.slug}`} className="group flex h-full flex-col gap-3 py-6">
+                    <p className="font-figure text-[13px] uppercase tracking-[0.1em] text-brass-700">
+                      {p.category} · {p.readTime}
+                    </p>
+                    <h3 className="text-2xl leading-snug transition-colors group-hover:text-brass-700">{p.title}</h3>
+                    <p className="text-[15px] leading-relaxed text-deep-muted">{p.description}</p>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
     </>
   );
 }

@@ -69,7 +69,7 @@ export default function ApplyForm() {
   }
 
   return (
-    <div className="card">
+    <div className="border border-rule bg-paper p-6 sm:p-8">
       <form
         className="relative flex flex-col gap-8"
         onSubmit={handleSubmit}
@@ -80,7 +80,7 @@ export default function ApplyForm() {
 
         {/* Section: Your Information */}
         <fieldset className="flex flex-col gap-5">
-          <legend className="font-bold text-navy-900 text-lg border-b border-slate-100 pb-3 w-full">
+          <legend className="w-full border-b border-rule pb-3 font-headline text-2xl font-semibold text-deep">
             Your Information
           </legend>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -121,7 +121,7 @@ export default function ApplyForm() {
 
         {/* Section: Loan Details */}
         <fieldset className="flex flex-col gap-5">
-          <legend className="font-bold text-navy-900 text-lg border-b border-slate-100 pb-3 w-full">
+          <legend className="w-full border-b border-rule pb-3 font-headline text-2xl font-semibold text-deep">
             Loan Details
           </legend>
           <div>
@@ -192,7 +192,7 @@ export default function ApplyForm() {
 
         {/* Section: Experience */}
         <fieldset className="flex flex-col gap-5">
-          <legend className="font-bold text-navy-900 text-lg border-b border-slate-100 pb-3 w-full">
+          <legend className="w-full border-b border-rule pb-3 font-headline text-2xl font-semibold text-deep">
             Your Experience
           </legend>
           <div>
@@ -225,8 +225,8 @@ export default function ApplyForm() {
 
         {/* General consent to be contacted about the inquiry (required). */}
         <div className="flex items-start gap-3">
-          <input id="consent" name="consent" type="checkbox" required className="mt-1 w-4 h-4 accent-gold-500" />
-          <label htmlFor="consent" className="text-xs text-slate-500 leading-relaxed">
+          <input id="consent" name="consent" type="checkbox" required className="mt-1 w-4 h-4 accent-brass-500" />
+          <label htmlFor="consent" className="text-xs text-deep-muted leading-relaxed">
             By submitting this form, I consent to being contacted by Funded Capital
             regarding my loan inquiry. I understand this is not a loan commitment
             and that all loans are subject to underwriting approval.
@@ -234,7 +234,7 @@ export default function ApplyForm() {
         </div>
 
         {error && (
-          <div className="flex items-start gap-3 rounded-xl bg-red-50 border border-red-200 p-4" role="alert">
+          <div className="flex items-start gap-3 rounded-[2px] bg-red-50 border border-red-200 p-4" role="alert">
             <AlertTriangle size={18} className="text-red-600 shrink-0 mt-0.5" />
             <p className="text-sm text-red-800 leading-relaxed">
               Something went wrong sending your application — your answers are
@@ -256,7 +256,7 @@ export default function ApplyForm() {
           {!submitting && <ArrowRight size={18} />}
         </button>
 
-        <p className="text-xs text-slate-400 text-center">
+        <p className="text-xs text-deep-soft text-center">
           Your information is encrypted and kept strictly confidential. We will never sell or share your data.
         </p>
       </form>

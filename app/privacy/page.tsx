@@ -13,22 +13,22 @@ export default function PrivacyPolicyPage() {
   return (
     <>
       {/* Hero */}
-      <section className="bg-navy-900 py-14">
-        <div className="section-container max-w-3xl">
-          <p className="section-label">Legal</p>
-          <h1 className="text-3xl lg:text-4xl font-bold text-white mt-2">
+      <section aria-labelledby="legal-heading" className="bg-deep text-bone on-deep">
+        <div className="section-container flex flex-col gap-5 py-16 lg:py-20">
+          <p className="eyebrow">Legal</p>
+          <h1 id="legal-heading" className="text-5xl leading-[0.98] sm:text-6xl">
             Privacy Policy
           </h1>
-          <p className="text-slate-400 mt-3 text-sm">
+          <p className="font-figure text-[13px] text-[#A9B3C2]">
             Effective {EFFECTIVE_DATE}
           </p>
         </div>
       </section>
 
       {/* Body */}
-      <section className="section-padding bg-white">
-        <div className="section-container">
-          <article className="max-w-3xl mx-auto flex flex-col gap-8 text-slate-600 leading-relaxed">
+      <section className="bg-bone text-deep">
+        <div className="section-container py-16 lg:py-24">
+          <article className="flex max-w-[760px] flex-col gap-8 text-[17px] leading-relaxed text-deep-muted">
             <p>
               Funded Capital (&ldquo;Funded Capital,&rdquo; &ldquo;we,&rdquo;
               &ldquo;us,&rdquo; or &ldquo;our&rdquo;) respects your privacy. This
@@ -38,7 +38,7 @@ export default function PrivacyPolicyPage() {
             </p>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 1. Information We Collect
               </h2>
               <p>
@@ -55,9 +55,9 @@ export default function PrivacyPolicyPage() {
 
             <section
               id="sms"
-              className="rounded-2xl border border-slate-200 bg-slate-50 p-6"
+              className="rounded-[2px] border border-rule bg-paper p-6"
             >
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 2. Phone Numbers, Calls &amp; Text Messages (SMS)
               </h2>
               <p>
@@ -86,7 +86,7 @@ export default function PrivacyPolicyPage() {
                   or calling us at the contact details in the Contact Us section below.
                 </li>
               </ul>
-              <p className="mt-4 font-semibold text-navy-900">
+              <p className="mt-4 font-semibold text-deep">
                 We will not share mobile contact information with third parties or
                 affiliates for marketing or promotional purposes. Mobile opt-in
                 and consent information is never sold or shared with third parties,
@@ -96,7 +96,7 @@ export default function PrivacyPolicyPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 3. How We Use Your Information
               </h2>
               <p>
@@ -109,7 +109,7 @@ export default function PrivacyPolicyPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 4. How We Share Your Information
               </h2>
               <p>
@@ -126,7 +126,7 @@ export default function PrivacyPolicyPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 5. Proof of Consent &amp; Recordkeeping
               </h2>
               <p>
@@ -140,7 +140,7 @@ export default function PrivacyPolicyPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 6. Data Security
               </h2>
               <p>
@@ -152,7 +152,7 @@ export default function PrivacyPolicyPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 7. Analytics &amp; Website Measurement
               </h2>
               <p>
@@ -191,7 +191,7 @@ export default function PrivacyPolicyPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 8. Your Choices &amp; Rights
               </h2>
               <p>
@@ -204,7 +204,7 @@ export default function PrivacyPolicyPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 9. Contact Us
               </h2>
               <p>
@@ -213,14 +213,14 @@ export default function PrivacyPolicyPage() {
                 100 N Biscayne Blvd, Suite 1210, Miami, FL 33132
                 <br />
                 Phone:{" "}
-                <a href="tel:+13058575620" className="text-gold-600 underline hover:text-gold-700">
+                <a href="tel:+13058575620" className="text-link">
                   +1 (305) 857-5620
                 </a>
                 <br />
                 Email:{" "}
                 <a
                   href="mailto:processing@fundedcapital.com"
-                  className="text-gold-600 underline hover:text-gold-700"
+                  className="text-link"
                 >
                   processing@fundedcapital.com
                 </a>
@@ -228,7 +228,7 @@ export default function PrivacyPolicyPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 10. Changes to This Policy
               </h2>
               <p>
@@ -239,9 +239,9 @@ export default function PrivacyPolicyPage() {
               </p>
             </section>
 
-            <p className="text-sm text-slate-400 border-t border-slate-100 pt-6">
+            <p className="border-t border-rule pt-6 text-sm text-deep-soft">
               See also our{" "}
-              <Link href="/terms" className="text-gold-600 underline hover:text-gold-700">
+              <Link href="/terms" className="text-link">
                 Terms &amp; Conditions
               </Link>
               .

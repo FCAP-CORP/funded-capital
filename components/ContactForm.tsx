@@ -64,8 +64,8 @@ export default function ContactForm() {
   }
 
   return (
-    <div className="card">
-      <h2 className="text-xl font-bold text-navy-900 mb-6">
+    <div className="border border-rule bg-paper p-6 sm:p-8">
+      <h2 className="mb-6 text-3xl text-deep">
         Send Us a Message
       </h2>
       <form
@@ -119,7 +119,7 @@ export default function ContactForm() {
         </div>
 
         {error && (
-          <div className="flex items-start gap-3 rounded-xl bg-red-50 border border-red-200 p-4" role="alert">
+          <div className="flex items-start gap-3 rounded-[2px] bg-red-50 border border-red-200 p-4" role="alert">
             <AlertTriangle size={18} className="text-red-600 shrink-0 mt-0.5" />
             <p className="text-sm text-red-800 leading-relaxed">
               Something went wrong sending your message — your answers are still
@@ -141,7 +141,7 @@ export default function ContactForm() {
           {!submitting && <ArrowRight size={16} />}
         </button>
 
-        <p className="text-xs text-slate-400 text-center">
+        <p className="text-xs text-deep-soft text-center">
           We typically respond within 2 business hours. Your information is kept confidential.
         </p>
       </form>

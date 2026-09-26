@@ -1,81 +1,78 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  ArrowRight,
-  CheckCircle2,
-  Zap,
-  Shield,
-  Hammer,
-  DollarSign,
-  ChevronDown,
-} from "lucide-react";
+import { COMPLIANCE, STATS } from "@/lib/site/facts";
+import { Eyebrow, Faq, Section, SectionHead } from "@/components/site/ui";
+import { FactorCards, ProgramHero, RateTable, RelatedPrograms, StepList } from "@/components/site/ProgramPage";
 
 export const metadata: Metadata = {
   title: "Fix & Flip Loans — Up to 90% LTC, 5–10 Day Closings | Funded Capital",
   description:
-    "Fix & Flip loans up to 90% LTC. No income verification. Rates from 8.75%. Close in 5–10 business days. Apply for your term sheet in 2 hours.",
+    "Fix & Flip loans up to 90% LTC. No income verification. Rates from 8.75%. Close in 5–10 business days. Apply for your term sheet in 2 hours on average.",
 };
+
+/*
+ * Fix & Flip ("Ledger", 25 Sep 2026).
+ *
+ * PERFORMANCE: server component, no client JavaScript, no images. The FAQ
+ * uses native <details>, so it opens and closes without any script.
+ *
+ * CONVERSION: the hero answers "how much, how fast, what rate" in a program
+ * terms ledger before any scroll; the pricing table sits one screen below; the
+ * draws section removes the main worry of a rehab borrower (how fast do I get
+ * my money back). One brass action per screen: Get a term sheet.
+ */
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
-const trustStats = [
-  { value: "Up to 90% LTC", label: "Loan-to-Cost" },
-  { value: "From 8.75%", label: "Interest Rate" },
-  { value: "5–10 Business Days", label: "Speed to Close" },
-  { value: "No Income Verification", label: "Qualification" },
+const factors = [
+  { title: "Purchase price", body: "What you pay for the house. We lend a share of it at closing." },
+  {
+    title: "Rehab budget",
+    body: "Your scope of work, line by line. We fund up to 100% of the approved budget, released in draws as the work is inspected.",
+  },
+  { title: "After-repair value", body: "What the finished house is worth: the number your exit, and our underwriting, rest on." },
 ];
 
 const benefits = [
-  {
-    icon: Zap,
-    title: "Speed That Wins Deals",
-    desc: "Term sheet in 2 hours. Close in 5–10 business days. When the deal is hot, we move fast.",
-  },
-  {
-    icon: Shield,
-    title: "Flexible Terms",
-    desc: "12 or 24 month terms with interest-only payments. Tailor the loan to your flip timeline.",
-  },
-  {
-    icon: CheckCircle2,
-    title: "No Income Verification",
-    desc: "We qualify on the deal, not your W-2. Self-employed investors and LLCs are fully welcome.",
-  },
-  {
-    icon: Hammer,
-    title: "Rehab Costs Included",
-    desc: "We fund both the purchase and 100% of your rehab budget, so you can maximize your spread.",
-  },
+  { title: "Speed that wins deals", body: `Term sheet in about ${STATS.termSheet} on average. Close in ${STATS.close}.` },
+  { title: "Flexible terms", body: "12 or 24 month terms with interest-only payments, matched to your flip timeline." },
+  { title: "No income verification", body: "We qualify on the deal, not your W-2. Self-employed investors and LLCs are welcome." },
+  { title: "Rehab costs included", body: "We fund the purchase and up to 100% of your rehab budget, so more of the spread stays yours." },
+];
+
+const rateTableHeaders = ["Loan size", "Max LTC", "Rate", "Points", "Term"];
+const rateTableRows = [
+  ["$75K–$500K", "90% LTC", "from 8.75%", "1.5–2.5", "12–24 mo"],
+  ["$500K–$2M", "90% LTC", "from 9.25%", "1.0–2.0", "12–24 mo"],
+  ["$2M+", "90% LTC", "Negotiated", "Negotiated", "12–24 mo"],
 ];
 
 const steps = [
   {
-    step: "01",
-    title: "Submit Your Loan Request",
-    desc: "Complete our streamlined online application in under 5 minutes. Tell us about the property and the deal.",
+    title: "Submit your loan request",
+    body: "Complete the online application in a few minutes. Tell us about the property and the deal.",
   },
   {
-    step: "02",
-    title: "Receive a Term Sheet",
-    desc: "Get a preliminary term sheet within 2 hours — no fluff, no runaround. Real numbers you can plan around.",
+    title: "Receive a term sheet",
+    body: `A preliminary term sheet in about ${STATS.termSheet} on average. Real numbers you can plan around.`,
   },
   {
-    step: "03",
-    title: "Underwriting & Approval",
-    desc: "We move fast. Most Fix & Flip loans are fully approved within 5–7 business days.",
+    title: "Underwriting and approval",
+    body: "Appraisal, title and insurance run in parallel while we underwrite the deal and the exit.",
   },
   {
-    step: "04",
-    title: "Fund & Close",
-    desc: "Loan is disbursed to the title company on the day of closing. You close, you renovate, you profit.",
+    title: "Fund and close",
+    body: `The loan is disbursed to the title company on closing day. Typical close: ${STATS.close}.`,
   },
 ];
 
-const rateTableHeaders = ["Loan Size", "Max LTC", "Rate", "Points", "Term"];
-const rateTableRows = [
-  ["$75K–$500K", "90% LTC", "From 8.75%", "1.5–2.5", "12–24 mo"],
-  ["$500K–$2M", "90% LTC", "From 9.25%", "1.0–2.0", "12–24 mo"],
-  ["$2M+", "90% LTC", "Negotiated", "Negotiated", "12–24 mo"],
+const draws = [
+  { title: "Finish a stage of the work", body: "Complete a line of the scope of work, paid from your own funds." },
+  { title: "Request a draw", body: "Send photos of the completed stage. An inspector confirms the work." },
+  {
+    title: "Get reimbursed",
+    body: `Funds for that stage are released, typically within ${STATS.drawFunding}.`,
+  },
 ];
 
 const faqs = [
@@ -89,7 +86,7 @@ const faqs = [
   },
   {
     q: "How fast can I close?",
-    a: "We issue term sheets within 2 hours of application and close most loans in 5–10 business days, depending on title, appraisal and how quickly documents come back.",
+    a: "We issue term sheets in about 2 hours on average and close most loans in 5–10 business days, depending on title, appraisal and how quickly documents come back.",
   },
   {
     q: "What credit score do I need?",
@@ -131,7 +128,7 @@ export default function FixAndFlipLoansPage() {
             "name": "How fast can I close a Fix & Flip loan?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "We issue term sheets within 2 hours of application and close most loans in 5–10 business days, depending on title, appraisal and how quickly documents come back.",
+              "text": "We issue term sheets in about 2 hours on average and close most loans in 5–10 business days, depending on title, appraisal and how quickly documents come back.",
             },
           },
           {
@@ -165,234 +162,120 @@ export default function FixAndFlipLoansPage() {
 
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }} />
+
+      {/* ── Hero ─────────────────────────────────────────────────────── */}
+      <ProgramHero
+        crumb="Fix & Flip"
+        eyebrow={`Fix & flip loans · ${STATS.states} states`}
+        title={<>Fix &amp; Flip loans.</>}
+        tagline="Purchase and rehab, one loan, one close."
+        lead={
+          <>
+            We size the loan on the deal: the price, the rehab budget and what the house is worth when you are done. No
+            income verification. Rehab money is released in draws as the work gets done.
+          </>
+        }
+        secondary={{ href: "#rates", label: "See the rates" }}
+        terms={[
+          { label: "Rate", value: "from 8.75%" },
+          { label: "Loan size", value: STATS.loanSizes },
+          { label: "Term", value: "12–24 months" },
+          { label: "Max leverage", value: "up to 90% of cost" },
+          { label: "Credit", value: "660+ · best tiers 680+" },
+          { label: "Close", value: STATS.close },
+        ]}
       />
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <section className="bg-navy-900 py-20 lg:py-28 relative overflow-hidden" aria-labelledby="hero-heading">
-        <div
-          className="absolute top-0 right-0 w-1/2 h-full opacity-10"
-          style={{ background: "radial-gradient(ellipse at top right, #C9A84C 0%, transparent 65%)" }}
-          aria-hidden="true"
+
+      {/* ── What decides the loan ────────────────────────────────────── */}
+      <Section labelledBy="decides-heading">
+        <SectionHead
+          eyebrow="01 — What decides the loan"
+          id="decides-heading"
+          title="Three numbers decide the loan."
+          intro="We qualify on the property and your exit, not your personal income."
         />
-        <div className="section-container relative z-10">
-          <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 bg-navy-800 border border-navy-700 text-gold-500 text-xs font-semibold px-4 py-2 rounded-full mb-6">
-              <span className="w-1.5 h-1.5 rounded-full bg-gold-500 animate-pulse" />
-              Fix &amp; Flip Loans — Nationwide
-            </div>
-            <h1
-              id="hero-heading"
-              className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight"
-            >
-              Fix &amp; Flip Loans —{" "}
-              <span className="text-gold-500">Up to 90% LTC</span>, Close in 5–10 Business Days
-            </h1>
-            <p className="mt-6 text-lg text-slate-300 leading-relaxed max-w-2xl">
-              Private Fix &amp; Flip financing with no income verification. We fund
-              the purchase and the rehab so you can move fast, renovate smart, and
-              maximize your spread.
-            </p>
-            <div className="mt-8 flex flex-col sm:flex-row gap-4">
-              <Link href="/apply" className="btn-primary text-base px-8 py-4">
-                Apply Now
-                <ArrowRight size={18} />
-              </Link>
-              <a href="#rates" className="btn-secondary text-base px-8 py-4">
-                View Rates
-                <ChevronDown size={18} />
-              </a>
-            </div>
-            <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2">
-              {["No income verification", "660+ credit score", "Close in 5–10 business days", "Rehab included"].map((item) => (
-                <span key={item} className="flex items-center gap-1.5 text-slate-400 text-sm">
-                  <CheckCircle2 size={14} className="text-gold-500 shrink-0" />
-                  {item}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
+        <FactorCards items={factors} />
+        <ul className="mt-14 grid gap-8 border-t-2 border-deep pt-8 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
+          {benefits.map((b) => (
+            <li key={b.title} className="flex flex-col gap-2">
+              <h3 className="text-xl leading-snug">{b.title}</h3>
+              <p className="text-[15px] leading-relaxed text-deep-muted">{b.body}</p>
+            </li>
+          ))}
+        </ul>
+      </Section>
 
-      {/* ── Trust Bar ─────────────────────────────────────────────────────── */}
-      <section className="bg-navy-800 border-b border-navy-700" aria-label="Fix & Flip loan highlights">
-        <div className="section-container py-8">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 text-center">
-            {trustStats.map((stat) => (
-              <div key={stat.label}>
-                <p className="text-gold-500 font-bold text-xl lg:text-2xl">{stat.value}</p>
-                <p className="text-slate-400 text-sm mt-1">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Benefits ──────────────────────────────────────────────────────── */}
-      <section className="section-padding bg-slate-50" aria-labelledby="benefits-heading">
-        <div className="section-container">
-          <div className="text-center mb-12">
-            <p className="section-label">Why Investors Choose Us</p>
-            <h2 id="benefits-heading" className="section-heading">
-              Fix &amp; Flip Financing Built for Speed
-            </h2>
-            <p className="section-sub max-w-2xl mx-auto">
-              Every feature of our Fix &amp; Flip loan program is designed around one thing:
-              helping you close, renovate, and sell faster than the competition.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {benefits.map((benefit) => {
-              const Icon = benefit.icon;
-              return (
-                <article key={benefit.title} className="card">
-                  <div className="p-2.5 bg-gold-500/10 rounded-xl self-start inline-block mb-3">
-                    <Icon size={20} className="text-gold-600" />
-                  </div>
-                  <h3 className="font-bold text-navy-900">{benefit.title}</h3>
-                  <p className="text-slate-500 text-sm mt-2 leading-relaxed">{benefit.desc}</p>
-                </article>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Rate Table ────────────────────────────────────────────────────── */}
-      <section id="rates" className="section-padding bg-white scroll-mt-20" aria-labelledby="rates-heading">
-        <div className="section-container">
-          <div className="text-center mb-10">
-            <p className="section-label">Pricing</p>
-            <h2 id="rates-heading" className="section-heading">Fix &amp; Flip Loan Rates</h2>
-            <p className="section-sub max-w-xl mx-auto">
-              Straightforward pricing with no hidden fees. What you see is what you get at closing.
-            </p>
-          </div>
-          <div className="max-w-3xl mx-auto">
-            <div className="overflow-x-auto rounded-2xl border border-slate-200">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-navy-900">
-                    {rateTableHeaders.map((h) => (
-                      <th
-                        key={h}
-                        className="px-4 py-3 text-left text-white font-semibold text-xs uppercase tracking-wider"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rateTableRows.map((row, i) => (
-                    <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                      {row.map((cell, j) => (
-                        <td
-                          key={j}
-                          className={`px-4 py-3.5 text-slate-700 ${j === 2 ? "font-semibold text-gold-600" : ""}`}
-                        >
-                          {cell}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="text-xs text-slate-400 mt-2 pl-1">
-              * Rates and terms are indicative and subject to change. Final terms depend on deal specifics and borrower profile.
-            </p>
-            <div className="mt-6 text-center">
-              <Link href="/apply" className="btn-primary">
-                Get Your Rate Today
-                <ArrowRight size={16} />
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── How It Works ─────────────────────────────────────────────────── */}
-      <section className="section-padding bg-slate-50" aria-labelledby="how-heading">
-        <div className="section-container">
-          <div className="text-center mb-12">
-            <p className="section-label">Simple Process</p>
-            <h2 id="how-heading" className="section-heading">
-              From Application to Funded in 4 Steps
-            </h2>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {steps.map((step, i) => (
-              <article key={step.step} className="relative">
-                {i < steps.length - 1 && (
-                  <div
-                    className="hidden lg:block absolute top-7 left-full w-full h-px bg-slate-200 z-0"
-                    aria-hidden="true"
-                  />
-                )}
-                <div className="relative z-10">
-                  <span className="text-gold-500 font-bold text-4xl opacity-30 leading-none">
-                    {step.step}
-                  </span>
-                  <h3 className="font-bold text-navy-900 text-lg mt-2">{step.title}</h3>
-                  <p className="text-slate-500 text-sm mt-2 leading-relaxed">{step.desc}</p>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── FAQ ──────────────────────────────────────────────────────────── */}
-      <section className="section-padding bg-white" aria-labelledby="faq-heading">
-        <div className="section-container">
-          <div className="text-center mb-12">
-            <p className="section-label">FAQ</p>
-            <h2 id="faq-heading" className="section-heading">
-              Fix &amp; Flip Loan Questions Answered
-            </h2>
-          </div>
-          <div className="max-w-3xl mx-auto flex flex-col gap-4">
-            {faqs.map((faq) => (
-              <article key={faq.q} className="card">
-                <h3 className="font-bold text-navy-900">{faq.q}</h3>
-                <p className="text-slate-500 text-sm mt-2 leading-relaxed">{faq.a}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Bottom CTA ───────────────────────────────────────────────────── */}
-      <section className="bg-navy-900 py-20" aria-labelledby="cta-heading">
-        <div className="section-container text-center">
-          <div
-            className="absolute inset-0 opacity-10 pointer-events-none"
-            style={{ background: "radial-gradient(ellipse at center, #C9A84C 0%, transparent 65%)" }}
-            aria-hidden="true"
-          />
-          <p className="section-label">Get Funded Fast</p>
-          <h2 id="cta-heading" className="text-3xl lg:text-4xl font-bold text-white mt-2">
-            Apply for Your Fix &amp; Flip Loan Today
-          </h2>
-          <p className="text-slate-400 text-lg mt-4 max-w-xl mx-auto">
-            No commitment required. Get your term sheet within 2 hours and know
-            exactly where you stand before you proceed.
+      {/* ── Pricing ──────────────────────────────────────────────────── */}
+      <Section tone="linen" id="rates" labelledBy="rates-heading" className="scroll-mt-20">
+        <SectionHead
+          eyebrow="02 — Pricing"
+          id="rates-heading"
+          title="Fix & Flip loan rates"
+          intro="Straightforward pricing with no hidden fees. Up to 90% of cost at every loan size."
+        />
+        <RateTable caption="Fix and flip loan pricing by loan size" headers={rateTableHeaders} rows={rateTableRows} />
+        <div className="mt-6 flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-2xl text-sm leading-relaxed text-deep-muted">
+            Rates are ranges, not quotes. Final terms depend on deal specifics and borrower profile. {COMPLIANCE}
           </p>
-          <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/apply" className="btn-primary text-base px-10 py-4">
-              Apply Now — It&apos;s Free
-              <ArrowRight size={18} />
-            </Link>
-            <Link href="/contact" className="btn-secondary text-base px-10 py-4">
-              <DollarSign size={16} />
-              Talk to a Loan Officer
-            </Link>
+          <Link href="/apply" className="btn-dark shrink-0 self-start text-base">
+            Get your rate
+          </Link>
+        </div>
+      </Section>
+
+      {/* ── Process + draws ──────────────────────────────────────────── */}
+      <Section labelledBy="process-heading">
+        <div className="grid gap-12 lg:grid-cols-12 lg:gap-6">
+          <div className="flex flex-col gap-4 lg:col-span-4">
+            <Eyebrow>03 — The process</Eyebrow>
+            <h2 id="process-heading" className="text-4xl leading-[1.05] sm:text-5xl">
+              From application to funded in four steps.
+            </h2>
+          </div>
+          <div className="lg:col-span-7 lg:col-start-6">
+            <StepList steps={steps} />
           </div>
         </div>
-      </section>
+
+        <div className="mt-20 grid gap-12 lg:grid-cols-12 lg:gap-6">
+          <div className="flex flex-col gap-4 lg:col-span-4">
+            <Eyebrow>Rehab draws</Eyebrow>
+            <h2 id="draws-heading" className="text-4xl leading-[1.05] sm:text-5xl">
+              You build, we reimburse.
+            </h2>
+            <p className="text-lg leading-relaxed text-deep-muted">
+              Draw requests are typically funded within{" "}
+              <span className="font-figure text-deep">{STATS.drawFunding}</span>, so your crew keeps moving.
+            </p>
+          </div>
+          <div className="lg:col-span-7 lg:col-start-6" aria-labelledby="draws-heading" role="group">
+            <StepList steps={draws} />
+          </div>
+        </div>
+      </Section>
+
+      {/* ── FAQ ──────────────────────────────────────────────────────── */}
+      <Section tone="paper" labelledBy="faq-heading">
+        <div className="grid gap-10 lg:grid-cols-12 lg:gap-6">
+          <div className="flex flex-col gap-4 lg:col-span-4">
+            <Eyebrow>04 — FAQ</Eyebrow>
+            <h2 id="faq-heading" className="text-4xl leading-[1.05] sm:text-5xl">
+              Questions investors ask first.
+            </h2>
+          </div>
+          <div className="lg:col-span-7 lg:col-start-6">
+            <Faq items={faqs} idPrefix="ff-faq" />
+          </div>
+        </div>
+      </Section>
+
+      {/* ── Related programs ─────────────────────────────────────────── */}
+      <Section labelledBy="related-heading">
+        <SectionHead eyebrow="Other programs" id="related-heading" title="Not a flip? Compare the others." />
+        <RelatedPrograms current="fix-and-flip" />
+      </Section>
     </>
   );
 }

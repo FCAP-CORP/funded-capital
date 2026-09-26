@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CheckCircle2, ArrowRight, Phone, Mail } from "lucide-react";
+import { COMPANY } from "@/lib/site/facts";
+import { ArrowLink, Eyebrow, Ledger } from "@/components/site/ui";
 
 export const metadata: Metadata = {
   title: "Thank You | Funded Capital",
@@ -8,53 +9,86 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+/*
+ * Thank you ("Ledger", 25 Sep 2026).
+ *
+ * PERFORMANCE: server component, no client JavaScript, no images.
+ *
+ * CONVERSION: confirms the submission landed, says when to expect a reply,
+ * and keeps the phone one tap away for anyone who wants to move faster.
+ * Secondary paths (programs, calculator) keep the visitor on the site while
+ * they wait.
+ */
+
 export default function ThankYouPage() {
   return (
-    <section className="bg-slate-50 section-padding min-h-[70vh] flex items-center">
-      <div className="section-container">
-        <div className="max-w-xl mx-auto text-center">
-          <div className="flex justify-center mb-6">
-            <div className="p-4 bg-gold-500/10 rounded-full">
-              <CheckCircle2 size={48} className="text-gold-500" />
-            </div>
-          </div>
-
-          <h1 className="text-3xl lg:text-4xl font-bold text-navy-900">
-            We&apos;ve Received Your Submission
+    <section aria-labelledby="thanks-heading" className="bg-deep text-bone on-deep">
+      <div className="section-container grid min-h-[70vh] gap-12 py-16 lg:grid-cols-12 lg:items-center lg:gap-6 lg:py-24">
+        <div className="flex flex-col gap-6 lg:col-span-7">
+          <nav aria-label="Breadcrumb" className="font-figure text-[13px] text-[#A9B3C2]">
+            <ol className="flex flex-wrap gap-2">
+              <li>
+                <Link href="/" className="hover:text-bone">Home</Link>
+              </li>
+              <li aria-hidden="true">/</li>
+              <li aria-current="page" className="text-brass-300">Received</li>
+            </ol>
+          </nav>
+          <Eyebrow onDeep>Submission received</Eyebrow>
+          <h1 id="thanks-heading" className="text-5xl leading-[0.98] sm:text-6xl lg:text-[80px]">
+            We&apos;ve got it.
           </h1>
-          <p className="text-slate-500 mt-4 leading-relaxed">
-            Thank you for reaching out to Funded Capital. A loan officer will
-            review your information and be in touch within 2 business hours.
+          <p className="font-headline text-2xl font-medium text-brass-300 sm:text-[28px]">A loan officer is on it.</p>
+          <p className="max-w-xl text-lg leading-relaxed text-[#C9D1DD]">
+            Thank you for reaching out to Funded Capital. A loan officer will review your information and be in touch
+            within 2 business hours.
           </p>
-
-          <div className="mt-8 card bg-white text-left flex flex-col gap-4">
-            <p className="font-semibold text-navy-900 text-sm">Need to reach us directly?</p>
-            <a
-              href="tel:+13058575620"
-              className="flex items-center gap-2 text-slate-600 hover:text-gold-600 transition-colors text-sm"
-            >
-              <Phone size={15} className="text-gold-500 shrink-0" />
-              +1 (305) 857-5620
-            </a>
-            <a
-              href="mailto:processing@fundedcapital.com"
-              className="flex items-center gap-2 text-slate-600 hover:text-gold-600 transition-colors text-sm"
-            >
-              <Mail size={15} className="text-gold-500 shrink-0" />
-              processing@fundedcapital.com
-            </a>
-          </div>
-
-          <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/" className="btn-primary">
-              Back to Home
-              <ArrowRight size={16} />
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Link href="/loan-programs" className="btn-secondary text-base">
+              View loan programs
             </Link>
-            <Link href="/loan-programs" className="btn-secondary">
-              View Loan Programs
+            <Link href="/" className="btn-secondary text-base">
+              Back to home
             </Link>
           </div>
         </div>
+
+        <aside aria-label="Reach us directly" className="self-start border border-bone/20 lg:col-span-4 lg:col-start-9">
+          <p className="border-b border-bone/20 px-6 py-4 font-figure text-xs tracking-[0.12em] text-brass-300">
+            NEED US SOONER?
+          </p>
+          <Ledger
+            onDeep
+            className="px-6 py-1"
+            rows={[
+              {
+                label: "Phone",
+                value: (
+                  <a href={COMPANY.phoneHref} className="text-bone underline decoration-brass-500 underline-offset-4 hover:text-brass-300">
+                    {COMPANY.phone}
+                  </a>
+                ),
+              },
+              {
+                label: "Email",
+                value: (
+                  <a
+                    href={`mailto:${COMPANY.email}`}
+                    className="break-all text-sm text-bone underline decoration-brass-500 underline-offset-4 hover:text-brass-300"
+                  >
+                    {COMPANY.email}
+                  </a>
+                ),
+              },
+              { label: "Mon–Fri", value: "8am–6pm ET" },
+            ]}
+          />
+          <div className="border-t border-bone/20 px-6 py-5">
+            <ArrowLink href="/calculator" onDeep>
+              Price another deal
+            </ArrowLink>
+          </div>
+        </aside>
       </div>
     </section>
   );

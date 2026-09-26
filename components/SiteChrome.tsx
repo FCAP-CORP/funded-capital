@@ -32,11 +32,21 @@ export default function SiteChrome({ children }: { children: React.ReactNode }) 
     return <>{children}</>;
   }
 
+  /*
+   * `.site` scopes the public look ("Ledger", globals.css) to these pages only,
+   * so the portals and the CRM above never pick it up.
+   */
   return (
-    <>
+    <div className="site">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:bg-bone focus:px-4 focus:py-2 focus:text-deep"
+      >
+        Skip to content
+      </a>
       <Header />
-      <main>{children}</main>
+      <main id="main">{children}</main>
       <Footer />
-    </>
+    </div>
   );
 }

@@ -1,170 +1,185 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
-import { Menu, X, ChevronDown } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, Menu, X } from "lucide-react";
+import Logo from "@/components/site/Logo";
 
-const navLinks = [
-  {
-    label: "Loan Programs",
-    href: "/loan-programs",
-    children: [
-      { label: "Fix & Flip Loans", href: "/fix-and-flip-loans" },
-      { label: "DSCR / Rental Loans", href: "/dscr-loans" },
-      { label: "New Construction", href: "/new-construction-loans" },
-      { label: "Multifamily Loans", href: "/multifamily-loans" },
-      { label: "View All Programs", href: "/loan-programs" },
-    ],
-  },
-  { label: "Calculator", href: "/calculator" },
-  { label: "How It Works", href: "/how-it-works" },
-  { label: "Broker Program", href: "/broker-program" },
-  {
-    label: "Company",
-    href: "#",
-    children: [
-      { label: "About Us", href: "/about" },
-      { label: "Why Us", href: "/why-us" },
-    ],
-  },
-  { label: "Blog", href: "/blog" },
-  { label: "Contact", href: "/contact" },
+/**
+ * Public site header ("Ledger", 25 Sep 2026).
+ *
+ * The only client component in the site chrome: it holds the open/closed state
+ * of the mobile menu and the programs dropdown. Everything it renders is plain
+ * links, so the page works (and every link is crawlable) before it hydrates.
+ * The dropdown closes on Escape and on a click outside, and the mobile menu
+ * closes whenever the route changes.
+ */
+
+const programs = [
+  { label: "Fix & Flip", href: "/fix-and-flip-loans", note: "Purchase and rehab" },
+  { label: "DSCR Rental", href: "/dscr-loans", note: "The rent qualifies" },
+  { label: "Ground-Up Construction", href: "/new-construction-loans", note: "Build from the lot up" },
+  { label: "Multifamily & Bridge", href: "/multifamily-loans", note: "Buy, stabilize, refinance" },
 ];
 
-export default function Header() {
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [openDropdown, setOpenDropdown] = useState<string | null>(null);
+const links = [
+  { label: "Calculator", href: "/calculator" },
+  { label: "How it works", href: "/how-it-works" },
+  { label: "Brokers", href: "/broker-program" },
+  { label: "Insights", href: "/blog" },
+  { label: "About", href: "/about" },
+];
 
-  const toggleDropdown = (label: string) =>
-    setOpenDropdown((prev) => (prev === label ? null : label));
+function isActive(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+export default function Header() {
+  const pathname = usePathname() || "/";
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [programsOpen, setProgramsOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setMobileOpen(false);
+    setProgramsOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!programsOpen) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setProgramsOpen(false);
+    const onClick = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setProgramsOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onClick);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onClick);
+    };
+  }, [programsOpen]);
+
+  const programActive =
+    pathname === "/loan-programs" || programs.some((p) => isActive(pathname, p.href));
 
   return (
-    <header className="sticky top-0 z-50 bg-navy-900 border-b border-navy-800">
-      <div className="section-container">
-        <div className="flex items-center justify-between h-16 lg:h-20">
+    <header className="sticky top-0 z-50 bg-deep border-b border-bone/10">
+      <div className="section-container flex h-16 lg:h-[76px] items-center justify-between gap-6">
+        <Link href="/" aria-label="Funded Capital home" className="shrink-0">
+          <Logo />
+        </Link>
 
-          {/* Logo */}
-          <Link href="/" className="flex items-center shrink-0">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/LogoWhite.png"
-              alt="Funded Capital — Close with Confidence"
-              style={{ height: "72px", width: "auto" }}
-            />
-          </Link>
-
-          {/* Desktop Nav */}
-          <nav className="hidden lg:flex items-center gap-6" aria-label="Main navigation">
-            {navLinks.map((link) =>
-              link.children ? (
-                <div key={link.label} className="relative">
-                  <button
-                    onClick={() => toggleDropdown(link.label)}
-                    className="flex items-center gap-1 text-slate-300 hover:text-white font-medium text-sm transition-colors"
-                    aria-expanded={openDropdown === link.label}
-                  >
-                    {link.label}
-                    <ChevronDown
-                      size={14}
-                      className={`transition-transform duration-200 ${openDropdown === link.label ? "rotate-180" : ""}`}
-                    />
-                  </button>
-                  {openDropdown === link.label && (
-                    <div className="absolute top-full left-0 mt-2 w-52 bg-navy-800 border border-navy-700 rounded-xl shadow-card-hover py-1 z-50">
-                      {link.children.map((child, i) => (
-                        <Link
-                          key={child.href}
-                          href={child.href}
-                          onClick={() => setOpenDropdown(null)}
-                          className={`block px-4 py-2.5 text-sm text-slate-300 hover:text-white hover:bg-navy-700 transition-colors ${
-                            i === link.children!.length - 1
-                              ? "border-t border-navy-700 mt-1 pt-3 text-gold-400 hover:text-gold-300"
-                              : ""
-                          }`}
-                        >
-                          {child.label}
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ) : (
+        <nav aria-label="Main" className="hidden lg:flex items-center gap-8 text-[15px] text-[#C9D1DD]">
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              onClick={() => setProgramsOpen((o) => !o)}
+              aria-expanded={programsOpen}
+              aria-controls="programs-menu"
+              className={`inline-flex items-center gap-1.5 py-2 hover:text-bone transition-colors ${
+                programActive ? "text-bone" : ""
+              }`}
+            >
+              Loan programs
+              <ChevronDown size={15} aria-hidden="true" className={`transition-transform ${programsOpen ? "rotate-180" : ""}`} />
+            </button>
+            {programsOpen && (
+              <div
+                id="programs-menu"
+                className="absolute left-0 top-full mt-3 w-[340px] bg-bone text-deep border border-rule shadow-[0_24px_60px_rgba(0,0,0,0.35)]"
+              >
+                <ul className="py-2">
+                  {programs.map((p) => (
+                    <li key={p.href}>
+                      <Link
+                        href={p.href}
+                        className="flex flex-col gap-0.5 px-5 py-3 hover:bg-linen focus-visible:bg-linen focus:outline-none"
+                        aria-current={isActive(pathname, p.href) ? "page" : undefined}
+                      >
+                        <span className="font-headline text-lg font-semibold">{p.label}</span>
+                        <span className="text-sm text-deep-muted">{p.note}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
                 <Link
-                  key={link.href}
-                  href={link.href}
-                  className="text-slate-300 hover:text-white font-medium text-sm transition-colors"
+                  href="/loan-programs"
+                  className="block border-t border-rule px-5 py-3 text-sm font-semibold hover:bg-linen"
                 >
-                  {link.label}
+                  Compare every program
                 </Link>
-              )
+              </div>
             )}
-          </nav>
-
-          {/* Desktop CTA */}
-          <div className="hidden lg:flex items-center gap-3">
-            <Link href="/sign-in" className="text-slate-300 hover:text-white font-medium text-sm transition-colors">
-              Broker Login
-            </Link>
-            <Link href="/apply" className="btn-primary text-sm px-5 py-2.5">
-              Apply Now
-            </Link>
           </div>
+          {links.map((l) => (
+            <Link
+              key={l.href}
+              href={l.href}
+              aria-current={isActive(pathname, l.href) ? "page" : undefined}
+              className={`py-2 hover:text-bone transition-colors ${
+                isActive(pathname, l.href) ? "text-bone border-b-2 border-brass-500" : ""
+              }`}
+            >
+              {l.label}
+            </Link>
+          ))}
+        </nav>
 
-          {/* Mobile hamburger */}
+        <div className="hidden lg:flex items-center gap-5">
+          <Link href="/sign-in" className="text-[15px] text-[#C9D1DD] hover:text-bone">
+            Broker login
+          </Link>
+          <Link href="/apply" className="btn-primary !min-h-[44px] !py-2 text-[15px]">
+            Apply now
+          </Link>
+        </div>
+
+        <div className="flex lg:hidden items-center gap-2">
+          <Link href="/apply" className="btn-primary !min-h-[44px] !px-4 !py-2 text-sm">
+            Apply
+          </Link>
           <button
-            className="lg:hidden p-2 text-slate-300 hover:text-white"
-            onClick={() => setMobileOpen(!mobileOpen)}
-            aria-label="Toggle mobile menu"
+            type="button"
+            onClick={() => setMobileOpen((o) => !o)}
             aria-expanded={mobileOpen}
+            aria-controls="mobile-menu"
+            aria-label={mobileOpen ? "Close menu" : "Open menu"}
+            className="inline-flex h-11 w-11 items-center justify-center border border-bone/30 text-bone rounded-[2px]"
           >
-            {mobileOpen ? <X size={22} /> : <Menu size={22} />}
+            {mobileOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
           </button>
         </div>
       </div>
 
-      {/* Mobile menu */}
       {mobileOpen && (
-        <div className="lg:hidden border-t border-navy-800 bg-navy-900">
-          <nav className="section-container py-4 flex flex-col gap-1" aria-label="Mobile navigation">
-            {navLinks.map((link) =>
-              link.children ? (
-                <div key={link.label}>
-                  <p className="px-3 py-2 text-xs font-semibold uppercase tracking-widest text-slate-500">
-                    {link.label}
-                  </p>
-                  {link.children.map((child) => (
-                    <Link
-                      key={child.href}
-                      href={child.href}
-                      onClick={() => setMobileOpen(false)}
-                      className="block px-3 py-2 text-slate-300 hover:text-white hover:bg-navy-800 rounded-lg text-sm font-medium transition-colors"
-                    >
-                      {child.label}
-                    </Link>
-                  ))}
-                </div>
-              ) : (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  onClick={() => setMobileOpen(false)}
-                  className="block px-3 py-2 text-slate-300 hover:text-white hover:bg-navy-800 rounded-lg text-sm font-medium transition-colors"
-                >
-                  {link.label}
-                </Link>
-              )
-            )}
-            <div className="pt-3 mt-1 border-t border-navy-800">
-              <Link
-                href="/apply"
-                onClick={() => setMobileOpen(false)}
-                className="btn-primary w-full text-sm"
-              >
-                Apply Now
+        <nav id="mobile-menu" aria-label="Mobile" className="lg:hidden border-t border-bone/10 bg-deep">
+          <div className="section-container py-4 flex flex-col">
+            <p className="eyebrow eyebrow-on-deep py-2">Loan programs</p>
+            {programs.map((p) => (
+              <Link key={p.href} href={p.href} className="py-3 border-b border-bone/10 font-headline text-xl text-bone">
+                {p.label}
               </Link>
-            </div>
-          </nav>
-        </div>
+            ))}
+            <Link href="/loan-programs" className="py-3 border-b border-bone/10 text-[#C9D1DD]">
+              Compare every program
+            </Link>
+            {links.map((l) => (
+              <Link key={l.href} href={l.href} className="py-3 border-b border-bone/10 text-[#C9D1DD]">
+                {l.label}
+              </Link>
+            ))}
+            <Link href="/contact" className="py-3 border-b border-bone/10 text-[#C9D1DD]">
+              Contact
+            </Link>
+            <Link href="/sign-in" className="py-3 text-[#C9D1DD]">
+              Broker login
+            </Link>
+            <a href="tel:+13058575620" className="mt-3 font-figure text-brass-300">
+              (305) 857-5620
+            </a>
+          </div>
+        </nav>
       )}
     </header>
   );

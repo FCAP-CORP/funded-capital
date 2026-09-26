@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Mail, Phone, MapPin, Clock, ArrowRight } from "lucide-react";
 import ContactForm from "@/components/ContactForm";
+import { COMPANY, STATS } from "@/lib/site/facts";
+import { ArrowLink, Eyebrow, Ledger } from "@/components/site/ui";
 
 export const metadata: Metadata = {
   title: "Contact a Private Real Estate Lender — Funded Capital",
@@ -9,123 +10,125 @@ export const metadata: Metadata = {
     "Reach the Funded Capital team by phone, email, or form. Loan officers available Mon–Fri 8am–6pm ET. Miami, FL. Lending in 45 states.",
 };
 
-const contactInfo = [
-  {
-    icon: Phone,
-    label: "Phone",
-    value: "+1 (305) 857-5620",
-    href: "tel:+13058575620",
-    sub: "Mon–Fri, 8am–6pm ET",
-  },
-  {
-    icon: Mail,
-    label: "Email",
-    value: "processing@fundedcapital.com",
-    href: "mailto:processing@fundedcapital.com",
-    sub: "Response within 2 business hours",
-  },
-  {
-    icon: MapPin,
-    label: "Headquarters",
-    value: "100 N Biscayne Blvd, Suite 1210",
-    href: null,
-    sub: "Miami, FL 33132 — Lending in 45 States",
-  },
-  {
-    icon: Clock,
-    label: "Hours",
-    value: "Mon–Fri: 8am–6pm ET",
-    href: null,
-    sub: "Sat: 10am–2pm ET",
-  },
+/*
+ * Contact ("Ledger", 25 Sep 2026).
+ *
+ * PERFORMANCE: the page shell is a server component; the only client
+ * JavaScript is the form itself. The hero is short text with no image.
+ *
+ * CONVERSION: on a phone the form starts right after a two-line hero, so a
+ * visitor who came here to write to us is typing within one scroll. On
+ * desktop the right column answers "what happens after I hit send?" and
+ * offers the phone for anyone who would rather talk now.
+ */
+
+const nextSteps = [
+  { title: "A loan officer reads it", body: "Not a bot and not a call center. The person who answers can price your deal." },
+  { title: "We reply within 2 business hours", body: "By email, or by phone if you left a number and asked for a call." },
+  { title: "Have a deal? Get terms", body: `Send it through the application and get a written term sheet in ${STATS.termSheet} on average.` },
 ];
 
 export default function ContactPage() {
   return (
     <>
-      {/* Hero */}
-      <section className="bg-navy-900 py-16 lg:py-20">
-        <div className="section-container max-w-3xl">
-          <p className="section-label">Contact Us</p>
-          <h1 className="text-4xl lg:text-5xl font-bold text-white mt-2">
-            Talk to a Real Person
+      {/* ── Hero (short, so the form stays near the fold on mobile) ─── */}
+      <section aria-labelledby="contact-heading" className="bg-deep text-bone on-deep">
+        <div className="section-container flex flex-col gap-5 py-10 lg:py-16">
+          <nav aria-label="Breadcrumb" className="font-figure text-[13px] text-[#A9B3C2]">
+            <ol className="flex flex-wrap gap-2">
+              <li>
+                <Link href="/" className="hover:text-bone">Home</Link>
+              </li>
+              <li aria-hidden="true">/</li>
+              <li aria-current="page" className="text-brass-300">Contact</li>
+            </ol>
+          </nav>
+          <Eyebrow onDeep>Contact us</Eyebrow>
+          <h1 id="contact-heading" className="text-5xl leading-[0.98] sm:text-6xl lg:text-[80px]">
+            Talk to a real person.
           </h1>
-          <p className="text-slate-300 text-lg mt-4 leading-relaxed">
-            Questions about a loan, an active deal, or just want to explore your
-            options? Reach out — we respond within 4 business hours.
+          <p className="max-w-2xl text-lg leading-relaxed text-[#C9D1DD]">
+            A question about a loan, an active deal, or your options? Write to us below or call{" "}
+            <a href={COMPANY.phoneHref} className="font-figure text-bone underline decoration-brass-500 underline-offset-4 hover:text-brass-300">
+              {COMPANY.phone}
+            </a>
+            .
           </p>
         </div>
       </section>
 
-      <section className="section-padding bg-white">
-        <div className="section-container">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-
-            {/* Contact Info */}
-            <div className="flex flex-col gap-6">
-              <div>
-                <p className="section-label">Get in Touch</p>
-                <h2 className="text-2xl font-bold text-navy-900 mt-2">
-                  We&apos;re Here to Help
-                </h2>
-                <p className="text-slate-500 text-sm mt-3 leading-relaxed">
-                  Whether you have a deal ready to go or just want to explore
-                  your financing options, our team is ready to help.
-                </p>
-              </div>
-
-              <div className="flex flex-col gap-4">
-                {contactInfo.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <div key={item.label} className="flex items-start gap-3">
-                      <div className="p-2 bg-slate-100 rounded-lg shrink-0 mt-0.5">
-                        <Icon size={16} className="text-navy-900" />
-                      </div>
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                          {item.label}
-                        </p>
-                        {item.href ? (
-                          <a
-                            href={item.href}
-                            className="font-semibold text-navy-900 hover:text-gold-600 transition-colors text-sm"
-                          >
-                            {item.value}
-                          </a>
-                        ) : (
-                          <p className="font-semibold text-navy-900 text-sm">
-                            {item.value}
-                          </p>
-                        )}
-                        <p className="text-slate-400 text-xs mt-0.5">{item.sub}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Apply shortcut */}
-              <div className="card bg-slate-50 border-slate-100 mt-2">
-                <p className="font-bold text-navy-900 text-sm">
-                  Ready to apply?
-                </p>
-                <p className="text-slate-500 text-xs mt-1">
-                  Skip the back-and-forth — apply online and get a term sheet
-                  in as little as 2 hours.
-                </p>
-                <Link href="/apply" className="btn-primary mt-4 text-sm w-full justify-center">
-                  Apply Now
-                  <ArrowRight size={14} />
-                </Link>
-              </div>
-            </div>
-
-            {/* Contact Form */}
-            <div className="lg:col-span-2">
-              <ContactForm />
-            </div>
+      {/* ── Form + what happens next ─────────────────────────────────── */}
+      <section aria-label="Send us a message" className="bg-bone text-deep">
+        <div className="section-container grid gap-12 py-10 lg:grid-cols-12 lg:gap-6 lg:py-20">
+          <div className="lg:col-span-7">
+            <ContactForm />
           </div>
+
+          <aside aria-labelledby="contact-next-heading" className="flex flex-col gap-10 lg:col-span-4 lg:col-start-9">
+            <div className="flex flex-col gap-5">
+              <Eyebrow>What happens next</Eyebrow>
+              <h2 id="contact-next-heading" className="text-3xl leading-tight">
+                After you hit send.
+              </h2>
+              <ol className="border-t-2 border-deep">
+                {nextSteps.map((s, i) => (
+                  <li key={s.title} className="grid grid-cols-[40px_1fr] gap-3 border-b border-rule py-5">
+                    <span className="font-figure text-sm text-brass-700" aria-hidden="true">
+                      {String(i + 1).padStart(2, "0")}
+                    </span>
+                    <span className="flex flex-col gap-1">
+                      <span className="font-semibold">{s.title}</span>
+                      <span className="text-[15px] leading-relaxed text-deep-muted">{s.body}</span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <p className="font-figure text-xs tracking-[0.12em] text-brass-700">REACH US DIRECTLY</p>
+              <Ledger
+                rows={[
+                  {
+                    label: "Phone",
+                    value: (
+                      <a href={COMPANY.phoneHref} className="text-deep underline decoration-brass-500 underline-offset-4 hover:text-brass-700">
+                        {COMPANY.phone}
+                      </a>
+                    ),
+                  },
+                  {
+                    label: "Email",
+                    value: (
+                      <a
+                        href={`mailto:${COMPANY.email}`}
+                        className="break-all text-sm text-deep underline decoration-brass-500 underline-offset-4 hover:text-brass-700"
+                      >
+                        {COMPANY.email}
+                      </a>
+                    ),
+                  },
+                  { label: "Mon–Fri", value: "8am–6pm ET" },
+                  { label: "Saturday", value: "10am–2pm ET" },
+                ]}
+              />
+              <address className="mt-2 text-[15px] not-italic leading-relaxed text-deep-muted">
+                100 N Biscayne Blvd, Suite 1210
+                <br />
+                Miami, FL 33132 · Lending in {STATS.states} states
+              </address>
+            </div>
+
+            <div className="border border-rule bg-linen p-6">
+              <p className="font-headline text-xl font-semibold">Ready to apply?</p>
+              <p className="mt-2 text-[15px] leading-relaxed text-deep-muted">
+                Skip the back-and-forth: apply online and get a term sheet in {STATS.termSheet} on average.
+              </p>
+              <div className="mt-4">
+                <ArrowLink href="/apply">Start your application</ArrowLink>
+              </div>
+            </div>
+          </aside>
         </div>
       </section>
     </>

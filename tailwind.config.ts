@@ -20,6 +20,27 @@ const config: Config = {
           800: "#1E293B",
           700: "#334155",
         },
+        // Public site palette ("Ledger", 25 Sep 2026). The portals keep
+        // navy/gold/slate, and `ink` above stays the participant documents'
+        // navy, so the public colours have their own names.
+        // brass-700 is the only brass allowed as small text on a light ground
+        // (#7A5A1C on bone, about 6:1). brass-500 is for fills, rules and large
+        // type, and always carries deep text, never white.
+        deep: {
+          DEFAULT: "#0A1628",
+          2: "#0F2036",
+          muted: "#3C4656",
+          soft: "#5A6473",
+        },
+        brass: {
+          300: "#D9B870",
+          500: "#B88E3E",
+          700: "#7A5A1C",
+        },
+        bone: "#F3EEE4",
+        linen: "#EAE3D6",
+        paper: "#FBF8F2",
+        rule: "#D8CFBE",
         // Gold accent
         gold: {
           400: "#D4A844",
@@ -42,8 +63,15 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
-        display: ["Inter", "system-ui", "sans-serif"],
+        // Inter is self-hosted by next/font (app/layout.tsx) and exposed as a
+        // CSS variable, so no stylesheet blocks the first paint. The portals
+        // and the CRM keep Inter; the public site uses the three below.
+        sans: ["var(--font-inter)", "Inter", "system-ui", "sans-serif"],
+        display: ["var(--font-inter)", "Inter", "system-ui", "sans-serif"],
+        // Public site ("Ledger", 25 Sep 2026): Inter Tight headlines, Inter body, mono figures.
+        headline: ["var(--font-headline)", "var(--font-inter)", "system-ui", "sans-serif"],
+        plex: ["var(--font-inter)", "Inter", "system-ui", "sans-serif"],
+        figure: ["var(--font-plex-mono)", "ui-monospace", "monospace"],
       },
       boxShadow: {
         "card": "0 1px 3px 0 rgba(0,0,0,0.08), 0 1px 2px -1px rgba(0,0,0,0.04)",

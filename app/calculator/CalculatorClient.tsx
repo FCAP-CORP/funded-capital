@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Calculator, TrendingUp, DollarSign } from "lucide-react";
+import { ArrowRight, Calculator } from "lucide-react";
 
 // ─── Fix & Flip Calculator ────────────────────────────────────────────────────
 
@@ -43,12 +43,13 @@ function FixFlipCalculator() {
     n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-12">
       {/* Inputs */}
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-5">
         <div>
-          <label className="form-label">Purchase Price</label>
+          <label htmlFor="calc-ff-1" className="form-label">Purchase Price</label>
           <input
+            id="calc-ff-1"
             type="number"
             placeholder="e.g. 250000"
             className="form-input"
@@ -57,8 +58,9 @@ function FixFlipCalculator() {
           />
         </div>
         <div>
-          <label className="form-label">Rehab Budget</label>
+          <label htmlFor="calc-ff-2" className="form-label">Rehab Budget</label>
           <input
+            id="calc-ff-2"
             type="number"
             placeholder="e.g. 50000"
             className="form-input"
@@ -67,8 +69,9 @@ function FixFlipCalculator() {
           />
         </div>
         <div>
-          <label className="form-label">After Repair Value (ARV)</label>
+          <label htmlFor="calc-ff-3" className="form-label">After Repair Value (ARV)</label>
           <input
+            id="calc-ff-3"
             type="number"
             placeholder="e.g. 400000"
             className="form-input"
@@ -78,8 +81,9 @@ function FixFlipCalculator() {
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="form-label">Interest Rate (%)</label>
+            <label htmlFor="calc-ff-4" className="form-label">Interest Rate (%)</label>
             <input
+              id="calc-ff-4"
               type="number"
               step="0.25"
               className="form-input"
@@ -88,8 +92,9 @@ function FixFlipCalculator() {
             />
           </div>
           <div>
-            <label className="form-label">Loan Term (months)</label>
+            <label htmlFor="calc-ff-5" className="form-label">Loan Term (months)</label>
             <input
+              id="calc-ff-5"
               type="number"
               className="form-input"
               value={loanTermMonths}
@@ -97,8 +102,8 @@ function FixFlipCalculator() {
             />
           </div>
         </div>
-        <button onClick={calculate} className="btn-primary mt-2">
-          <Calculator size={16} />
+        <button type="button" onClick={calculate} className="btn-dark mt-2">
+          <Calculator size={16} aria-hidden="true" />
           Calculate ROI
         </button>
       </div>
@@ -106,55 +111,57 @@ function FixFlipCalculator() {
       {/* Results */}
       <div>
         {result ? (
-          <div className="flex flex-col gap-4">
-            <div className="card border-gold-500 ring-1 ring-gold-500/20">
-              <h3 className="font-bold text-navy-900 mb-4 text-base">Your Fix &amp; Flip Estimate</h3>
-              <dl className="flex flex-col gap-3">
-                <div className="flex justify-between text-sm">
-                  <dt className="text-slate-500">Funded Capital Loan Amount (90% LTC)</dt>
-                  <dd className="font-semibold text-navy-900">{fmt(result.loanAmount)}</dd>
+          <div className="flex h-full flex-col bg-deep text-bone on-deep" aria-live="polite">
+            <div className="p-6 lg:p-8">
+              <h3 className="mb-5 border-b border-bone/20 pb-4 text-2xl">Your Fix &amp; Flip Estimate</h3>
+              <dl className="flex flex-col">
+                <div className="flex items-baseline justify-between gap-4 border-b border-dashed border-bone/20 py-3">
+                  <dt className="text-[15px] text-[#A9B3C2]">Funded Capital Loan Amount (90% of cost)</dt>
+                  <dd className="m-0 text-right font-figure text-base">{fmt(result.loanAmount)}</dd>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <dt className="text-slate-500">Monthly Interest Payment</dt>
-                  <dd className="font-semibold text-gold-600">{fmt(result.monthlyInterest)}</dd>
+                <div className="flex items-baseline justify-between gap-4 border-b border-dashed border-bone/20 py-3">
+                  <dt className="text-[15px] text-[#A9B3C2]">Monthly Interest Payment</dt>
+                  <dd className="m-0 text-right font-figure text-base text-brass-300">{fmt(result.monthlyInterest)}</dd>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <dt className="text-slate-500">Total Interest Cost</dt>
-                  <dd className="font-semibold text-navy-900">{fmt(result.totalInterest)}</dd>
+                <div className="flex items-baseline justify-between gap-4 border-b border-dashed border-bone/20 py-3">
+                  <dt className="text-[15px] text-[#A9B3C2]">Total Interest Cost</dt>
+                  <dd className="m-0 text-right font-figure text-base">{fmt(result.totalInterest)}</dd>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <dt className="text-slate-500">Est. Closing Costs (3%)</dt>
-                  <dd className="font-semibold text-navy-900">{fmt(result.closingCosts)}</dd>
+                <div className="flex items-baseline justify-between gap-4 border-b border-dashed border-bone/20 py-3">
+                  <dt className="text-[15px] text-[#A9B3C2]">Est. Closing Costs (3%)</dt>
+                  <dd className="m-0 text-right font-figure text-base">{fmt(result.closingCosts)}</dd>
                 </div>
-                <hr className="border-slate-100" />
-                <div className="flex justify-between">
-                  <dt className="font-bold text-navy-900">Estimated Profit</dt>
-                  <dd className={`font-bold text-lg ${result.estimatedProfit >= 0 ? "text-gold-600" : "text-red-500"}`}>
+                <hr className="my-2 border-bone/40" />
+                <div className="flex items-baseline justify-between gap-4 py-3">
+                  <dt className="font-semibold">Estimated Profit</dt>
+                  <dd className={`m-0 font-figure text-2xl ${result.estimatedProfit >= 0 ? "text-brass-300" : "text-[#F2A7A0]"}`}>
                     {fmt(result.estimatedProfit)}
                   </dd>
                 </div>
-                <div className="flex justify-between">
-                  <dt className="font-bold text-navy-900">ROI</dt>
-                  <dd className={`font-bold text-lg ${result.roi >= 0 ? "text-gold-600" : "text-red-500"}`}>
+                <div className="flex items-baseline justify-between gap-4 py-3">
+                  <dt className="font-semibold">ROI</dt>
+                  <dd className={`m-0 font-figure text-2xl ${result.roi >= 0 ? "text-brass-300" : "text-[#F2A7A0]"}`}>
                     {result.roi.toFixed(1)}%
                   </dd>
                 </div>
               </dl>
             </div>
             {/* CTA */}
-            <div className="bg-navy-900 rounded-2xl p-5 text-center">
-              <p className="text-white font-bold">Ready to get funded?</p>
-              <p className="text-slate-400 text-sm mt-1">Get your term sheet in 2 hours.</p>
-              <Link href="/apply" className="btn-primary mt-4 text-sm">
+            <div className="mt-auto flex flex-col gap-4 border-t border-bone/20 p-6 sm:flex-row sm:items-center sm:justify-between lg:px-8">
+              <div>
+                <p className="font-headline text-xl font-semibold">Ready to get funded?</p>
+                <p className="mt-1 text-sm text-[#C9D1DD]">Get your term sheet in 2 hours on average.</p>
+              </div>
+              <Link href="/apply" className="btn-primary shrink-0 text-[15px]">
                 Apply Now
-                <ArrowRight size={14} />
+                <ArrowRight size={14} aria-hidden="true" />
               </Link>
             </div>
           </div>
         ) : (
-          <div className="card h-full flex flex-col items-center justify-center text-center gap-3 min-h-[300px] border-dashed">
-            <TrendingUp size={32} className="text-slate-300" />
-            <p className="text-slate-400 text-sm">Enter your deal details and click Calculate ROI to see your estimated returns.</p>
+          <div className="flex h-full min-h-[300px] flex-col justify-center gap-4 bg-deep p-8 text-bone">
+            <p className="font-figure text-[11px] uppercase tracking-[0.14em] text-brass-300">Your estimate</p>
+            <p className="max-w-sm text-[15px] leading-relaxed text-[#C9D1DD]">Enter your deal details and click Calculate ROI to see your estimated returns.</p>
           </div>
         )}
       </div>
@@ -211,12 +218,13 @@ function DSCRCalculator() {
     n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-12">
       {/* Inputs */}
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-5">
         <div>
-          <label className="form-label">Monthly Rent</label>
+          <label htmlFor="calc-dscr-1" className="form-label">Monthly Rent</label>
           <input
+            id="calc-dscr-1"
             type="number"
             placeholder="e.g. 2500"
             className="form-input"
@@ -226,8 +234,9 @@ function DSCRCalculator() {
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="form-label">Property Taxes / mo</label>
+            <label htmlFor="calc-dscr-2" className="form-label">Property Taxes / mo</label>
             <input
+              id="calc-dscr-2"
               type="number"
               placeholder="e.g. 300"
               className="form-input"
@@ -236,8 +245,9 @@ function DSCRCalculator() {
             />
           </div>
           <div>
-            <label className="form-label">Insurance / mo</label>
+            <label htmlFor="calc-dscr-3" className="form-label">Insurance / mo</label>
             <input
+              id="calc-dscr-3"
               type="number"
               placeholder="e.g. 150"
               className="form-input"
@@ -247,8 +257,9 @@ function DSCRCalculator() {
           </div>
         </div>
         <div>
-          <label className="form-label">HOA / mo (if applicable)</label>
+          <label htmlFor="calc-dscr-4" className="form-label">HOA / mo (if applicable)</label>
           <input
+            id="calc-dscr-4"
             type="number"
             placeholder="e.g. 0"
             className="form-input"
@@ -257,8 +268,9 @@ function DSCRCalculator() {
           />
         </div>
         <div>
-          <label className="form-label">Loan Amount</label>
+          <label htmlFor="calc-dscr-5" className="form-label">Loan Amount</label>
           <input
+            id="calc-dscr-5"
             type="number"
             placeholder="e.g. 300000"
             className="form-input"
@@ -267,8 +279,9 @@ function DSCRCalculator() {
           />
         </div>
         <div>
-          <label className="form-label">Interest Rate (%) — 30-year fixed</label>
+          <label htmlFor="calc-dscr-6" className="form-label">Interest Rate (%) — 30-year fixed</label>
           <input
+            id="calc-dscr-6"
             type="number"
             step="0.25"
             className="form-input"
@@ -276,8 +289,8 @@ function DSCRCalculator() {
             onChange={(e) => setInterestRate(e.target.value)}
           />
         </div>
-        <button onClick={calculate} className="btn-primary mt-2">
-          <Calculator size={16} />
+        <button type="button" onClick={calculate} className="btn-dark mt-2">
+          <Calculator size={16} aria-hidden="true" />
           Calculate DSCR
         </button>
       </div>
@@ -285,70 +298,72 @@ function DSCRCalculator() {
       {/* Results */}
       <div>
         {result ? (
-          <div className="flex flex-col gap-4">
-            <div className="card border-gold-500 ring-1 ring-gold-500/20">
-              <h3 className="font-bold text-navy-900 mb-4 text-base">DSCR Analysis</h3>
-              <dl className="flex flex-col gap-3">
-                <div className="flex justify-between text-sm">
-                  <dt className="text-slate-500">Monthly PITI Payment</dt>
-                  <dd className="font-semibold text-navy-900">{fmt(result.monthlyPITI)}</dd>
+          <div className="flex h-full flex-col bg-deep text-bone on-deep" aria-live="polite">
+            <div className="p-6 lg:p-8">
+              <h3 className="mb-5 border-b border-bone/20 pb-4 text-2xl">DSCR Analysis</h3>
+              <dl className="flex flex-col">
+                <div className="flex items-baseline justify-between gap-4 border-b border-dashed border-bone/20 py-3">
+                  <dt className="text-[15px] text-[#A9B3C2]">Monthly PITI Payment</dt>
+                  <dd className="m-0 text-right font-figure text-base">{fmt(result.monthlyPITI)}</dd>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <dt className="text-slate-500">Annual Net Operating Income</dt>
-                  <dd className="font-semibold text-navy-900">{fmt(result.noi)}</dd>
+                <div className="flex items-baseline justify-between gap-4 border-b border-dashed border-bone/20 py-3">
+                  <dt className="text-[15px] text-[#A9B3C2]">Annual Net Operating Income</dt>
+                  <dd className="m-0 text-right font-figure text-base">{fmt(result.noi)}</dd>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <dt className="text-slate-500">Annual Debt Service</dt>
-                  <dd className="font-semibold text-navy-900">{fmt(result.annualDebtService)}</dd>
+                <div className="flex items-baseline justify-between gap-4 border-b border-dashed border-bone/20 py-3">
+                  <dt className="text-[15px] text-[#A9B3C2]">Annual Debt Service</dt>
+                  <dd className="m-0 text-right font-figure text-base">{fmt(result.annualDebtService)}</dd>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <dt className="text-slate-500">Monthly Cash Flow</dt>
+                <div className="flex items-baseline justify-between gap-4 border-b border-dashed border-bone/20 py-3">
+                  <dt className="text-[15px] text-[#A9B3C2]">Monthly Cash Flow</dt>
                   <dd
-                    className={`font-semibold ${
-                      result.monthlyCashFlow >= 0 ? "text-gold-600" : "text-red-500"
+                    className={`m-0 text-right font-figure text-base ${
+                      result.monthlyCashFlow >= 0 ? "text-brass-300" : "text-[#F2A7A0]"
                     }`}
                   >
                     {fmt(result.monthlyCashFlow)}
                   </dd>
                 </div>
-                <hr className="border-slate-100" />
-                <div className="flex justify-between items-center">
-                  <dt className="font-bold text-navy-900 text-lg">DSCR Ratio</dt>
+                <hr className="my-2 border-bone/40" />
+                <div className="flex items-baseline justify-between gap-4 py-3">
+                  <dt className="text-lg font-semibold">DSCR Ratio</dt>
                   <dd
-                    className={`font-bold text-2xl ${
-                      result.dscr >= 1 ? "text-gold-600" : "text-red-500"
+                    className={`m-0 font-figure text-[32px] leading-none ${
+                      result.dscr >= 1 ? "text-brass-300" : "text-[#F2A7A0]"
                     }`}
                   >
                     {result.dscr.toFixed(2)}x
                   </dd>
                 </div>
                 <div
-                  className={`rounded-xl px-4 py-3 text-center font-semibold text-sm ${
+                  className={`mt-3 rounded-[2px] border px-4 py-3 text-sm font-semibold ${
                     result.qualifies
-                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                      : "bg-red-50 text-red-700 border border-red-200"
+                      ? "border-brass-500/60 text-brass-300"
+                      : "border-[#F2A7A0]/60 text-[#F2A7A0]"
                   }`}
                 >
                   {result.qualifies
-                    ? "Qualifies ✓ — DSCR meets our minimum 1.0x requirement"
+                    ? "Qualifies — DSCR meets our minimum 1.0x requirement"
                     : "Does Not Qualify — DSCR is below the 1.0x minimum"}
                 </div>
               </dl>
             </div>
             {/* CTA */}
-            <div className="bg-navy-900 rounded-2xl p-5 text-center">
-              <p className="text-white font-bold">Ready to get funded?</p>
-              <p className="text-slate-400 text-sm mt-1">Get your term sheet in 2 hours.</p>
-              <Link href="/apply" className="btn-primary mt-4 text-sm">
+            <div className="mt-auto flex flex-col gap-4 border-t border-bone/20 p-6 sm:flex-row sm:items-center sm:justify-between lg:px-8">
+              <div>
+                <p className="font-headline text-xl font-semibold">Ready to get funded?</p>
+                <p className="mt-1 text-sm text-[#C9D1DD]">Get your term sheet in 2 hours on average.</p>
+              </div>
+              <Link href="/apply" className="btn-primary shrink-0 text-[15px]">
                 Apply Now
-                <ArrowRight size={14} />
+                <ArrowRight size={14} aria-hidden="true" />
               </Link>
             </div>
           </div>
         ) : (
-          <div className="card h-full flex flex-col items-center justify-center text-center gap-3 min-h-[300px] border-dashed">
-            <DollarSign size={32} className="text-slate-300" />
-            <p className="text-slate-400 text-sm">
+          <div className="flex h-full min-h-[300px] flex-col justify-center gap-4 bg-deep p-8 text-bone">
+            <p className="font-figure text-[11px] uppercase tracking-[0.14em] text-brass-300">Your estimate</p>
+            <p className="max-w-sm text-[15px] leading-relaxed text-[#C9D1DD]">
               Enter your rental property details to check DSCR qualification.
             </p>
           </div>
@@ -402,12 +417,13 @@ function LoanPaymentCalculator() {
     n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div className="grid grid-cols-1 gap-8 lg:grid-cols-2 lg:gap-12">
       {/* Inputs */}
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-5">
         <div>
-          <label className="form-label">Loan Amount</label>
+          <label htmlFor="calc-pay-1" className="form-label">Loan Amount</label>
           <input
+            id="calc-pay-1"
             type="number"
             placeholder="e.g. 500000"
             className="form-input"
@@ -416,8 +432,9 @@ function LoanPaymentCalculator() {
           />
         </div>
         <div>
-          <label className="form-label">Interest Rate (%)</label>
+          <label htmlFor="calc-pay-2" className="form-label">Interest Rate (%)</label>
           <input
+            id="calc-pay-2"
             type="number"
             step="0.25"
             placeholder="e.g. 8.75"
@@ -427,8 +444,9 @@ function LoanPaymentCalculator() {
           />
         </div>
         <div>
-          <label className="form-label">Loan Type</label>
+          <label htmlFor="calc-pay-3" className="form-label">Loan Type</label>
           <select
+            id="calc-pay-3"
             className="form-input"
             value={loanType}
             onChange={(e) =>
@@ -440,8 +458,9 @@ function LoanPaymentCalculator() {
           </select>
         </div>
         <div>
-          <label className="form-label">Term (months)</label>
+          <label htmlFor="calc-pay-4" className="form-label">Term (months)</label>
           <input
+            id="calc-pay-4"
             type="number"
             placeholder="e.g. 12"
             className="form-input"
@@ -449,8 +468,8 @@ function LoanPaymentCalculator() {
             onChange={(e) => setTermMonths(e.target.value)}
           />
         </div>
-        <button onClick={calculate} className="btn-primary mt-2">
-          <Calculator size={16} />
+        <button type="button" onClick={calculate} className="btn-dark mt-2">
+          <Calculator size={16} aria-hidden="true" />
           Calculate Payment
         </button>
       </div>
@@ -458,39 +477,41 @@ function LoanPaymentCalculator() {
       {/* Results */}
       <div>
         {result ? (
-          <div className="flex flex-col gap-4">
-            <div className="card border-gold-500 ring-1 ring-gold-500/20">
-              <h3 className="font-bold text-navy-900 mb-4 text-base">Payment Summary</h3>
-              <dl className="flex flex-col gap-3">
-                <div className="flex justify-between items-center">
-                  <dt className="font-bold text-navy-900 text-lg">Monthly Payment</dt>
-                  <dd className="font-bold text-2xl text-gold-600">{fmt(result.monthlyPayment)}</dd>
+          <div className="flex h-full flex-col bg-deep text-bone on-deep" aria-live="polite">
+            <div className="p-6 lg:p-8">
+              <h3 className="mb-5 border-b border-bone/20 pb-4 text-2xl">Payment Summary</h3>
+              <dl className="flex flex-col">
+                <div className="flex items-baseline justify-between gap-4 py-3">
+                  <dt className="text-lg font-semibold">Monthly Payment</dt>
+                  <dd className="m-0 font-figure text-[32px] leading-none text-brass-300">{fmt(result.monthlyPayment)}</dd>
                 </div>
-                <hr className="border-slate-100" />
-                <div className="flex justify-between text-sm">
-                  <dt className="text-slate-500">Total Interest</dt>
-                  <dd className="font-semibold text-navy-900">{fmt(result.totalInterest)}</dd>
+                <hr className="my-2 border-bone/40" />
+                <div className="flex items-baseline justify-between gap-4 border-b border-dashed border-bone/20 py-3">
+                  <dt className="text-[15px] text-[#A9B3C2]">Total Interest</dt>
+                  <dd className="m-0 text-right font-figure text-base">{fmt(result.totalInterest)}</dd>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <dt className="text-slate-500">Total Cost of Loan</dt>
-                  <dd className="font-semibold text-navy-900">{fmt(result.totalCost)}</dd>
+                <div className="flex items-baseline justify-between gap-4 border-b border-dashed border-bone/20 py-3">
+                  <dt className="text-[15px] text-[#A9B3C2]">Total Cost of Loan</dt>
+                  <dd className="m-0 text-right font-figure text-base">{fmt(result.totalCost)}</dd>
                 </div>
               </dl>
             </div>
             {/* CTA */}
-            <div className="bg-navy-900 rounded-2xl p-5 text-center">
-              <p className="text-white font-bold">Ready to get funded?</p>
-              <p className="text-slate-400 text-sm mt-1">Get your term sheet in 2 hours.</p>
-              <Link href="/apply" className="btn-primary mt-4 text-sm">
+            <div className="mt-auto flex flex-col gap-4 border-t border-bone/20 p-6 sm:flex-row sm:items-center sm:justify-between lg:px-8">
+              <div>
+                <p className="font-headline text-xl font-semibold">Ready to get funded?</p>
+                <p className="mt-1 text-sm text-[#C9D1DD]">Get your term sheet in 2 hours on average.</p>
+              </div>
+              <Link href="/apply" className="btn-primary shrink-0 text-[15px]">
                 Apply Now
-                <ArrowRight size={14} />
+                <ArrowRight size={14} aria-hidden="true" />
               </Link>
             </div>
           </div>
         ) : (
-          <div className="card h-full flex flex-col items-center justify-center text-center gap-3 min-h-[300px] border-dashed">
-            <Calculator size={32} className="text-slate-300" />
-            <p className="text-slate-400 text-sm">
+          <div className="flex h-full min-h-[300px] flex-col justify-center gap-4 bg-deep p-8 text-bone">
+            <p className="font-figure text-[11px] uppercase tracking-[0.14em] text-brass-300">Your estimate</p>
+            <p className="max-w-sm text-[15px] leading-relaxed text-[#C9D1DD]">
               Enter your loan details to calculate monthly payments.
             </p>
           </div>
@@ -517,74 +538,37 @@ export default function CalculatorClient() {
     tabs.find((t) => t.id === activeTab)?.component ?? FixFlipCalculator;
 
   return (
-    <>
-      {/* Hero */}
-      <section className="bg-navy-900 py-16 lg:py-20">
-        <div className="section-container">
-          <p className="section-label">Free Tools</p>
-          <h1 className="text-4xl lg:text-5xl font-bold text-white mt-2 max-w-2xl">
-            Real Estate Loan Calculator
-          </h1>
-          <p className="text-slate-300 text-lg mt-4 max-w-2xl leading-relaxed">
-            Estimate Fix &amp; Flip ROI, check DSCR qualification, or calculate
-            monthly payments — instantly, for free.
-          </p>
+    <section aria-label="Calculators" className="bg-bone text-deep">
+      <div className="section-container py-14 lg:py-20">
+        {/* Tabs */}
+        <div role="group" aria-label="Choose a calculator" className="mb-8 flex flex-col border-b border-rule sm:flex-row">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              aria-pressed={activeTab === tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`-mb-px min-h-[48px] border-b-2 px-1 py-3 text-left text-[15px] font-semibold transition-colors sm:mr-8 ${
+                activeTab === tab.id
+                  ? "border-brass-500 text-deep"
+                  : "border-transparent text-deep-muted hover:text-deep"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
         </div>
-      </section>
 
-      {/* Calculator */}
-      <section className="section-padding bg-slate-50">
-        <div className="section-container">
-          {/* Tabs */}
-          <div className="flex flex-col sm:flex-row gap-2 mb-8 bg-white border border-slate-200 p-1.5 rounded-2xl shadow-sm w-fit">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`px-5 py-2.5 rounded-xl font-semibold text-sm transition-all duration-200 ${
-                  activeTab === tab.id
-                    ? "bg-navy-900 text-white shadow-sm"
-                    : "text-slate-500 hover:text-navy-900"
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Active tab content */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 lg:p-8 shadow-sm">
-            <ActiveComponent />
-          </div>
-
-          <p className="text-xs text-slate-400 mt-4 pl-1">
-            * Calculations are estimates for informational purposes only and do not
-            constitute a loan offer. Actual terms depend on deal specifics and borrower profile.
-          </p>
+        {/* Active tab content */}
+        <div className="border border-rule bg-paper p-6 lg:p-8">
+          <ActiveComponent />
         </div>
-      </section>
 
-      {/* Bottom CTA */}
-      <section className="bg-navy-900 py-14">
-        <div className="section-container text-center">
-          <p className="section-label">Get Funded Fast</p>
-          <h2 className="text-3xl font-bold text-white mt-2">
-            Like what you see? Apply in minutes.
-          </h2>
-          <p className="text-slate-400 mt-3 max-w-xl mx-auto">
-            Our loan officers review every application personally. Get a term sheet within 2 hours.
-          </p>
-          <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/apply" className="btn-primary text-base px-10 py-4">
-              Apply Now — It&apos;s Free
-              <ArrowRight size={18} />
-            </Link>
-            <Link href="/loan-programs" className="btn-secondary text-base px-10 py-4">
-              View All Loan Programs
-            </Link>
-          </div>
-        </div>
-      </section>
-    </>
+        <p className="mt-4 text-xs leading-relaxed text-deep-soft">
+          * Calculations are estimates for informational purposes only and do not
+          constitute a loan offer. Actual terms depend on deal specifics and borrower profile.
+        </p>
+      </div>
+    </section>
   );
 }

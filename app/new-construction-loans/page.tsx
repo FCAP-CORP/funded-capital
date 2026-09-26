@@ -1,15 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  ArrowRight,
-  CheckCircle2,
-  Building2,
-  Hammer,
-  Home,
-  Layers,
-  DollarSign,
-  ChevronDown,
-} from "lucide-react";
+import { COMPLIANCE, STATS } from "@/lib/site/facts";
+import { Eyebrow, Faq, Section, SectionHead } from "@/components/site/ui";
+import { FactorCards, ProgramHero, RateTable, RelatedPrograms, StepList } from "@/components/site/ProgramPage";
 
 export const metadata: Metadata = {
   title: "New Construction Loans — Up to 90% of Cost, Ground-Up Financing | Funded Capital",
@@ -17,61 +10,67 @@ export const metadata: Metadata = {
     "Ground-up construction loans up to 90% of cost for experienced builders, 85% standard, plus a financed interest reserve. Draw schedules, milestone funding. Rates from 8.75%. SFR, townhomes, small multifamily, ADUs.",
 };
 
+/*
+ * Ground-up construction ("Ledger", 25 Sep 2026).
+ *
+ * PERFORMANCE: server component, no client JavaScript, no images. The FAQ
+ * uses native <details>.
+ *
+ * CONVERSION: leverage is the builder's first question and the one most
+ * lenders blur, so the four things that set it (full cost, track record,
+ * the financed reserve, after-repair value) are laid out as cards before the
+ * rate table. Leverage figures follow lib/pricing.ts (guLtfcCap): never a
+ * flat "85% LTC".
+ */
+
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
-const trustStats = [
-  { value: "Up to 90%", label: "Loan-to-Full-Cost" },
-  { value: "From 8.75%", label: "Interest Rate" },
-  { value: "Draw Schedule Included", label: "Disbursement" },
-  { value: "12–24 Month Terms", label: "Loan Term" },
-];
-
-const drawSteps = [
+const factors = [
   {
-    step: "01",
-    title: "Land + Plans",
-    desc: "Secure your lot and finalize architectural plans. Funded Capital underwrites the full project cost upfront.",
+    title: "Full cost",
+    body: "Purchase price, any sunk costs and the remaining construction budget. Most builders finance up to 85% of it.",
   },
   {
-    step: "02",
-    title: "Construction Draws",
-    desc: "Funds are released in draws tied to construction milestones — foundation, framing, mechanical, and completion — verified by inspections.",
+    title: "Track record",
+    body: "Builders with five or more completed ground-up projects reach 90% of full cost.",
   },
   {
-    step: "03",
-    title: "Certificate of Occupancy",
-    desc: "Project is complete, CO is issued. Sell the property or refinance into a long-term DSCR loan. Your loan is fully paid off.",
+    title: "Interest reserve",
+    body: "A further 5% of cost is available to finance the interest reserve, on top of either figure.",
+  },
+  {
+    title: "After-repair value",
+    body: "A second cap. Leverage is also limited by after-repair loan-to-value, and the lower cap governs.",
   },
 ];
 
 const assetTypes = [
-  {
-    icon: Home,
-    title: "Single-Family Residences",
-    desc: "Ground-up SFR builds from entry-level to luxury. We finance spec builds and custom homes alike.",
-  },
-  {
-    icon: Building2,
-    title: "Townhomes",
-    desc: "Attached or semi-attached townhome developments. Single phased or multi-phase projects welcome.",
-  },
-  {
-    icon: Layers,
-    title: "Small Multifamily",
-    desc: "2–4 unit residential construction. Perfect for investors building duplexes, triplexes, and quads.",
-  },
-  {
-    icon: Hammer,
-    title: "Accessory Dwelling Units (ADUs)",
-    desc: "Detached or attached ADU construction on existing lots. A fast-growing asset class we actively support.",
-  },
+  { title: "Single-family residences", body: "Ground-up SFR builds from entry-level to luxury, spec and custom." },
+  { title: "Townhomes", body: "Attached or semi-attached developments, single-phase or multi-phase." },
+  { title: "Small multifamily", body: "2–4 unit residential construction: duplexes, triplexes and quads." },
+  { title: "Accessory dwelling units", body: "Detached or attached ADU construction on existing lots." },
 ];
 
-const rateTableHeaders = ["Project Size", "Max Loan-to-Cost", "Rate", "Draws", "Term"];
+const rateTableHeaders = ["Project size", "Max loan-to-cost", "Rate", "Draws", "Term"];
 const rateTableRows = [
-  ["Up to $1M", "85–90%", "From 8.75%", "Monthly", "12 mo"],
-  ["$1M–$5M", "85–90%", "From 9.50%", "Milestone", "12–24 mo"],
-  ["$5M+", "85–90%", "From 10.25%", "Negotiated", "Up to 24 mo"],
+  ["Up to $1M", "85–90% of cost", "from 8.75%", "Monthly", "12 mo"],
+  ["$1M–$5M", "85–90% of cost", "from 9.50%", "Milestone", "12–24 mo"],
+  ["$5M+", "85–90% of cost", "from 10.25%", "Negotiated", "Up to 24 mo"],
+];
+
+const drawSteps = [
+  {
+    title: "Land and plans",
+    body: "Secure your lot and finalize plans. We underwrite the full project cost up front.",
+  },
+  {
+    title: "Construction draws",
+    body: "Funds are released in draws tied to milestones (foundation, framing, mechanical, completion), each verified by inspection. You pay interest only on what you have drawn.",
+  },
+  {
+    title: "Certificate of occupancy",
+    body: "The project is complete and the CO is issued. Sell, or refinance into a long-term DSCR loan and pay this loan off.",
+  },
 ];
 
 const faqs = [
@@ -89,7 +88,7 @@ const faqs = [
   },
   {
     q: "Can I refinance into a DSCR loan after construction is complete?",
-    a: "Yes. Many of our borrowers build with us and then refinance into our 30-year DSCR rental loan once the property is stabilized. We make this transition as seamless as possible for repeat clients.",
+    a: "Yes. Many of our borrowers build with us and then refinance into our 30-year DSCR rental loan once the property is stabilized. We make this transition as simple as possible for repeat clients.",
   },
   {
     q: "What states do you lend in for new construction?",
@@ -139,7 +138,7 @@ export default function NewConstructionLoansPage() {
             "name": "Can I refinance into a DSCR loan after construction is complete?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Yes. Many of our borrowers build with us and then refinance into our 30-year DSCR rental loan once the property is stabilized. We make this transition as seamless as possible for repeat clients.",
+              "text": "Yes. Many of our borrowers build with us and then refinance into our 30-year DSCR rental loan once the property is stabilized. We make this transition as simple as possible for repeat clients.",
             },
           },
           {
@@ -173,231 +172,113 @@ export default function NewConstructionLoansPage() {
 
   return (
     <>
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(schemaData) }} />
+
+      {/* ── Hero ─────────────────────────────────────────────────────── */}
+      <ProgramHero
+        crumb="Ground-Up"
+        eyebrow={`New construction loans · ${STATS.states} states`}
+        title={<>Ground-up construction loans.</>}
+        tagline="Experience earns more of the cost."
+        lead={
+          <>
+            Build from the lot up with a loan structured around your schedule. We underwrite the full project cost and
+            release draws as milestones are hit, so you carry interest only on what you have drawn.
+          </>
+        }
+        secondary={{ href: "#rates", label: "See the rates" }}
+        terms={[
+          { label: "Rate", value: "from 8.75%" },
+          { label: "Leverage", value: "85% of full cost" },
+          { label: "Experienced", value: "90% with 5+ builds" },
+          { label: "Interest reserve", value: "+5% of cost, financed" },
+          { label: "Second cap", value: "after-repair value" },
+          { label: "Term", value: "12–24 months" },
+        ]}
       />
-      {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <section className="bg-navy-900 py-20 lg:py-28 relative overflow-hidden" aria-labelledby="hero-heading">
-        <div
-          className="absolute top-0 right-0 w-1/2 h-full opacity-10"
-          style={{ background: "radial-gradient(ellipse at top right, #C9A84C 0%, transparent 65%)" }}
-          aria-hidden="true"
+
+      {/* ── What decides the loan ────────────────────────────────────── */}
+      <Section labelledBy="decides-heading">
+        <SectionHead
+          eyebrow="01 — What decides the loan"
+          id="decides-heading"
+          title="Four numbers set your leverage."
+          intro="An experienced builder can reach 95% of cost all-in with the reserve financed. Final terms come from a term sheet, not from this page."
         />
-        <div className="section-container relative z-10">
-          <div className="max-w-3xl">
-            <div className="inline-flex items-center gap-2 bg-navy-800 border border-navy-700 text-gold-500 text-xs font-semibold px-4 py-2 rounded-full mb-6">
-              <span className="w-1.5 h-1.5 rounded-full bg-gold-500 animate-pulse" />
-              New Construction Loans — Nationwide
-            </div>
-            <h1
-              id="hero-heading"
-              className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight"
-            >
-              New Construction Loans —{" "}
-              <span className="text-gold-500">Up to 90% of Cost</span>, Ground-Up Financing
-            </h1>
-            <p className="mt-6 text-lg text-slate-300 leading-relaxed max-w-2xl">
-              Finance your ground-up development with flexible draw schedules and
-              milestone-based funding. We underwrite the full project cost so you
-              can build without capital constraints.
-            </p>
-            <div className="mt-8 flex flex-col sm:flex-row gap-4">
-              <Link href="/apply" className="btn-primary text-base px-8 py-4">
-                Apply Now
-                <ArrowRight size={18} />
-              </Link>
-              <a href="#rates" className="btn-secondary text-base px-8 py-4">
-                View Rates
-                <ChevronDown size={18} />
-              </a>
-            </div>
-            <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2">
-              {["Up to 90% of cost for experienced builders", "Draw schedule included", "660+ credit score", "SFR, townhomes, multifamily"].map((item) => (
-                <span key={item} className="flex items-center gap-1.5 text-slate-400 text-sm">
-                  <CheckCircle2 size={14} className="text-gold-500 shrink-0" />
-                  {item}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
+        <FactorCards items={factors} />
+      </Section>
 
-      {/* ── Trust Bar ─────────────────────────────────────────────────────── */}
-      <section className="bg-navy-800 border-b border-navy-700" aria-label="New construction loan highlights">
-        <div className="section-container py-8">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 text-center">
-            {trustStats.map((stat) => (
-              <div key={stat.label}>
-                <p className="text-gold-500 font-bold text-xl lg:text-2xl">{stat.value}</p>
-                <p className="text-slate-400 text-sm mt-1">{stat.label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── How Construction Draws Work ───────────────────────────────────── */}
-      <section className="section-padding bg-slate-50" aria-labelledby="draws-heading">
-        <div className="section-container">
-          <div className="text-center mb-12">
-            <p className="section-label">The Build Process</p>
-            <h2 id="draws-heading" className="section-heading">
-              How Construction Draws Work
-            </h2>
-            <p className="section-sub max-w-2xl mx-auto">
-              Funds are released in stages as your project hits milestones,
-              so you only pay interest on what you&apos;ve drawn — minimizing carrying costs.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative">
-            {drawSteps.map((step, i) => (
-              <article key={step.step} className="relative card">
-                {i < drawSteps.length - 1 && (
-                  <div
-                    className="hidden md:block absolute top-8 left-full w-8 h-px bg-gold-500/40 z-0"
-                    aria-hidden="true"
-                  />
-                )}
-                <span className="text-gold-500 font-bold text-4xl opacity-30 leading-none block mb-3">
-                  {step.step}
-                </span>
-                <h3 className="font-bold text-navy-900 text-lg">{step.title}</h3>
-                <p className="text-slate-500 text-sm mt-2 leading-relaxed">{step.desc}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Rate Table ────────────────────────────────────────────────────── */}
-      <section id="rates" className="section-padding bg-white scroll-mt-20" aria-labelledby="rates-heading">
-        <div className="section-container">
-          <div className="text-center mb-10">
-            <p className="section-label">Pricing</p>
-            <h2 id="rates-heading" className="section-heading">New Construction Loan Rates</h2>
-            <p className="section-sub max-w-xl mx-auto">
-              Competitive rates for projects of all sizes, from starter builds to large developments.
-            </p>
-          </div>
-          <div className="max-w-3xl mx-auto">
-            <div className="overflow-x-auto rounded-2xl border border-slate-200">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-navy-900">
-                    {rateTableHeaders.map((h) => (
-                      <th
-                        key={h}
-                        className="px-4 py-3 text-left text-white font-semibold text-xs uppercase tracking-wider"
-                      >
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rateTableRows.map((row, i) => (
-                    <tr key={i} className={i % 2 === 0 ? "bg-white" : "bg-slate-50"}>
-                      {row.map((cell, j) => (
-                        <td
-                          key={j}
-                          className={`px-4 py-3.5 text-slate-700 ${j === 2 ? "font-semibold text-gold-600" : ""}`}
-                        >
-                          {cell}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="text-xs text-slate-400 mt-2 pl-1">
-              * Rates and terms are indicative and subject to change. Final terms depend on project specifics and borrower profile.
-            </p>
-            <div className="mt-6 text-center">
-              <Link href="/apply" className="btn-primary">
-                Get Your Rate Today
-                <ArrowRight size={16} />
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ── What We Finance ───────────────────────────────────────────────── */}
-      <section className="section-padding bg-slate-50" aria-labelledby="assets-heading">
-        <div className="section-container">
-          <div className="text-center mb-12">
-            <p className="section-label">Asset Types</p>
-            <h2 id="assets-heading" className="section-heading">
-              What We Finance
-            </h2>
-            <p className="section-sub max-w-2xl mx-auto">
-              From single-family spec builds to ADUs and small multifamily projects,
-              our construction loans cover the full range of residential asset types.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {assetTypes.map((asset) => {
-              const Icon = asset.icon;
-              return (
-                <article key={asset.title} className="card">
-                  <div className="p-2.5 bg-gold-500/10 rounded-xl self-start inline-block mb-3">
-                    <Icon size={20} className="text-gold-600" />
-                  </div>
-                  <h3 className="font-bold text-navy-900">{asset.title}</h3>
-                  <p className="text-slate-500 text-sm mt-2 leading-relaxed">{asset.desc}</p>
-                </article>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* ── FAQ ──────────────────────────────────────────────────────────── */}
-      <section className="section-padding bg-white" aria-labelledby="faq-heading">
-        <div className="section-container">
-          <div className="text-center mb-12">
-            <p className="section-label">FAQ</p>
-            <h2 id="faq-heading" className="section-heading">
-              New Construction Loan Questions Answered
-            </h2>
-          </div>
-          <div className="max-w-3xl mx-auto flex flex-col gap-4">
-            {faqs.map((faq) => (
-              <article key={faq.q} className="card">
-                <h3 className="font-bold text-navy-900">{faq.q}</h3>
-                <p className="text-slate-500 text-sm mt-2 leading-relaxed">{faq.a}</p>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Bottom CTA ───────────────────────────────────────────────────── */}
-      <section className="bg-navy-900 py-20" aria-labelledby="cta-heading">
-        <div className="section-container text-center">
-          <p className="section-label">Get Funded Fast</p>
-          <h2 id="cta-heading" className="text-3xl lg:text-4xl font-bold text-white mt-2">
-            Get Funding for Your Next Build
-          </h2>
-          <p className="text-slate-400 text-lg mt-4 max-w-xl mx-auto">
-            Apply in minutes. Our construction loan specialists will review your project
-            and get back to you within 2 hours.
+      {/* ── Pricing ──────────────────────────────────────────────────── */}
+      <Section tone="linen" id="rates" labelledBy="rates-heading" className="scroll-mt-20">
+        <SectionHead
+          eyebrow="02 — Pricing"
+          id="rates-heading"
+          title="New construction loan rates"
+          intro="From starter builds to larger developments. 85% of full cost as standard, 90% with five or more completed builds."
+        />
+        <RateTable caption="New construction loan pricing by project size" headers={rateTableHeaders} rows={rateTableRows} />
+        <div className="mt-6 flex flex-col gap-6 sm:flex-row sm:items-center sm:justify-between">
+          <p className="max-w-2xl text-sm leading-relaxed text-deep-muted">
+            Rates are ranges, not quotes. Leverage is also capped by after-repair value. Final terms depend on project
+            specifics and borrower profile. {COMPLIANCE}
           </p>
-          <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/apply" className="btn-primary text-base px-10 py-4">
-              Apply Now — It&apos;s Free
-              <ArrowRight size={18} />
-            </Link>
-            <Link href="/contact" className="btn-secondary text-base px-10 py-4">
-              <DollarSign size={16} />
-              Talk to a Loan Officer
-            </Link>
+          <Link href="/apply" className="btn-dark shrink-0 self-start text-base">
+            Get your rate
+          </Link>
+        </div>
+      </Section>
+
+      {/* ── Draws ────────────────────────────────────────────────────── */}
+      <Section labelledBy="draws-heading">
+        <div className="grid gap-12 lg:grid-cols-12 lg:gap-6">
+          <div className="flex flex-col gap-4 lg:col-span-4">
+            <Eyebrow>03 — The build process</Eyebrow>
+            <h2 id="draws-heading" className="text-4xl leading-[1.05] sm:text-5xl">
+              Funds follow the milestones.
+            </h2>
+            <p className="text-lg leading-relaxed text-deep-muted">
+              Draws are released in stages as your project is inspected, which keeps carrying costs down.
+            </p>
+          </div>
+          <div className="lg:col-span-7 lg:col-start-6">
+            <StepList steps={drawSteps} />
           </div>
         </div>
-      </section>
+      </Section>
+
+      {/* ── What we finance ──────────────────────────────────────────── */}
+      <Section tone="paper" labelledBy="assets-heading">
+        <SectionHead eyebrow="04 — What we finance" id="assets-heading" title="Residential builds, lot to CO." />
+        <ul className="grid gap-8 border-t-2 border-deep pt-8 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
+          {assetTypes.map((a) => (
+            <li key={a.title} className="flex flex-col gap-2">
+              <h3 className="text-2xl leading-snug">{a.title}</h3>
+              <p className="text-[15px] leading-relaxed text-deep-muted">{a.body}</p>
+            </li>
+          ))}
+        </ul>
+      </Section>
+
+      {/* ── FAQ ──────────────────────────────────────────────────────── */}
+      <Section labelledBy="faq-heading">
+        <div className="grid gap-10 lg:grid-cols-12 lg:gap-6">
+          <div className="flex flex-col gap-4 lg:col-span-4">
+            <Eyebrow>05 — FAQ</Eyebrow>
+            <h2 id="faq-heading" className="text-4xl leading-[1.05] sm:text-5xl">
+              Questions builders ask first.
+            </h2>
+          </div>
+          <div className="lg:col-span-7 lg:col-start-6">
+            <Faq items={faqs} idPrefix="gu-faq" />
+          </div>
+        </div>
+      </Section>
+
+      {/* ── Related programs ─────────────────────────────────────────── */}
+      <Section tone="linen" labelledBy="related-heading">
+        <SectionHead eyebrow="Other programs" id="related-heading" title="Renovating or holding instead?" />
+        <RelatedPrograms current="ground-up" />
+      </Section>
     </>
   );
 }

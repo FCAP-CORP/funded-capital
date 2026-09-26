@@ -13,22 +13,22 @@ export default function TermsPage() {
   return (
     <>
       {/* Hero */}
-      <section className="bg-navy-900 py-14">
-        <div className="section-container max-w-3xl">
-          <p className="section-label">Legal</p>
-          <h1 className="text-3xl lg:text-4xl font-bold text-white mt-2">
+      <section aria-labelledby="legal-heading" className="bg-deep text-bone on-deep">
+        <div className="section-container flex flex-col gap-5 py-16 lg:py-20">
+          <p className="eyebrow">Legal</p>
+          <h1 id="legal-heading" className="text-5xl leading-[0.98] sm:text-6xl">
             Terms &amp; Conditions
           </h1>
-          <p className="text-slate-400 mt-3 text-sm">
+          <p className="font-figure text-[13px] text-[#A9B3C2]">
             Effective {EFFECTIVE_DATE}
           </p>
         </div>
       </section>
 
       {/* Body */}
-      <section className="section-padding bg-white">
-        <div className="section-container">
-          <article className="max-w-3xl mx-auto flex flex-col gap-8 text-slate-600 leading-relaxed">
+      <section className="bg-bone text-deep">
+        <div className="section-container py-16 lg:py-24">
+          <article className="flex max-w-[760px] flex-col gap-8 text-[17px] leading-relaxed text-deep-muted">
             <p>
               These Terms &amp; Conditions (&ldquo;Terms&rdquo;) govern your access
               to and use of the Funded Capital website and services. By using our
@@ -37,7 +37,7 @@ export default function TermsPage() {
             </p>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 1. No Offer to Lend
               </h2>
               <p>
@@ -50,9 +50,9 @@ export default function TermsPage() {
 
             <section
               id="messaging"
-              className="rounded-2xl border border-slate-200 bg-slate-50 p-6"
+              className="rounded-[2px] border border-rule bg-paper p-6"
             >
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 2. Text Messaging &amp; Call Program Terms
               </h2>
               <p>
@@ -76,13 +76,13 @@ export default function TermsPage() {
                 </li>
                 <li>
                   Reply <strong>HELP</strong> for help, or contact us at{" "}
-                  <a href="tel:+13058575620" className="text-gold-600 underline hover:text-gold-700">
+                  <a href="tel:+13058575620" className="text-link">
                     +1 (305) 857-5620
                   </a>{" "}
                   or{" "}
                   <a
                     href="mailto:processing@fundedcapital.com"
-                    className="text-gold-600 underline hover:text-gold-700"
+                    className="text-link"
                   >
                     processing@fundedcapital.com
                   </a>
@@ -99,7 +99,7 @@ export default function TermsPage() {
               <p className="mt-4">
                 For details on how we handle the information collected through this
                 program, see our{" "}
-                <Link href="/privacy" className="text-gold-600 underline hover:text-gold-700">
+                <Link href="/privacy" className="text-link">
                   Privacy Policy
                 </Link>
                 .
@@ -107,7 +107,7 @@ export default function TermsPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 3. Eligibility &amp; Accurate Information
               </h2>
               <p>
@@ -119,7 +119,7 @@ export default function TermsPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 4. Intellectual Property
               </h2>
               <p>
@@ -132,7 +132,7 @@ export default function TermsPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 5. Disclaimers &amp; Limitation of Liability
               </h2>
               <p>
@@ -145,7 +145,7 @@ export default function TermsPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 6. Governing Law
               </h2>
               <p>
@@ -155,7 +155,7 @@ export default function TermsPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 7. Changes to These Terms
               </h2>
               <p>
@@ -167,7 +167,7 @@ export default function TermsPage() {
             </section>
 
             <section>
-              <h2 className="text-xl font-bold text-navy-900 mb-3">
+              <h2 className="mb-3 text-2xl text-deep sm:text-[28px]">
                 8. Contact Us
               </h2>
               <p>
@@ -176,14 +176,14 @@ export default function TermsPage() {
                 100 N Biscayne Blvd, Suite 1210, Miami, FL 33132
                 <br />
                 Phone:{" "}
-                <a href="tel:+13058575620" className="text-gold-600 underline hover:text-gold-700">
+                <a href="tel:+13058575620" className="text-link">
                   +1 (305) 857-5620
                 </a>
                 <br />
                 Email:{" "}
                 <a
                   href="mailto:processing@fundedcapital.com"
-                  className="text-gold-600 underline hover:text-gold-700"
+                  className="text-link"
                 >
                   processing@fundedcapital.com
                 </a>
