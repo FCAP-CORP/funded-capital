@@ -38,7 +38,8 @@ export function uuidArray(ids: string[]): SQL {
 }
 
 /**
- * Every person on at least one application, or only `ids` when given.
+ * Every contact — with a deal or without (the old spreadsheet's contacts are
+ * the "contacts" programme, 26 Sep 2026) — or only `ids` when given.
  * `"contacts"."id"` is written out by hand: drizzle renders a select-list
  * column unqualified, and a bare "id" inside a correlated subquery binds to
  * the INNER table (the 24 Sep 2026 "0 deals" bug, lib/db/contactSubqueries.ts).
@@ -47,7 +48,7 @@ export function nurtureContactsSql(ids?: string[]): SQL {
   const only = ids ? sql`AND c.id = ANY(${uuidArray(ids)})` : sql``;
   return sql`
     SELECT
-      c.id, c.first_name, c.last_name, c.email, c.email_subscribed, c.lead_source, c.state,
+      c.id, c.first_name, c.last_name, c.email, c.email_subscribed, c.lead_source, c.state, c.created_at, c.tags,
       (SELECT array_agg(DISTINCT p.role::text) FROM participants p WHERE p.contact_id = c.id) AS roles,
       (SELECT max(ac.occurred_at) FROM activities ac
         WHERE ac.contact_id = c.id AND ac.kind IN ${CONTACT_KINDS}) AS last_touch_at,
@@ -76,7 +77,7 @@ export function nurtureContactsSql(ids?: string[]): SQL {
         FROM applications a
         WHERE a.id IN (SELECT p.application_id FROM participants p WHERE p.contact_id = c.id)) AS apps
     FROM contacts c
-    WHERE EXISTS (SELECT 1 FROM participants p WHERE p.contact_id = c.id)
+    WHERE true
     ${only}
   `;
 }
@@ -117,6 +118,8 @@ export function toNurtureContact(r: Row): NurtureContact {
     priorPrograms: arr(r.prior_programs),
     activeProgram: str(r.active_program),
     staffStopped: r.staff_stopped === true || r.staff_stopped === "t",
+    addedAt: iso(r.created_at),
+    tags: arr(r.tags),
   };
 }
 

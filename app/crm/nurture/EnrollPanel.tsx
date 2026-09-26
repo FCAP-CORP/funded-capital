@@ -1,46 +1,69 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { Send } from "lucide-react";
+import { Search, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/field";
+import { Checkbox, Input } from "@/components/ui/field";
 import { Dialog } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
-import type { Candidate, ProgramKey } from "@/lib/nurture/nurture";
+import { ENROLL_MAX, type Candidate, type ProgramKey } from "@/lib/nurture/nurture";
 import { enrollAction } from "./actions";
 
 /**
- * Who is ready, with a tick box each (all ticked to start), and one button.
+ * Who is ready, with a tick box each, a search box, and one button.
+ *
+ * `preselect` decides whether the list starts ticked. It is false for the old
+ * spreadsheet contacts: Luis described that pool as a mix, so every person
+ * there is a deliberate tick rather than an untick.
  *
  * The confirmation says exactly what will happen, because this is the one
  * click on the page that leads to emails. The server re-checks every person
  * before enrolling, so a stale list can never enrol someone who just wrote in.
  */
 export function EnrollPanel({
-  program, programName, people, total,
+  program, programName, people, total, preselect,
 }: {
   program: ProgramKey;
   programName: string;
   people: Candidate[];
   total: number;
+  preselect: boolean;
 }) {
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(people.map((p) => p.id)));
+  const initial = () => new Set(preselect ? people.map((p) => p.id) : []);
+  const [picked, setPicked] = useState<Set<string>>(initial);
+  const [query, setQuery] = useState("");
   const [asking, setAsking] = useState(false);
   const [pending, start] = useTransition();
   const all = useRef<HTMLInputElement>(null);
 
-  // A new list (another programme, or after enrolling) starts fully ticked again.
+  // A new list (another programme, or after enrolling) starts over.
   const key = useMemo(() => people.map((p) => p.id).join(","), [people]);
-  useEffect(() => setPicked(new Set(people.map((p) => p.id))), [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setPicked(initial()); setQuery(""); }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return people;
+    return people.filter((p) => `${p.name} ${p.email} ${p.source} ${p.loan} ${p.note}`.toLowerCase().includes(q));
+  }, [people, query]);
+
+  const shownPicked = shown.filter((p) => picked.has(p.id)).length;
   useEffect(() => {
-    if (all.current) all.current.indeterminate = picked.size > 0 && picked.size < people.length;
-  }, [picked, people.length]);
+    if (all.current) all.current.indeterminate = shownPicked > 0 && shownPicked < shown.length;
+  }, [shownPicked, shown.length]);
 
   const toggle = (id: string) =>
     setPicked((s) => {
       const n = new Set(s);
       n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+
+  /** The header box ticks or unticks everyone CURRENTLY SHOWN — so a search narrows what it touches. */
+  const toggleShown = () =>
+    setPicked((s) => {
+      const n = new Set(s);
+      const on = shownPicked < shown.length;
+      for (const p of shown) on ? n.add(p.id) : n.delete(p.id);
       return n;
     });
 
@@ -53,13 +76,29 @@ export function EnrollPanel({
     });
 
   const n = picked.size;
+  const tooMany = n > ENROLL_MAX;
   return (
     <div>
-      <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-[13px] text-slate-600">
-          {n} of {people.length} selected{total > people.length ? ` — showing the ${people.length} quiet the longest of ${total}` : ""}. Longest quiet first.
-        </p>
-        <Button variant="accent" disabled={n === 0 || pending} onClick={() => setAsking(true)}>
+      <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+          <label className="relative block sm:w-72">
+            <span className="sr-only">Search people</span>
+            <Search size={15} aria-hidden className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name, email, tag…"
+              className="pl-9"
+            />
+          </label>
+          <p className="text-[13px] text-slate-600" aria-live="polite">
+            {n} of {people.length} ticked
+            {total > people.length ? ` (showing ${people.length} of ${total}, longest quiet first)` : ""}
+            {query ? ` · ${shown.length} match` : ""}
+            {tooMany ? ` · at most ${ENROLL_MAX} per click` : ""}
+          </p>
+        </div>
+        <Button variant="accent" disabled={n === 0 || tooMany || pending} onClick={() => setAsking(true)}>
           <Send size={15} aria-hidden /> Enrol {n} in Klaviyo
         </Button>
       </div>
@@ -70,9 +109,9 @@ export function EnrollPanel({
               <th scope="col" className="w-10 px-5 py-2.5">
                 <Checkbox
                   ref={all}
-                  checked={n === people.length}
-                  onChange={() => setPicked(n === people.length ? new Set() : new Set(people.map((p) => p.id)))}
-                  aria-label={n === people.length ? "Untick everyone" : "Tick everyone"}
+                  checked={shown.length > 0 && shownPicked === shown.length}
+                  onChange={toggleShown}
+                  aria-label={shownPicked === shown.length ? "Untick everyone shown" : "Tick everyone shown"}
                 />
               </th>
               <th scope="col" className="px-3 py-2.5">Person</th>
@@ -82,7 +121,7 @@ export function EnrollPanel({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {people.map((p) => (
+            {shown.map((p) => (
               <tr key={p.id} className={picked.has(p.id) ? "" : "bg-slate-50/60 text-slate-500"}>
                 <td className="px-5 py-2.5">
                   <Checkbox checked={picked.has(p.id)} onChange={() => toggle(p.id)} aria-label={`Include ${p.name}`} />
@@ -90,6 +129,7 @@ export function EnrollPanel({
                 <td className="px-3 py-2.5">
                   <span className="font-semibold text-navy-900">{p.name}</span>
                   <span className="block break-all text-[12px] text-slate-500">{p.email}</span>
+                  {p.note && <span className="block text-[12px] text-slate-500">{p.note}</span>}
                   <span className="block text-[12px] text-slate-500 sm:hidden">{p.source} · {p.loan}</span>
                 </td>
                 <td className="hidden px-3 py-2.5 text-slate-700 sm:table-cell">{p.source}</td>
@@ -99,6 +139,9 @@ export function EnrollPanel({
                 </td>
               </tr>
             ))}
+            {shown.length === 0 && (
+              <tr><td colSpan={5} className="px-5 py-8 text-center text-slate-500">Nobody matches “{query}”.</td></tr>
+            )}
           </tbody>
         </table>
       </div>

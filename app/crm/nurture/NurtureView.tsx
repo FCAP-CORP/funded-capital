@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import {
-  ENROLL_MAX, EXCLUSION_LABEL, MAX_SYNC_ATTEMPTS, PROGRAMS, STOP_LABEL, SYNC_LABEL, WIN_REASONS,
+  EXCLUSION_LABEL, MAX_SYNC_ATTEMPTS, PROGRAMS, STOP_LABEL, SYNC_LABEL, WIN_REASONS,
   type Exclusion, type ProgramKey, type StopReason, type SyncState,
 } from "@/lib/nurture/nurture";
 import type { EnrolledPerson, NurturePageData } from "@/lib/nurture/nurture.server";
@@ -15,6 +15,8 @@ import { RowAction } from "./RowAction";
 export type NurtureTab = "ready" | "enrolled" | "stopped";
 
 const HERE = "/crm/nurture";
+/** How many ready people the list shows. Enrolling is still capped at ENROLL_MAX per click. */
+const SHOW_MAX = 1000;
 const href = (program: ProgramKey, view?: NurtureTab) =>
   `${HERE}?program=${program}${view && view !== "ready" ? `&view=${view}` : ""}`;
 
@@ -42,7 +44,7 @@ export function NurtureView({ data, program, tab }: { data: NurturePageData; pro
       )}
 
       {/* The four programmes */}
-      <nav aria-label="Programmes" className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <nav aria-label="Programmes" className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
         {data.byProgram.map((s) => {
           const p = PROGRAMS.find((x) => x.key === s.key)!;
           const on = s.key === program;
@@ -120,8 +122,9 @@ export function NurtureView({ data, program, tab }: { data: NurturePageData; pro
               <EnrollPanel
                 program={program}
                 programName={current.name}
-                people={candidates.slice(0, ENROLL_MAX)}
+                people={candidates.slice(0, SHOW_MAX)}
                 total={candidates.length}
+                preselect={current.preselect}
               />
             )
           )}

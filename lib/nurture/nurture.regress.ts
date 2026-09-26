@@ -52,6 +52,8 @@ const person = (o: Partial<NurtureContact> = {}): NurtureContact => ({
   priorPrograms: [],
   activeProgram: null,
   staffStopped: false,
+  addedAt: ago(200),
+  tags: ["investor"],
   ...o,
 });
 const prog = (c: NurtureContact) => classify(c, NOW);
@@ -59,9 +61,11 @@ const is = (c: NurtureContact, key: string) => prog(c).program === key;
 const why = (c: NurtureContact) => prog(c).exclusion;
 
 console.log("\n§0 programmes");
-check("four programmes, unique keys", PROGRAMS.length === 4 && new Set(PROGRAM_KEYS).size === 4, PROGRAM_KEYS.join(","));
+check("five programmes, unique keys", PROGRAMS.length === 5 && new Set(PROGRAM_KEYS).size === 5, PROGRAM_KEYS.join(","));
 check("every programme has a real Klaviyo list id", PROGRAMS.every((p) => /^[A-Za-z0-9]{6}$/.test(p.klaviyoListId)), PROGRAMS.map((p) => p.klaviyoListId).join(","));
-check("list ids are unique", new Set(PROGRAMS.map((p) => p.klaviyoListId)).size === 4, "");
+check("list ids are unique", new Set(PROGRAMS.map((p) => p.klaviyoListId)).size === 5, "");
+check("only the old-contacts programme starts unticked (Luis reviews each one)",
+  PROGRAMS.filter((p) => !p.preselect).map((p) => p.key).join(",") === "contacts", "");
 check("no programme uses a list Luis manages by hand (newsletter, BP Nurture, Warm Leads)",
   !PROGRAMS.some((p) => ["UTDZkv", "VA5fgk", "Yxdkhg", "RvAjPC", "TYcq9Z", "TwrSea"].includes(p.klaviyoListId)), "");
 check("programByKey refuses junk", programByKey("quiet")?.key === "quiet" && programByKey("x") === null && programByKey(undefined) === null, "");
@@ -76,7 +80,7 @@ check("junk email → excluded", why(person({ email: "not an email" })) === "no_
 check("our own address → excluded", why(person({ email: "luis@FundedCapital.com" })) === "internal", "");
 check("broker-only → excluded", why(person({ roles: ["broker"] })) === "broker", "");
 check("broker who also borrows → not excluded as broker", is(person({ roles: ["broker", "borrower"] }), "quiet"), "");
-check("no application → excluded", why(person({ apps: [] })) === "no_deal", "");
+check("no application, quiet, added long ago → Investor contacts", is(person({ apps: [] }), "contacts"), String(prog(person({ apps: [] })).program));
 check("term sheet out → in progress", why(person({ apps: [app({ stage: "term_sheet_issued" })] })) === "in_progress", "");
 check("underwriting → in progress", why(person({ apps: [app({ stage: "underwriting" })] })) === "in_progress", "");
 check("one deal in progress blocks even with an old lead beside it",
@@ -125,6 +129,24 @@ const placed = PROGRAM_KEYS.reduce((n, k) => n + sum.candidates[k].length, 0);
 check("summary: each person in at most one list", placed === 4, `${placed} placed of 5`);
 check("summary: the unsubscribed one is counted as excluded", sum.excluded.unsubscribed === 1, JSON.stringify(sum.excluded));
 check("summary: ready counts match the lists", sum.byProgram.every((p) => p.ready === sum.candidates[p.key].length), "");
+
+console.log("\n§2b people with no deal (the old spreadsheet)");
+const bare = (o: Partial<NurtureContact> = {}) => person({ apps: [], roles: [], ...o });
+check("no deal → only ever the contacts programme", is(bare(), "contacts"), "");
+check("no deal, added 10 days ago → recent", why(bare({ addedAt: ago(10) })) === "recent_contact", "");
+check("no deal, no added date → recent (safe side)", why(bare({ addedAt: null })) === "recent_contact", "");
+check("no deal, in touch 5 days ago → recent", why(bare({ lastTouchAt: ago(5) })) === "recent_contact", "");
+check("no deal, never in touch, added long ago → contacts", is(bare({ lastTouchAt: null }), "contacts"), "");
+check("no deal, contact marked as a broker → excluded", why(bare({ leadSource: "broker" })) === "broker", "");
+check("no deal, unsubscribed → excluded", why(bare({ emailSubscribed: false })) === "unsubscribed", "");
+check("no deal, our own address → excluded", why(bare({ email: "x@fundedcapital.com" })) === "internal", "");
+check("no deal, went through it before → excluded", why(bare({ priorPrograms: ["contacts"] })) === "already_done", "");
+check("no deal, Luis stopped them before → excluded", why(bare({ staffStopped: true })) === "stopped_before", "");
+check("no deal, already in a programme → excluded", why(bare({ activeProgram: "contacts" })) === "enrolled", "");
+check("someone WITH a deal never lands in contacts", PROGRAM_KEYS.filter((k) => k !== "contacts").every(() => prog(person()).program !== "contacts"), "");
+const note = candidateOf(bare({ addedAt: "2026-04-10T15:00:00Z", tags: ["investor", " flipper ", "", "miami", "extra"] }), NOW).note;
+check("review note shows when they were added and up to 3 tags", note === "Added Apr 2026 · investor, flipper, miami", note);
+check("people with a deal get no note", candidateOf(person(), NOW).note === "", "");
 
 console.log("\n§3 auto-stop");
 const sig = (o: Partial<StopSignals> = {}): StopSignals => ({

@@ -36,7 +36,7 @@ import { PRODUCT_LABEL, SOURCE_LABEL } from "@/lib/crm/view";
 
 /* ----------------------------------------------------------- programmes */
 
-export type ProgramKey = "past_borrower" | "bp_no_term_sheet" | "quiet" | "lost";
+export type ProgramKey = "past_borrower" | "bp_no_term_sheet" | "quiet" | "lost" | "contacts";
 
 export type Program = {
   key: ProgramKey;
@@ -49,6 +49,11 @@ export type Program = {
   /** The Klaviyo list Lending OS adds people to and removes them from. Not a secret. */
   klaviyoListId: string;
   klaviyoListName: string;
+  /**
+   * Whether the Ready list starts ticked. False for the old spreadsheet
+   * contacts: Luis said that pool is a mix, so every person is a deliberate tick.
+   */
+  preselect: boolean;
 };
 
 export const QUIET_DAYS = 30;
@@ -64,6 +69,9 @@ export const PAST_BORROWER_MIN_DAYS = 180;
  *                         its own line.
  *   quiet               — an open enquiry nobody is working.
  *   lost                — only when nothing else fits.
+ *   contacts            — people with NO deal at all: the ~600 from the old
+ *                         spreadsheet (added 26 Sep 2026). Luis called that
+ *                         pool "a mix", so nobody here is pre-ticked.
  *
  * The list ids were created in Funded Capital's Klaviyo account on 26 Sep 2026
  * for Lending OS alone. Nobody should add people to them by hand: Lending OS
@@ -77,6 +85,7 @@ export const PROGRAMS: readonly Program[] = [
     what: "A check-in about their next project, then a note every month or so.",
     klaviyoListId: "WwZmFn",
     klaviyoListName: "Lending OS · Past borrowers",
+    preselect: true,
   },
   {
     key: "bp_no_term_sheet",
@@ -85,6 +94,7 @@ export const PROGRAMS: readonly Program[] = [
     what: "A short series on how our loans work, then a note every month or so.",
     klaviyoListId: "VYBzq9",
     klaviyoListName: "Lending OS · BiggerPockets, no term sheet",
+    preselect: true,
   },
   {
     key: "quiet",
@@ -93,6 +103,7 @@ export const PROGRAMS: readonly Program[] = [
     what: "A short series picking the conversation back up, then a note every month or so.",
     klaviyoListId: "Yq4vxf",
     klaviyoListName: "Lending OS · Quiet leads",
+    preselect: true,
   },
   {
     key: "lost",
@@ -101,6 +112,16 @@ export const PROGRAMS: readonly Program[] = [
     what: "A light touch — what's changed since, and an open door — then a note every few months.",
     klaviyoListId: "SW9AEq",
     klaviyoListName: "Lending OS · Lost deals",
+    preselect: true,
+  },
+  {
+    key: "contacts",
+    name: "Investor contacts",
+    who: `In your contacts but never sent us a deal; nobody in touch for ${QUIET_DAYS}+ days.`,
+    what: "A short introduction to how we lend, then a note every month or so.",
+    klaviyoListId: "S2b2zL",
+    klaviyoListName: "Lending OS · Investor contacts",
+    preselect: false,
   },
 ];
 
@@ -174,6 +195,9 @@ export type NurtureContact = {
   activeProgram: string | null;
   /** Luis stopped a nurture for this person before. Never offered again automatically. */
   staffStopped: boolean;
+  /** When the contact was first recorded (the old sheet's "Date Added" for legacy rows). */
+  addedAt: string | null;
+  tags: string[];
 };
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -219,7 +243,7 @@ export const EXCLUSION_LABEL: Record<Exclusion, string> = {
   unsubscribed: "Unsubscribed",
   internal: "Funded Capital address",
   broker: "Broker, not a borrower",
-  no_deal: "No enquiry on file",
+  no_deal: "No enquiry on file", // no longer produced since the contacts programme (26 Sep 2026); kept so old counts still label
   not_a_fit: "Not a fit (not our product, duplicate or spam)",
   in_progress: "Deal in progress",
   recent_borrower: `Funded in the last ${PAST_BORROWER_MIN_DAYS / 30} months`,
@@ -251,7 +275,7 @@ export function classify(c: NurtureContact, now: Date): Classification {
   if (c.emailSubscribed === false) return out("unsubscribed");
   if (INTERNAL_DOMAINS.some((d) => email.endsWith(`@${d}`))) return out("internal");
   if (c.roles.length > 0 && c.roles.every((r) => r === "broker")) return out("broker");
-  if (c.apps.length === 0) return out("no_deal");
+  if (c.apps.length === 0) return classifyNoDeal(c, now);
 
   // Deals that say nothing about this person as a future borrower.
   const apps = c.apps.filter(
@@ -279,6 +303,23 @@ export function classify(c: NurtureContact, now: Date): Classification {
   if (!pick.program) return pick;
   if (c.priorPrograms.includes(pick.program)) return out("already_done");
   return pick;
+}
+
+/**
+ * Someone with no deal on file — mostly the old spreadsheet's contacts. They
+ * get the same quiet rule (nobody in touch either way for QUIET_DAYS, and not
+ * added in that window), and only ever the "contacts" programme. A contact
+ * marked as a broker is left out, as a broker participant would be.
+ */
+function classifyNoDeal(c: NurtureContact, now: Date): Classification {
+  if (c.leadSource === "broker") return out("broker");
+  const touch = daysSince(c.lastTouchAt, now);
+  if (touch !== null && touch < QUIET_DAYS) return out("recent_contact");
+  if ((daysSince(c.addedAt, now) ?? 0) < QUIET_DAYS) return out("recent_contact");
+  if (c.activeProgram) return out("enrolled");
+  if (c.staffStopped) return out("stopped_before");
+  if (c.priorPrograms.includes("contacts")) return out("already_done");
+  return into("contacts");
 }
 
 function pickProgram(c: NurtureContact, apps: NurtureApp[], now: Date): Classification {
@@ -513,6 +554,8 @@ export type Candidate = {
   loan: string;
   /** Days since anyone was in touch, or null for never. */
   quietDays: number | null;
+  /** For people with no deal: when they were added and their tags, to judge who they are. */
+  note: string;
 };
 
 export function candidateOf(c: NurtureContact, now: Date): Candidate {
@@ -525,7 +568,16 @@ export function candidateOf(c: NurtureContact, now: Date): Candidate {
     source: SOURCE_LABEL[c.leadSource] ?? SOURCE_LABEL[newest?.leadSource ?? ""] ?? "—",
     loan: PRODUCT_LABEL[newest?.product ?? ""] ?? "—",
     quietDays: daysSince(c.lastTouchAt, now),
+    note: c.apps.length > 0 ? "" : contactNote(c),
   };
+}
+
+/** "Added Apr 2026 · investor, flipper" — enough to judge whether this is someone Luis knows. */
+function contactNote(c: NurtureContact): string {
+  const added = ms(c.addedAt);
+  const when = added === null ? "" : `Added ${new Date(added).toLocaleDateString("en-US", { timeZone: "America/New_York", month: "short", year: "numeric" })}`;
+  const tags = c.tags.map((t) => t.trim()).filter(Boolean).slice(0, 3).join(", ");
+  return [when, tags].filter(Boolean).join(" · ");
 }
 
 export type ProgramSummary = {

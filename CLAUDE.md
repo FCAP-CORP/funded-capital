@@ -1009,9 +1009,9 @@ a source comparison table, loan types requested and lost reasons.
 ### Lead nurturing through Klaviyo (`/crm/nurture`, 26 Sep 2026)
 
 Klaviyo is the system of record for marketing email (ActiveCampaign is no longer used). **Lending OS
-decides WHO; Klaviyo decides WHAT and WHEN.** Four programmes, each a Klaviyo list created for Lending
+decides WHO; Klaviyo decides WHAT and WHEN.** Five programmes, each a Klaviyo list created for Lending
 OS alone — Quiet leads `Yq4vxf`, BiggerPockets no term sheet `VYBzq9`, Lost deals `SW9AEq`, Past
-borrowers `WwZmFn`. A Klaviyo flow per list ("Added to list" trigger, flow filter "is in list <that
+borrowers `WwZmFn`, Investor contacts `S2b2zL`. A Klaviyo flow per list ("Added to list" trigger, flow filter "is in list <that
 list>") sends the emails. Nobody should add people to those lists by hand.
 
 - **Rules are pure and tested** (`lib/nurture/nurture.ts`, `nurture.regress.ts`, 95 tests,
@@ -1019,6 +1019,13 @@ list>") sends the emails. Nobody should add people to those lists by hand.
   either way in the last 30 days (Luis's threshold); nobody with a deal from term sheet to closing;
   no brokers, no `@fundedcapital.com`, no not-our-product / duplicate / spam; unsubscribed never.
   Priority: past borrower → BiggerPockets → quiet → lost.
+- **Investor contacts (added 26 Sep 2026, migration 0015)** is the ~600 contacts with NO deal — the
+  old spreadsheet's aged-prospect pool, which the first version silently left out (the live page
+  showed 3 quiet leads). Same 30-day quiet rule, measured from the contact's "Date Added"; brokers
+  (by contact lead source) excluded. Luis called the pool "a mix", so this programme's Ready list
+  starts UNTICKED (`Program.preselect = false`) and has a search box and a note line (date added +
+  tags) for reviewing. Its first email (`QNvVvW`) does not claim they asked about a loan, and the
+  shared emails' footers now say "you're in Funded Capital's contacts".
 - **Luis reviews, then enrols** (`app/crm/nurture/actions.ts`). The server re-reads and re-classifies
   every chosen person before inserting, so a stale page cannot enrol someone who just wrote in.
   `ON CONFLICT DO NOTHING` over two unique indexes (contact + programme; one active per contact)
@@ -1037,6 +1044,12 @@ list>") sends the emails. Nobody should add people to those lists by hand.
   (pending_add → added, pending_remove → removed), a 5-minute claim lease, backoff to 6 h, and gives
   up after 8 tries with a "Try again" button. A 409 from Klaviyo's profile import uses the existing
   profile Klaviyo names. `after()` drains right after a click; the cron is the backstop.
+- **Widening a CHECK needs a drop + re-add**, which `fc-migrate-prod.bat` used to refuse along
+  with every other DROP. `scripts/migration-safety.mjs` (tested by `migration-safety.regress.ts`,
+  mutation-tested) now allows exactly one form: `ALTER TABLE "t" DROP CONSTRAINT IF EXISTS
+  "x_check"` when the SAME file also runs `ADD CONSTRAINT "x_check" CHECK (…)` on the same table.
+  Every other DROP is still refused. Because every migration re-runs on every migrate, 0015 reports
+  "2 applied" each time — harmless.
 - **Arrival for legacy rows** is the contact's sheet date, not the import day, or every legacy lead
   would look "recent" until mid-October.
 - **Verified on Postgres 16** with Klaviyo faked at `fetch` (44 checks: who qualifies, concurrency,
@@ -1047,7 +1060,7 @@ list>") sends the emails. Nobody should add people to those lists by hand.
   it the page works, enrolments queue, and nothing is sent to Klaviyo.
 - **Email templates** in Klaviyo (plain, from Luis, no rates, compliance line where a speed or
   leverage claim is made): Quiet 1 `W6rzMJ`, BiggerPockets 1 `S2pwJL`, Lost 1 `TDyTyt`, Past 1
-  `X9Mqe3`, Past 2 `Ws97g2`, shared 2 `WJ3SsH` / 3 `RNwKR7` / 4 `XDyWip`. Plain-text unsubscribe tag
+  `X9Mqe3`, Past 2 `Ws97g2`, Investor contacts 1 `QNvVvW`, shared 2 `WJ3SsH` / 3 `RNwKR7` / 4 `XDyWip`. Plain-text unsubscribe tag
   is `{% unsubscribe_link %}` (`unsubscribe_url` fails to render).
 - **Not built yet:** Gmail follow-up sequences for warm leads (track A), automatic daily enrolment,
   mirroring unsubscribes for people who were never enrolled, nurture results on /crm/reports.

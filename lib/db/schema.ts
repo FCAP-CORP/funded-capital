@@ -975,6 +975,7 @@ export const outboundEmails = pgTable("outbound_emails", {
 
 /**
  * Lead nurturing: who Lending OS has put into which Klaviyo programme.
+ * Migration 0014; 0015 added the fifth programme, "contacts", to the check.
  * Migration 0014. Rules in lib/nurture/nurture.ts.
  *
  * One row per person per programme, EVER (unique contact + program), so the
@@ -1016,7 +1017,7 @@ export const nurtureEnrollments = pgTable("nurture_enrollments", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
-  programCheck: check("nurture_enrollments_program_check", sql`${t.program} IN ('past_borrower', 'bp_no_term_sheet', 'quiet', 'lost')`),
+  programCheck: check("nurture_enrollments_program_check", sql`${t.program} IN ('past_borrower', 'bp_no_term_sheet', 'quiet', 'lost', 'contacts')`),
   statusCheck: check("nurture_enrollments_status_check", sql`${t.status} IN ('active', 'stopped')`),
   stopReasonCheck: check("nurture_enrollments_stop_reason_check", sql`${t.stopReason} IS NULL OR ${t.stopReason} IN ('replied', 'contacted', 'new_deal', 'deal_moved', 'unsubscribed', 'bounced', 'no_email', 'removed_in_klaviyo', 'stopped_by_staff')`),
   stoppedConsistent: check("nurture_enrollments_stopped_consistent_check", sql`(${t.status} = 'active') = (${t.stoppedAt} IS NULL)`),
