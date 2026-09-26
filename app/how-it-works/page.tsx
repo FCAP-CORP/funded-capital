@@ -12,9 +12,9 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "How Our Private Loan Process Works — From Application to Funded in 5 Days",
+  title: "How Our Private Loan Process Works — From Application to Funded in 5–10 Business Days",
   description:
-    "Funded Capital's 5-step loan process: apply in 5 minutes, get a term sheet in 2 hours, close in as little as 5 days. No income verification for most programs.",
+    "Funded Capital's 5-step loan process: apply in 5 minutes, get a term sheet in 2 hours, close in 5–10 business days. No income verification for most programs.",
 };
 
 const steps = [
@@ -93,7 +93,7 @@ const faqs = [
   },
   {
     q: "Is there a minimum credit score?",
-    a: "We prefer 680+, but we evaluate each deal holistically. Strong deal economics can offset a lower score.",
+    a: "Most programs start at 660+, and the best pricing tiers need 680+. Scores from 640 to 659 are reviewed case by case.",
   },
   {
     q: "Do you charge application fees?",
@@ -126,7 +126,7 @@ export default function HowItWorksPage() {
           </p>
           <div className="flex items-center gap-3 mt-6 text-slate-400 text-sm">
             <Clock size={16} className="text-gold-500" />
-            Term sheet in <span className="text-white font-semibold">2 hours</span> &nbsp;·&nbsp; Average closing time: <span className="text-white font-semibold">5–7 business days</span>
+            Term sheet in <span className="text-white font-semibold">2 hours</span> &nbsp;·&nbsp; Average closing time: <span className="text-white font-semibold">5–10 business days</span>
           </div>
         </div>
       </section>

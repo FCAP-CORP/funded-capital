@@ -230,7 +230,7 @@ export default async function BlogPostPage({ params }: Props) {
                   Ready to apply?
                 </h3>
                 <p className="text-slate-400 text-sm mt-2 leading-relaxed">
-                  Term sheet in 2 hours. Close in as little as 5 days. No income verification on most programs.
+                  Term sheet in 2 hours. Close in 5–10 business days. No income verification on most programs.
                 </p>
                 <Link href="/apply" className="btn-primary mt-6 w-full justify-center">
                   Apply Now — It's Free
@@ -249,8 +249,8 @@ export default async function BlogPostPage({ params }: Props) {
                 {[
                   { value: "$500M+", label: "Loans Funded" },
                   { value: "2 hrs", label: "Time to Term Sheet" },
-                  { value: "5 days", label: "Fastest Close" },
-                  { value: "44 States", label: "Nationwide" },
+                  { value: "5–10", label: "Business Days to Close" },
+                  { value: "45 States", label: "Nationwide" },
                 ].map((stat) => (
                   <div key={stat.label} className="flex items-center justify-between py-2 border-b border-slate-200 last:border-0">
                     <span className="text-slate-500 text-sm">{stat.label}</span>

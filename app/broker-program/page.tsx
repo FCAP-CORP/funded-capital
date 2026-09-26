@@ -25,7 +25,7 @@ const benefits = [
   {
     icon: Zap,
     title: "Fast Turn Times",
-    desc: "Your clients get 24–48 hour approvals and closings in as little as 5 days. Fast closings mean happy clients — and repeat referrals.",
+    desc: "Your clients get 24–48 hour approvals and closings in 5–10 business days. Fast closings mean happy clients — and repeat referrals.",
   },
   {
     icon: Headphones,

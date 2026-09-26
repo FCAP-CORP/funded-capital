@@ -29,8 +29,8 @@ const programs = [
       "Rates from 8.75% interest-only",
       "Terms: 12 or 24 months",
       "No income verification required",
-      "Credit score: 680+ preferred",
-      "Close in as little as 5 business days",
+      "Credit score: 660+ (best tiers 680+)",
+      "Close in 5–10 business days",
     ],
     table: {
       headers: ["Loan Size", "Max LTC", "Rate", "Points", "Term"],
@@ -78,20 +78,20 @@ const programs = [
     description:
       "Fund your ground-up development projects with a construction loan structured around your build schedule. We release draws as milestones are hit, minimizing carrying costs.",
     highlights: [
-      "Up to 85% of total project cost (LTC)",
+      "85% of full cost; 90% with 5+ completed builds",
       "Rates from 8.75% to 10.25% interest-only",
       "Terms: 12 or 24 months",
       "Draw schedule aligned to milestones",
       "SFR, townhomes, small multifamily",
-      "Credit score: 680+ preferred",
+      "Credit score: 660+ (best tiers 680+)",
       "Experienced builders preferred",
     ],
     table: {
       headers: ["Project Size", "Max LTC", "Rate", "Draws", "Term"],
       rows: [
-        ["Up to $1M", "85% LTC", "From 8.75%", "Monthly", "12 mo"],
-        ["$1M–$5M", "85% LTC", "From 9.50%", "Milestone", "12–24 mo"],
-        ["$5M+", "85% LTC", "From 10.25%", "Negotiated", "Up to 24 mo"],
+        ["Up to $1M", "85–90% of cost", "From 8.75%", "Monthly", "12 mo"],
+        ["$1M–$5M", "85–90% of cost", "From 9.50%", "Milestone", "12–24 mo"],
+        ["$5M+", "85–90% of cost", "From 10.25%", "Negotiated", "Up to 24 mo"],
       ],
     },
     cta: "Apply for Construction Loan",
@@ -111,7 +111,7 @@ const programs = [
       "5+ residential units",
       "Recourse and non-recourse options",
       "Interest-only available",
-      "Credit score: 680+ preferred",
+      "Credit score: 660+ (best tiers 680+)",
     ],
     table: {
       headers: ["Asset Type", "Max LTV", "Rate", "Points", "Term"],

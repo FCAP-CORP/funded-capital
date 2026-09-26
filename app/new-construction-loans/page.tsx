@@ -213,7 +213,7 @@ export default function NewConstructionLoansPage() {
               </a>
             </div>
             <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2">
-              {["Up to 90% of cost for experienced builders", "Draw schedule included", "680+ credit score", "SFR, townhomes, multifamily"].map((item) => (
+              {["Up to 90% of cost for experienced builders", "Draw schedule included", "660+ credit score", "SFR, townhomes, multifamily"].map((item) => (
                 <span key={item} className="flex items-center gap-1.5 text-slate-400 text-sm">
                   <CheckCircle2 size={14} className="text-gold-500 shrink-0" />
                   {item}

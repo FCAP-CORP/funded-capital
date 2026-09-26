@@ -86,7 +86,7 @@ export default async function Image() {
 
         {/* Trust pills */}
         <div style={{ display: "flex", gap: 32 }}>
-          {["Term Sheet in 2 Hours", "Close in 5 Days", "44 States"].map(
+          {["Term Sheet in 2 Hours", "5–10 Day Closings", "45 States"].map(
             (item) => (
               <div
                 key={item}

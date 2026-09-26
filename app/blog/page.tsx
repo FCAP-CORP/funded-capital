@@ -107,7 +107,7 @@ export default function BlogPage() {
               Ready to fund your next deal?
             </h2>
             <p className="text-slate-400 text-sm mt-1">
-              Term sheet in 2 hours. Close in as little as 5 days.
+              Term sheet in 2 hours. Close in 5–10 business days.
             </p>
           </div>
           <Link href="/apply" className="btn-primary shrink-0">

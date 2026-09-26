@@ -45,7 +45,7 @@ Funded Capital is the private lender built for real estate investors who move fa
 
 ## 3. Voice Principles
 
-*Note on the examples below: several of them use "term sheet in 2 hours". That figure is **UNVERIFIED — confirm with Luis** before it appears in anything published. The examples are here to show the sentence shape, not to approve the number.*
+*Note on the examples below: "term sheet in 2 hours" was confirmed by Luis on 2026-09-25 as our average. Say it as an average, never as a promise.*
 
 ### 3.1 Speak Investor-to-Investor
 Write like you're a successful investor talking to another investor — not a corporation talking to a customer. You've been in the room. You know what it feels like to lose a deal because a lender moved slow.
@@ -144,7 +144,7 @@ Use one of these patterns:
 - **Urgency + benefit:** "New Rates Live — DSCR From 6.0%"
 
 ### What Kiavi Does That We Should Copy
-- Lead with one big data stat in the hero — *use a stat we can source and date; see the UNVERIFIED list in §9 before reaching for "$500M+ Funded"*
+- Lead with one big data stat in the hero — *"$500M+ funded" and "1,200+ deals closed" were confirmed by Luis on 2026-09-25*
 - Icon-based feature sections instead of paragraphs
 - Short CTAs with urgency ("See Your Rate")
 - Mobile-first layout — one column, big tap targets
@@ -223,7 +223,7 @@ Use one of these patterns:
 ### Hero Headline
 **Before (current):** "Fast Capital for Real Estate Investors"
 **After:** "Closed in 5–10 Business Days."
-*Why: Specificity beats category claim. Every lender says "fast." We name the number — and we name the range, not the floor. (The "term sheet in 2 hours" half of the old line is UNVERIFIED — confirm with Luis before putting it back.)*
+*Why: Specificity beats category claim. Every lender says "fast." We name the number — and we name the range, not the floor. ("Term sheet in 2 hours" was confirmed by Luis on 2026-09-25 as an average.)*
 
 ### Feature Section
 **Before:** "We are committed to providing transparent terms with no hidden fees, ensuring that investors can trust what they see in the term sheet is what they receive at closing."
@@ -238,7 +238,7 @@ Use one of these patterns:
 ### Broker CTA
 **Before:** "We invite you to learn more about our broker program and the many benefits of partnering with Funded Capital for your clients' financing needs."
 **After:** "Earn up to 3% per closed loan. Apply takes 2 minutes."
-*Why: Answers "what's in it for me" immediately with a specific number. The 3% figure is **UNVERIFIED — confirm with Luis** before it ships.*
+*Why: Answers "what's in it for me" immediately with a specific number. The broker fee range of 0.5%–3% per closed loan was confirmed by Luis on 2026-09-25; "up to 3%" is the ceiling, not the typical fee.*
 
 ---
 
@@ -255,7 +255,7 @@ Use these in headers, subject lines, and hero sections:
 - **$75K–$5M** loan sizes
 - Main line **(305) 857-5620** · **info@fundedcapital.com**
 
-**Stats that need re-confirming before they go in anything published — UNVERIFIED, confirm with Luis:** "$500M+ funded", "2 hours average time to term sheet", "1,200+ deals closed", "up to 90% LTC on fix & flip", "up to 3% broker commission per closed loan", "80% LTV on DSCR". They carried over from the 2026-08-25 draft without a source. Every published figure needs a source and a date.
+**Confirmed by Luis on 2026-09-25 — safe to publish:** "$500M+ funded", "2 hours average time to term sheet", "1,200+ deals closed", "200+ partner brokers", "up to 90% LTC on fix & flip", "0.5%–3% broker fee per closed loan". **Still UNVERIFIED — confirm with Luis:** "80% LTV on DSCR". Every published figure needs a source and a date.
 
 ---
 
@@ -263,7 +263,7 @@ Use these in headers, subject lines, and hero sections:
 
 ### For Real Estate Investors (Fix & Flip)
 Lead message: *Speed that wins deals.*
-Supporting: rates from 8.75%, 5–10 business day close (deal-dependent), no upfront fees. *(LTC and term-sheet timing: UNVERIFIED — confirm with Luis before using a number.)*
+Supporting: rates from 8.75%, 5–10 business day close (deal-dependent), no upfront fees. *(Up to 90% LTC and a 2-hour average term sheet: confirmed by Luis 2026-09-25.)*
 Emotional hook: "Don't lose the deal to a slow lender."
 
 ### For DSCR / Buy-and-Hold Investors

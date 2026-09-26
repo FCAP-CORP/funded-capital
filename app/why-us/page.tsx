@@ -13,14 +13,14 @@ import {
 export const metadata: Metadata = {
   title: "Why Choose Funded Capital — Speed, Transparency & Competitive Rates",
   description:
-    "See how Funded Capital compares to traditional banks and other hard money lenders. Term sheets in 2 hours, closings in 5 days, transparent fees — every time.",
+    "See how Funded Capital compares to traditional banks and other hard money lenders. Term sheets in 2 hours, closings in 5–10 business days, transparent fees — every time.",
 };
 
 const differentiators = [
   {
     icon: Zap,
     title: "Speed That Wins Deals",
-    desc: "The real estate market moves fast. We move faster. Our streamlined underwriting delivers term sheets in 2 hours and closings in as little as 5 business days — so you never lose a deal to slow capital.",
+    desc: "The real estate market moves fast. We move faster. Our streamlined underwriting delivers term sheets in 2 hours and closings in 5–10 business days — so you never lose a deal to slow capital.",
     stat: "2 hrs",
     statLabel: "Term sheet turnaround",
   },
@@ -50,7 +50,7 @@ const differentiators = [
     title: "Clear Communication",
     desc: "We'll never ghost you. You'll receive regular status updates, and your loan officer is reachable by phone or email. When we need something, we ask once — not in waves.",
     stat: "< 2 hrs",
-    statLabel: "Response time guarantee",
+    statLabel: "Typical response time",
   },
   {
     icon: Globe,
@@ -70,7 +70,7 @@ const comparison = {
     ["Entity Borrowing", "Yes", "Limited", "Sometimes"],
     ["Dedicated Loan Officer", "Always", "Rarely", "Sometimes"],
     ["Transparent Fees", "Full disclosure upfront", "Sometimes", "Rarely"],
-    ["Credit Flexibility", "680+ preferred", "700+ required", "600+"],
+    ["Credit Flexibility", "660+ (most programs)", "700+ required", "600+"],
   ],
 };
 

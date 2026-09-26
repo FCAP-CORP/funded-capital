@@ -26,7 +26,7 @@ const trustStats = [
   { value: "$500M+", label: "Loans Funded" },
   { value: "2 hrs", label: "Avg. Time to Term Sheet" },
   { value: "1,200+", label: "Deals Closed" },
-  { value: "44 States", label: "Nationwide Lending" },
+  { value: "45 States", label: "Nationwide Lending" },
 ];
 
 const loanPrograms = [
@@ -49,7 +49,7 @@ const loanPrograms = [
   {
     icon: Building2,
     title: "New Construction",
-    ltv: "Up to 85% LTC",
+    ltv: "85–90% of cost",
     rate: "From 8.75%",
     term: "12–24 months",
     highlight: false,
@@ -91,7 +91,7 @@ const whyUs = [
   {
     icon: Zap,
     title: "Speed That Wins Deals",
-    desc: "Term sheet in 2 hours. Closings in as little as 5 days. When timing is everything, we deliver.",
+    desc: "Term sheet in 2 hours. Closings in 5–10 business days. When timing is everything, we deliver.",
   },
   {
     icon: Shield,
@@ -126,7 +126,7 @@ export default function HomePage() {
           "url": "https://www.fundedcapital.com/Original.png",
         },
         "description":
-          "Funded Capital provides fast private real estate loans for investors and brokers. Fix & Flip, DSCR, New Construction, and Multifamily loans. Term sheets in 2 hours, closings in as little as 5 days.",
+          "Funded Capital provides fast private real estate loans for investors and brokers. Fix & Flip, DSCR, New Construction, and Multifamily loans. Term sheets in 2 hours, closings in 5–10 business days.",
         "telephone": "+13058575620",
         "email": "processing@fundedcapital.com",
         "address": {
@@ -169,12 +169,6 @@ export default function HomePage() {
       />
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="relative bg-navy-900 overflow-hidden">
-        {/* Aerial background photo */}
-        <div
-          className="absolute inset-0 bg-cover bg-center bg-no-repeat"
-          style={{ backgroundImage: "url('/hero-aerial.jpg')" }}
-          aria-hidden="true"
-        />
         {/* Dark navy overlay — keeps text fully readable while image shows through */}
         <div
           className="absolute inset-0"
@@ -228,8 +222,8 @@ export default function HomePage() {
             <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2">
               {[
                 "No upfront fees",
-                "680+ credit score",
-                "Close in 5 days",
+                "660+ credit score",
+                "Close in 5–10 business days",
                 "Nationwide",
               ].map((item) => (
                 <span

@@ -11,9 +11,9 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Fix & Flip Loans — Up to 90% LTC, Close in 5 Days | Funded Capital",
+  title: "Fix & Flip Loans — Up to 90% LTC, 5–10 Day Closings | Funded Capital",
   description:
-    "Fix & Flip loans up to 90% LTC. No income verification. Rates from 8.75%. Close in as little as 5 days. Apply for your term sheet in 2 hours.",
+    "Fix & Flip loans up to 90% LTC. No income verification. Rates from 8.75%. Close in 5–10 business days. Apply for your term sheet in 2 hours.",
 };
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 const trustStats = [
   { value: "Up to 90% LTC", label: "Loan-to-Cost" },
   { value: "From 8.75%", label: "Interest Rate" },
-  { value: "Close in 5 Days", label: "Speed to Close" },
+  { value: "5–10 Business Days", label: "Speed to Close" },
   { value: "No Income Verification", label: "Qualification" },
 ];
 
@@ -29,7 +29,7 @@ const benefits = [
   {
     icon: Zap,
     title: "Speed That Wins Deals",
-    desc: "Term sheet in 2 hours. Close in as little as 5 business days. When the deal is hot, we move fast.",
+    desc: "Term sheet in 2 hours. Close in 5–10 business days. When the deal is hot, we move fast.",
   },
   {
     icon: Shield,
@@ -89,11 +89,11 @@ const faqs = [
   },
   {
     q: "How fast can I close?",
-    a: "We issue term sheets within 2 hours of application and can close loans in as little as 5 business days for straightforward deals. More complex transactions typically close in 7–14 business days.",
+    a: "We issue term sheets within 2 hours of application and close most loans in 5–10 business days, depending on title, appraisal and how quickly documents come back.",
   },
   {
     q: "What credit score do I need?",
-    a: "We prefer a 680+ credit score, but we evaluate each deal holistically. Strong deals with experienced borrowers may qualify with scores below 680. Talk to a loan officer to discuss your specific situation.",
+    a: "Most programs start at a 660+ credit score, and the best pricing tiers need 680+. Scores from 640 to 659 are reviewed case by case. Talk to a loan officer to discuss your specific situation.",
   },
   {
     q: "Can you fund the rehab costs as well as the purchase?",
@@ -131,7 +131,7 @@ export default function FixAndFlipLoansPage() {
             "name": "How fast can I close a Fix & Flip loan?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "We issue term sheets within 2 hours of application and can close loans in as little as 5 business days for straightforward deals. More complex transactions typically close in 7–14 business days.",
+              "text": "We issue term sheets within 2 hours of application and close most loans in 5–10 business days, depending on title, appraisal and how quickly documents come back.",
             },
           },
           {
@@ -139,7 +139,7 @@ export default function FixAndFlipLoansPage() {
             "name": "What credit score do I need for a Fix & Flip loan?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "We prefer a 680+ credit score, but we evaluate each deal holistically. Strong deals with experienced borrowers may qualify with scores below 680. Talk to a loan officer to discuss your specific situation.",
+              "text": "Most programs start at a 660+ credit score, and the best pricing tiers need 680+. Scores from 640 to 659 are reviewed case by case. Talk to a loan officer to discuss your specific situation.",
             },
           },
           {
@@ -187,7 +187,7 @@ export default function FixAndFlipLoansPage() {
               className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white leading-tight"
             >
               Fix &amp; Flip Loans —{" "}
-              <span className="text-gold-500">Up to 90% LTC</span>, Close in 5 Days
+              <span className="text-gold-500">Up to 90% LTC</span>, Close in 5–10 Business Days
             </h1>
             <p className="mt-6 text-lg text-slate-300 leading-relaxed max-w-2xl">
               Private Fix &amp; Flip financing with no income verification. We fund
@@ -205,7 +205,7 @@ export default function FixAndFlipLoansPage() {
               </a>
             </div>
             <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2">
-              {["No income verification", "680+ credit score", "Close in 5 days", "Rehab included"].map((item) => (
+              {["No income verification", "660+ credit score", "Close in 5–10 business days", "Rehab included"].map((item) => (
                 <span key={item} className="flex items-center gap-1.5 text-slate-400 text-sm">
                   <CheckCircle2 size={14} className="text-gold-500 shrink-0" />
                   {item}

@@ -29,7 +29,7 @@ const contactInfo = [
     label: "Headquarters",
     value: "100 N Biscayne Blvd, Suite 1210",
     href: null,
-    sub: "Miami, FL 33132 — Lending in 44 States",
+    sub: "Miami, FL 33132 — Lending in 45 States",
   },
   {
     icon: Clock,
