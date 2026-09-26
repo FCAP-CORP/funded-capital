@@ -374,15 +374,15 @@ function PipelineByStage({ stages }: { stages: StageBar[] }) {
 /* ---------------------------------------------------------- lead sources */
 
 /**
- * Four steps of lightness, so the segments separate in greyscale too: navy
- * (darkest), slate-500, gold, slate-300 (lightest) — with a white gap between
- * segments and the numbers printed in the legend.
+ * The same four source colours as /crm/reports (tailwind `chart-*`, checked
+ * for colour-blind separation), so a source is one colour everywhere. White
+ * gaps between segments, and the numbers printed in the legend.
  */
 const SOURCE_TONE: Record<SourceGroup, string> = {
-  website: "bg-navy-900",
-  biggerpockets: "bg-gold-500",
-  broker: "bg-slate-500",
-  other: "bg-slate-300",
+  website: "bg-chart-website",
+  biggerpockets: "bg-chart-bp",
+  broker: "bg-chart-broker",
+  other: "bg-chart-other",
 };
 
 function LeadSources({ model }: { model: DashboardModel }) {

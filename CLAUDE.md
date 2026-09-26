@@ -977,3 +977,31 @@ servers, same SPF/DKIM/DMARC (all three checked on 25 Sep: SPF includes Google a
 - **Not built yet:** replying inside an existing Gmail thread (every send starts a new thread),
   attachments, scheduling, and showing failed/unknown email attempts on the timeline (they are in
   `outbound_emails` and the panel says so at the time).
+
+### Reports (`/crm/reports`, 26 Sep 2026)
+
+How the lead engine is performing over a period picked from links (30 days, 90 days — the default —
+year to date, 12 months, all time; `?range=`). Six headline numbers, new leads per week or month
+stacked by source, a lead → contacted → term sheet → signed → funded funnel, speed to first contact,
+a source comparison table, loan types requested and lost reasons.
+
+- **Cohort vs activity, never mixed.** Cohort figures follow the leads that ARRIVED in the period to
+  wherever they got (contact rate, speed, funnel, source table, loan types). Activity figures count
+  what HAPPENED in the period (term sheets issued, funded, lost). Dividing one by the other gives
+  conversion rates above 100%; `reports.regress.ts` §3 pins that it cannot happen.
+- **First contact** = the first `email_out`, `sms_out` or `call` on or after arrival (5-minute grace).
+  Calls have no direction yet, so a call the borrower placed counts too — the page says so.
+- **Reached a stage** = its dated history (first move into the stage, else the legacy column), else
+  its current position — except `closed_lost`, whose position says nothing about how far it got.
+- `lib/crm/reports.ts` (pure, 65 tests, negative-tested) · `lib/crm/reports.server.ts` (staff-only,
+  one query, no names or emails selected, same LATERAL one-contact-per-deal join as the pipeline —
+  checked on Postgres 16) · `app/crm/reports/*`. The request-dependent part lives in
+  `ReportsContent.tsx` so `searchParams` is awaited inside the page's `<Suspense>` (guard §8b).
+- **Zero client JavaScript**: div charts, native `title` tooltips, link-based period picker, a hidden
+  table per chart. Phone layout checked at 390px (bars go under their labels).
+- **Source colours are now shared tokens** in `tailwind.config.ts` (`chart-website`, `chart-bp`,
+  `chart-broker`, `chart-other`), validated with the data-viz palette checker (lightness, chroma,
+  colour-blind separation all pass; two sit under 3:1 on white, so numbers are always printed and
+  every chart has a table). The dashboard's "Where leads came from" uses the same four.
+- Next on the roadmap (project doc `claude/lending-os-roadmap.md`): lead nurturing — Gmail follow-up
+  sequences for warm leads, Klaviyo campaigns for old ones, auto-stop on reply.

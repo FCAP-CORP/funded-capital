@@ -27,6 +27,15 @@ const config: Config = {
           600: "#B8922E",
           700: "#9A7A24",
         },
+        // Chart colours for lead sources (validated with the data-viz palette
+        // checker: lightness band, chroma, colour-blind separation). Used by
+        // /crm/reports and the dashboard so a colour means one source everywhere.
+        chart: {
+          website: "#2A5FA8",
+          bp: "#C98500",
+          broker: "#18A07A",
+          other: "#8A5CC9",
+        },
         // Slate for text
         slate: {
           50:  "#F8FAFC",

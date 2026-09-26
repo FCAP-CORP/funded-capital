@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  BarChart3,
   BookOpen,
   Building2,
   Calculator,
@@ -74,6 +75,7 @@ const ICONS: Record<NavIcon, React.ComponentType<{ size?: number; "aria-hidden"?
   contacts: Users,
   firms: Building2,
   marketing: Megaphone,
+  reports: BarChart3,
   dashboard: LayoutDashboard,
   pricing: Calculator,
   portfolio: Layers,

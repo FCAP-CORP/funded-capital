@@ -142,6 +142,8 @@ const STAFF_ONLY_MODULES = [
   // Connected Gmail mailboxes: holds (encrypted) the key to send mail as
   // someone. Section 13 pins the rest.
   "lib/comms/mailbox.server.ts",
+  // The reports page's read: the whole book (counts and dates, no names).
+  "lib/crm/reports.server.ts",
 ];
 
 for (const relPath of STAFF_ONLY_MODULES) {
