@@ -15,8 +15,12 @@ import {
   Loader2,
   Inbox,
   AlertCircle,
+  PencilLine,
+  Trash2,
 } from "lucide-react";
 import { fmtUsd } from "@/lib/pricing";
+import { savedAgo, stepLabel, type MyDraft } from "@/lib/broker/drafts";
+import { discardDraftAction, listDraftsAction } from "./apply/draftActions";
 
 /**
  * One deal as /api/broker/pipeline returns it. Read from the CRM, so `status`
@@ -83,6 +87,23 @@ export default function DashboardClient() {
   const [stats, setStats] = useState<Stats | null>(null);
   /** "firm" when this broker is an owner or lead and sees colleagues' deals. */
   const [scope, setScope] = useState<string>("own");
+  /** This broker's own unfinished applications — the ones closing the tab used to lose. */
+  const [drafts, setDrafts] = useState<MyDraft[]>([]);
+  const [discarding, setDiscarding] = useState<string | null>(null);
+
+  useEffect(() => {
+    let live = true;
+    listDraftsAction().then((d) => { if (live) setDrafts(d); });
+    return () => { live = false; };
+  }, []);
+
+  const discard = async (d: MyDraft) => {
+    if (!window.confirm(`Discard the saved application for ${d.label}? This can't be undone.`)) return;
+    setDiscarding(d.id);
+    const ok = await discardDraftAction(d.id);
+    setDiscarding(null);
+    if (ok) setDrafts((list) => list.filter((x) => x.id !== d.id));
+  };
 
   useEffect(() => {
     fetch("/api/broker/pipeline")
@@ -138,6 +159,42 @@ export default function DashboardClient() {
           </div>
         ))}
       </div>
+
+      {/* Unfinished applications */}
+      {drafts.length > 0 && (
+        <div className="bg-white rounded-2xl border border-gold-500/60 shadow-card overflow-hidden mb-8">
+          <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
+            <h2 className="font-semibold text-slate-900">Pick up where you left off</h2>
+            <span className="text-xs text-slate-400">{drafts.length} unfinished</span>
+          </div>
+          <ul className="divide-y divide-slate-100">
+            {drafts.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5">
+                <div className="min-w-0">
+                  <p className="font-semibold text-slate-900 truncate">{d.label}</p>
+                  <p className="text-xs text-slate-500">
+                    {stepLabel(d.step)}{d.savedAt ? ` · saved ${savedAgo(d.savedAt, new Date())}` : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Link href={`/broker-portal/apply?draft=${d.id}`} className="btn-primary text-sm px-4 py-2">
+                    <PencilLine size={15} /> Continue
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => discard(d)}
+                    disabled={discarding === d.id}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                    aria-label={`Discard the saved application for ${d.label}`}
+                  >
+                    {discarding === d.id ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {/* Pipeline */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-card overflow-hidden mb-8">

@@ -1,9 +1,10 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Building2, ChevronRight, CircleAlert, MailCheck, Users } from "lucide-react";
+import { Building2, ChevronRight, CircleAlert, FilePen, Mail, MailCheck, Users } from "lucide-react";
 import { isCrmStaff } from "@/lib/crm/access";
-import { listBrokers, listFirms } from "@/lib/broker/admin.server";
+import { listBrokers, listFirms, listOpenDrafts } from "@/lib/broker/admin.server";
+import { savedAgo, stepLabel } from "@/lib/broker/drafts";
 import { listInvites } from "@/lib/broker/invites.server";
 import { INVITE_STATUS_LABEL, inviteAgeDays, inviteStatus } from "@/lib/broker/invites";
 import { dealCountLabel, firmLabel } from "@/lib/broker/admin";
@@ -44,7 +45,8 @@ async function Brokers() {
   // user. See the same note in app/crm/page.tsx.
   if (!(await isCrmStaff())) notFound();
 
-  const [firms, brokers, invites] = await Promise.all([listFirms(), listBrokers(), listInvites()]);
+  const [firms, brokers, invites, drafts] = await Promise.all([listFirms(), listBrokers(), listInvites(), listOpenDrafts()]);
+  const now = new Date();
 
   const pendingInvites = invites.filter((i) => inviteStatus(i) === "pending");
 
@@ -74,6 +76,62 @@ async function Brokers() {
             </p>
           </div>
         </div>
+      )}
+
+      {/* ---------------------------------------- unfinished applications */}
+      {drafts.length > 0 && (
+        <section className="mb-10" aria-labelledby="drafts-h">
+          <h2 id="drafts-h" className="mb-1 flex items-center gap-2 text-lg font-bold text-navy-900">
+            <FilePen size={18} className="text-gold-600" aria-hidden="true" />
+            Applications started, not submitted
+          </h2>
+          <p className="mb-3 max-w-3xl text-[13px] text-slate-600">
+            Brokers who began an application in the portal and stopped. A short note offering a hand often
+            gets the deal over the line. You see who and how far they got; the borrower&apos;s details stay in
+            the broker&apos;s own draft.
+          </p>
+          <Card className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead className="bg-slate-50 text-left text-[11px] uppercase tracking-widest text-slate-600">
+                <tr>
+                  <th className="px-4 py-3 font-semibold">Application</th>
+                  <th className="px-4 py-3 font-semibold">Broker</th>
+                  <th className="px-4 py-3 font-semibold">How far</th>
+                  <th className="px-4 py-3 font-semibold">Last saved</th>
+                  <th className="px-4 py-3"><span className="sr-only">Nudge</span></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {drafts.map((d) => {
+                  const first = (d.brokerName ?? "").trim().split(/\s+/)[0] || "there";
+                  const subject = `Your application for ${d.label.split(" · ")[1] && d.label.split(" · ")[1] !== "no property yet" ? d.label.split(" · ")[1] : "your deal"}`;
+                  const body = `Hi ${first},\n\nI saw you started an application in the portal. Anything I can help with to get it over the line? Happy to jump on a quick call.\n\n`;
+                  return (
+                    <tr key={d.id}>
+                      <td className="px-4 py-3 font-medium text-navy-900">{d.label}</td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {d.brokerName ?? d.brokerEmail ?? "—"}
+                        {d.firmName && <span className="block text-xs text-slate-500">{d.firmName}</span>}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{stepLabel(d.step)}</td>
+                      <td className="px-4 py-3 text-slate-500">{savedAgo(d.savedAt, now)}</td>
+                      <td className="px-4 py-3 text-right">
+                        {d.brokerEmail && (
+                          <a
+                            href={`mailto:${d.brokerEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`}
+                            className={`inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-navy-900 hover:bg-slate-50 ${FOCUS_RING}`}
+                          >
+                            <Mail size={13} aria-hidden="true" /> Offer a hand
+                          </a>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Card>
+        </section>
       )}
 
       <div className="mb-6">

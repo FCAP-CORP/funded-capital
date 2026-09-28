@@ -4,8 +4,10 @@ import { notFound } from "next/navigation";
 import { Plus } from "lucide-react";
 import { isCrmStaff, signedInUser } from "@/lib/crm/access";
 import { getDashboardData } from "@/lib/crm/dashboard.server";
+import { getTermSheetFollowups } from "@/lib/crm/followups.server";
 import { buildDashboardModel, dateLine, greeting } from "@/lib/crm/dashboardView";
 import { DashboardBody } from "./DashboardView";
+import { FollowUps } from "./FollowUps";
 import { buttonVariants } from "@/components/ui/button";
 import { RecordCardProvider } from "../_record/RecordCardProvider";
 import RecordCardSlot from "../_record/RecordCardSlot";
@@ -107,10 +109,22 @@ async function Dashboard() {
   // One clock for every decision on the page, so the queue, the put-down list,
   // the numbers and the charts cannot disagree about what "now" is.
   const now = new Date();
-  const { apps, tasks } = await getDashboardData(now);
+  // Term-sheet follow-ups ride alongside the main read (a second, small query:
+  // only deals at term sheet). `signedInUser` is cached for this request — the
+  // staff check above already made the Clerk call.
+  const me = await signedInUser();
+  const [{ apps, tasks }, followups] = await Promise.all([
+    getDashboardData(now),
+    getTermSheetFollowups(now, me?.firstName ?? null),
+  ]);
   const model = buildDashboardModel(apps, tasks, now);
 
-  return <DashboardBody model={model} now={now} />;
+  return (
+    <div className="flex flex-col gap-6">
+      <FollowUps items={followups.due} upcoming={followups.upcoming} />
+      <DashboardBody model={model} now={now} />
+    </div>
+  );
 }
 
 /** `searchParams` is awaited only inside the record card's <Suspense>. See app/crm/page.tsx. */

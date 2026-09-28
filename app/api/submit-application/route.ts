@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { recordBrokerApplication, recordDriveFolder, type BrokerPropertyInput } from "@/lib/broker/record";
 import { CONSENT_VERSION } from "@/lib/consent";
+import { markMyDraftSubmitted } from "@/lib/broker/drafts.server";
 
 /**
  * Broker application intake.
@@ -56,6 +57,8 @@ export async function POST(request: Request) {
     /** The property schedule on a portfolio deal. */
     properties?: BrokerPropertyInput[];
     isPortfolio?: boolean;
+    /** The saved draft this came from, if any — closed and wiped once Drive accepts. */
+    draftId?: string;
   };
   try {
     body = await request.json();
@@ -197,6 +200,14 @@ export async function POST(request: Request) {
   // responds, and a dangling promise would simply never run.
   if (data.ok && data.folder && crmApplicationId) {
     await recordDriveFolder(crmApplicationId, data.folder);
+  }
+
+  // The saved draft, if this came from one, is now a real submission: close it
+  // and wipe its copy of the borrower's details. Only this broker's own draft
+  // can match (drafts.server.ts checks the owner itself). Never fails the
+  // response — a leftover draft is a nuisance, a failed submit is not.
+  if (data.ok && body.draftId) {
+    await markMyDraftSubmitted(body.draftId).catch((e) => console.error("[submit-application] draft close failed:", e instanceof Error ? e.message : e));
   }
 
   // The response shape the portal already expects is unchanged. The CRM is an

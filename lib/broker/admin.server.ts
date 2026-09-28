@@ -422,3 +422,58 @@ export async function countUnassignedBrokers(): Promise<number> {
     .where(isNull(brokerUsers.firmId));
   return Number(rows[0]?.n ?? 0);
 }
+
+/* ------------------------------------------------ unfinished applications */
+
+export type OpenDraftRow = {
+  id: string;
+  label: string;
+  step: number;
+  brokerName: string | null;
+  brokerEmail: string | null;
+  firmName: string | null;
+  savedAt: string | null;
+  startedAt: string | null;
+};
+
+/**
+ * Brokers' applications started and not submitted — so Luis can offer a hand
+ * before the deal goes elsewhere. Label, step and who; never the form's
+ * contents (the borrower's details stay in the broker's own draft).
+ *
+ * Also expires anything untouched for 90 days, across every broker, wiping
+ * its contents — the same rule lib/broker/drafts.server.ts applies to a
+ * broker's own drafts when they save.
+ */
+export async function listOpenDrafts(): Promise<OpenDraftRow[]> {
+  await assertCrmStaff();
+  const [, list] = await db.batch([
+    db.execute(sql`
+      UPDATE application_drafts SET status = 'expired', data = '{}'::jsonb, closed_at = now(), updated_at = now()
+      WHERE status = 'open' AND updated_at < now() - interval '90 days'
+    `),
+    db.execute(sql`
+      SELECT d.id, d.label, d.step, d.updated_at, d.created_at,
+             COALESCE(bu.name, d.broker_name) AS broker_name,
+             COALESCE(bu.email, d.broker_email) AS broker_email,
+             bf.name AS firm_name
+      FROM application_drafts d
+      JOIN broker_users bu ON bu.clerk_user_id = d.clerk_user_id
+      LEFT JOIN broker_firms bf ON bf.id = bu.firm_id
+      WHERE d.status = 'open'
+      ORDER BY d.updated_at DESC
+      LIMIT 100
+    `),
+  ] as unknown as Parameters<typeof db.batch>[0]);
+  const iso = (v: unknown) => (v === null || v === undefined ? null : new Date(String(v instanceof Date ? v.toISOString() : v)).toISOString());
+  return rowsOf(list).map((r) => ({
+    id: String(r.id),
+    label: str(r.label) ?? "Unfinished application",
+    step: int(r.step) || 1,
+    brokerName: str(r.broker_name),
+    brokerEmail: str(r.broker_email),
+    firmName: str(r.firm_name),
+    savedAt: iso(r.updated_at),
+    startedAt: iso(r.created_at),
+  }));
+}

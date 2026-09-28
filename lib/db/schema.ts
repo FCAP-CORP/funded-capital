@@ -369,6 +369,12 @@ export const applications = pgTable("applications", {
   nextActionAt: timestamp("next_action_at", { withTimezone: true }),
   nextActionSetAt: timestamp("next_action_set_at", { withTimezone: true }),
   nextActionNote: text("next_action_note"),
+  /**
+   * Luis pressed "Stop follow-ups" for this term sheet (0017). Only a stop
+   * made AFTER the deal last entered term_sheet_issued counts, so a re-issued
+   * term sheet starts its follow-ups again. Rules: lib/crm/termSheetFollowups.ts.
+   */
+  followupStoppedAt: timestamp("followup_stopped_at", { withTimezone: true }),
 
   legacySource: text("legacy_source"),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
@@ -1104,4 +1110,42 @@ export const nurtureEvents = pgTable("nurture_events", {
   klaviyoEventKey: uniqueIndex("nurture_events_klaviyo_event_key").on(t.klaviyoEventId),
   kindTimeIdx: index("nurture_events_kind_time_idx").on(t.kind, t.occurredAt),
   enrollmentIdx: index("nurture_events_enrollment_idx").on(t.enrollmentId, t.occurredAt),
+}));
+
+/* ------------------------------------------------------ application_drafts */
+
+/**
+ * A broker's unfinished application, saved as they type (migration 0017), so
+ * closing the tab no longer loses the deal. Rules: lib/broker/drafts.ts.
+ *
+ * - OWNED BY ONE PERSON: every read and write in lib/broker/drafts.server.ts
+ *   filters on `clerk_user_id` from the session. Firm colleagues do not see
+ *   each other's drafts; staff see them only through the staff-only list on
+ *   /crm/brokers.
+ * - NEVER FILES: `data` holds the form fields and the property schedule.
+ *   Uploaded documents are never saved with a draft (the portal is a pipe for
+ *   files); the broker re-attaches them before submitting.
+ * - WIPED WHEN CLOSED: submitting, discarding or 90 days untouched sets
+ *   `data` back to {} — the borrower's details do not linger in a draft.
+ */
+export const APPLICATION_DRAFT_STATUSES = ["open", "submitted", "discarded", "expired"] as const;
+
+export const applicationDrafts = pgTable("application_drafts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  clerkUserId: text("clerk_user_id").notNull(),
+  brokerEmail: text("broker_email"),
+  brokerName: text("broker_name"),
+  data: jsonb("data").notNull().default(sql`'{}'::jsonb`),
+  label: text("label"),
+  step: integer("step").notNull().default(1),
+  status: text("status").$type<(typeof APPLICATION_DRAFT_STATUSES)[number]>().notNull().default("open"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+}, (t) => ({
+  statusCheck: check("application_drafts_status_check", sql`${t.status} IN ('open', 'submitted', 'discarded', 'expired')`),
+  stepCheck: check("application_drafts_step_check", sql`${t.step} BETWEEN 1 AND 5`),
+  sizeCheck: check("application_drafts_size_check", sql`octet_length(${t.data}::text) <= 60000`),
+  ownerOpenIdx: index("application_drafts_owner_open_idx").on(t.clerkUserId, t.updatedAt).where(sql`${t.status} = 'open'`),
+  openIdx: index("application_drafts_open_idx").on(t.updatedAt).where(sql`${t.status} = 'open'`),
 }));

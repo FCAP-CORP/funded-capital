@@ -1118,3 +1118,51 @@ chooses how people join, shows what each flow sends, and tracks results. Rules i
   re-pausing on old bounces, queued stop, queued reply, stale flow check, reports). Harness in the
   session scratchpad (`nurture/cockpit-sql.test.mts`).
 
+
+### Term-sheet follow-ups on the dashboard (28 Sep 2026)
+
+A deal at term sheet whose borrower has gone quiet gets a four-email series, written for Luis and
+sent only when he presses Send — "Term sheets waiting on a reply" at the top of `/crm/dashboard`
+(shown only when something is due). Before this, nothing followed up on the warmest deals in the
+book: the drips cover new leads' first two weeks, Klaviyo covers people quiet for 30 days.
+
+- **Rules** `lib/crm/termSheetFollowups.ts` (pure, 41 tests): ts-1 day 2, ts-2 day 5, ts-3 day 10,
+  ts-4 day 17 from the LAST move into `term_sheet_issued` (a re-issued term sheet starts again), and
+  never within 2 days of Luis's last email, text or call. Stops when the deal leaves term sheet, the
+  borrower writes or texts back, Luis presses Stop (`applications.followup_stopped_at`, migration
+  0017), the address is missing/unsubscribed, or all four are sent. "Not now" = the existing snooze
+  (`next_action_at`), 3 days.
+- **A step is done only when SENT with its own template key** (`outbound_emails.template_key`
+  ts-1…ts-4, status `sent`). A failed send does not count. The four templates are in
+  `lib/crm/emailTemplates.ts` (so the record card's picker has them too) and pass the template tests
+  (no rates, amounts, guarantees or homebuyer language).
+- **Send is the record card's Gmail executor** (`sendEmail` in `app/crm/emailActions.ts`): consent
+  gate, idempotency key, signature, `email_out` on the timeline. `lib/crm/followups.server.ts`
+  (staff-only) reads and stops; it sends nothing. Guard §16 pins that, and that the list never sends
+  on load.
+- Verified on Postgres 16 (due, early, replied, unsubscribed, signed, step 2 after step 1, failed
+  send not counted, stop, re-issue).
+
+### Saved applications in the broker portal (28 Sep 2026)
+
+A broker who closed the tab used to lose the whole application. The form now saves itself 1.5 s after
+they stop typing; `?draft=<id>` brings it back; the broker dashboard lists "Pick up where you left
+off"; `/crm/brokers` lists "Applications started, not submitted" with an "Offer a hand" email link.
+
+- **Table** `application_drafts` (migration 0017): owner `clerk_user_id`, `data` jsonb (form +
+  schedule + step, capped 60 KB), label, status open/submitted/discarded/expired. **Never files** —
+  the shape has no place for one; a resumed draft tells the broker to re-attach.
+- **Owner-guarded, not staff-guarded** (`lib/broker/drafts.server.ts`, census-exempt with its
+  reason): the owner is the session's Clerk user, staff or an ACTIVE broker; every statement is
+  pinned to `clerk_user_id = ${me.userId}` (guard §15 checks each one). Another broker's draft id
+  matches nothing — load returns null, save says "gone" and starts a fresh draft. Firm colleagues do
+  not see each other's drafts.
+- **Wiped when closed:** submit (the submit route calls `markMyDraftSubmitted` after Drive
+  accepts), discard, or 90 days untouched sets `data` to `{}`. At most 20 open drafts per broker.
+- **Luis's view** (`listOpenDrafts` in `admin.server.ts`, staff-only): label, broker, firm, step,
+  last saved — never the form's contents.
+- `app/broker-portal/apply/page.tsx` wraps the form in `<Suspense>` because it reads `?draft=` with
+  `useSearchParams` (required under cacheComponents).
+- Rules `lib/broker/drafts.ts` (26 tests). Verified on Postgres 16 (39 checks incl. cross-broker
+  load/save/discard/submit refused, suspended and signed-out refused, wipe on submit, late autosave
+  cannot reopen, 20-draft cap, 90-day expiry).

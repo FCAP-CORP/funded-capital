@@ -97,6 +97,55 @@ export const EMAIL_TEMPLATES: readonly EmailTemplate[] = [
       "If everything looks right, reply and I will send over the next steps.\n\n" +
       "Best,",
   },
+  /*
+   * The term-sheet follow-up series (28 Sep 2026). Lending OS queues these on
+   * the dashboard when a term sheet is out and the borrower has gone quiet;
+   * Luis reads each one and presses Send. Timing and stop rules live in
+   * lib/crm/termSheetFollowups.ts. The keys are what the rules count, so a
+   * series step is only "done" when it was sent with its own key.
+   */
+  {
+    key: "ts-1",
+    label: "Term sheet follow-up 1 of 4 — did it arrive?",
+    hint: "Two days after the term sheet, no word back.",
+    subject: "Your term sheet for {theDealShort}",
+    body:
+      "Hi {firstName},\n\n" +
+      "Making sure the term sheet for {theDeal} reached you. Any questions on the terms? Happy to walk through them on a quick call.\n\n" +
+      "If it looks right, reply and I'll send over the next steps.\n\n" +
+      "Best,",
+  },
+  {
+    key: "ts-2",
+    label: "Term sheet follow-up 2 of 4 — anything to adjust?",
+    hint: "About five days in.",
+    subject: "Questions on the terms for {theDealShort}?",
+    body:
+      "Hi {firstName},\n\n" +
+      "Following up on the term sheet for {theDeal}. If something in it doesn't fit the deal (leverage, term or timing), tell me what you need and I'll see what we can do. A quick call usually sorts it out.\n\n" +
+      "Best,",
+  },
+  {
+    key: "ts-3",
+    label: "Term sheet follow-up 3 of 4 — still moving forward?",
+    hint: "About ten days in.",
+    subject: "Still moving forward on {theDealShort}?",
+    body:
+      "Hi {firstName},\n\n" +
+      "Is {theDeal} still moving forward? If you're weighing other offers, I'm glad to talk through how ours compares. If the deal has changed, send me the new numbers and I'll take another look.\n\n" +
+      "Best,",
+  },
+  {
+    key: "ts-4",
+    label: "Term sheet follow-up 4 of 4 — closing the loop",
+    hint: "About seventeen days in. The last one.",
+    subject: "Should I close out the term sheet for {theDealShort}?",
+    body:
+      "Hi {firstName},\n\n" +
+      "I haven't heard back on {theDeal}, so I'll assume the timing isn't right and close out the term sheet on my end. If you still want to go ahead, just reply and I can reissue it.\n\n" +
+      "And if you have another deal coming up, send it my way.\n\n" +
+      "Best,",
+  },
 ];
 
 /**

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Check,
   ArrowRight,
@@ -15,12 +16,15 @@ import {
   Loader2,
   PartyPopper,
   AlertTriangle,
+  Save,
 } from "lucide-react";
 import {
   RATE_CONFIG, fmtUsd, LOAN_PURPOSE_OPTIONS, isRefiPurpose, MAX_PORTFOLIO_PROPERTIES,
   type ProductKey, type LoanPurpose,
 } from "@/lib/pricing";
 import { docChecklistFor } from "@/lib/portalData";
+import { AUTOSAVE_MS, draftHasContent } from "@/lib/broker/drafts";
+import { loadDraftAction, saveDraftAction } from "./draftActions";
 
 const steps = [
   { id: 1, label: "Program", icon: Building2 },
@@ -111,6 +115,26 @@ export default function ApplyClient() {
   const [consentPrompt, setConsentPrompt] = useState<{ text: string } | null>(null);
   const [smsConsent, setSmsConsent] = useState(false);
 
+  /**
+   * SAVE AND RESUME (28 Sep 2026). The form saves itself to the broker's own
+   * draft a moment after they stop typing, and `?draft=<id>` in the address
+   * bar brings it back — from the dashboard, after a refresh, or on another
+   * device. Files are never saved with a draft (the portal is a pipe for
+   * files); a resumed draft says to attach them again.
+   *
+   * ONE SAVE AT A TIME. A save that arrives while another is in flight waits
+   * and then sends the LATEST form, so two quick saves can never create two
+   * drafts or land out of order. The server checks who owns the draft on
+   * every call (lib/broker/drafts.server.ts); the id here is only a handle.
+   */
+  const params = useSearchParams();
+  const [loadingDraft, setLoadingDraft] = useState(() => !!params.get("draft"));
+  const [resumed, setResumed] = useState(false);
+  const [save, setSave] = useState<{ state: "idle" | "saving" | "saved" | "error"; at?: string; msg?: string }>({ state: "idle" });
+  const draftRef = useRef<string | null>(null);
+  const inFlight = useRef(false);
+  const again = useRef(false);
+
   useEffect(() => {
     let cancelled = false;
     fetch("/api/broker/consent-status")
@@ -122,6 +146,65 @@ export default function ApplyClient() {
       .catch(() => { /* stay hidden — never show a box we cannot record */ });
     return () => { cancelled = true; };
   }, []);
+
+  // Resume a saved draft named in the address bar.
+  useEffect(() => {
+    const id = params.get("draft");
+    if (!id) return;
+    let live = true;
+    loadDraftAction(id).then((d) => {
+      if (!live) return;
+      if (d) {
+        setForm(d.data.form);
+        setSchedule(d.data.schedule);
+        setIsPortfolio(d.data.isPortfolio);
+        setStep(d.data.step);
+        draftRef.current = d.id;
+        setResumed(true);
+        setSave({ state: "saved", at: d.savedAt ?? undefined });
+      } else {
+        window.history.replaceState(null, "", "/broker-portal/apply");
+        setSave({ state: "error", msg: "That saved application is no longer available — it may have been submitted or discarded. You can start fresh below." });
+      }
+      setLoadingDraft(false);
+    });
+    return () => { live = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const latest = useRef({ form, isPortfolio, schedule, step });
+  latest.current = { form, isPortfolio, schedule, step };
+
+  async function persist() {
+    if (inFlight.current) { again.current = true; return; }
+    inFlight.current = true;
+    setSave((s) => ({ ...s, state: "saving" }));
+    try {
+      const r = await saveDraftAction(draftRef.current, latest.current);
+      if (r.ok) {
+        if (draftRef.current !== r.id) {
+          draftRef.current = r.id;
+          window.history.replaceState(null, "", `/broker-portal/apply?draft=${r.id}`);
+        }
+        setSave({ state: "saved", at: r.savedAt });
+      } else {
+        if (r.gone) draftRef.current = null;
+        setSave({ state: "error", msg: r.error });
+      }
+    } finally {
+      inFlight.current = false;
+      if (again.current) { again.current = false; void persist(); }
+    }
+  }
+
+  // Save a moment after the broker stops typing, once there is something worth keeping.
+  useEffect(() => {
+    if (loadingDraft || submitted || submitting) return;
+    if (!draftHasContent({ form, isPortfolio, schedule, step })) return;
+    const t = setTimeout(() => { void persist(); }, AUTOSAVE_MS);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form, schedule, isPortfolio, step, loadingDraft, submitted, submitting]);
 
   /**
    * The same input means two different things, so it is named for what it is.
@@ -231,6 +314,8 @@ export default function ApplyClient() {
           properties: filled,
           isPortfolio,
           files: files.map((f) => ({ name: f.name, mimeType: f.mimeType, data: f.data })),
+          // The saved draft, closed and wiped by the server once Drive accepts.
+          draftId: draftRef.current ?? undefined,
         }),
       });
       let data: { ok?: boolean; error?: string };
@@ -241,6 +326,10 @@ export default function ApplyClient() {
       }
       if (data.ok) {
         setSubmitted(true);
+        draftRef.current = null;
+        setResumed(false);
+        setSave({ state: "idle" });
+        window.history.replaceState(null, "", "/broker-portal/apply");
       } else {
         const friendly =
           data.error === "intake_not_configured"
@@ -283,6 +372,9 @@ export default function ApplyClient() {
                 setForm({ ...form, purpose: "purchase", borrower: "", entity: "", email: "", phone: "", fico: "", loanAmount: "", notes: "" });
                 setSchedule([blankRow()]);
                 setIsPortfolio(false);
+                draftRef.current = null;
+                setResumed(false);
+                setSave({ state: "idle" });
               }}
             >
               Submit Another
@@ -298,7 +390,19 @@ export default function ApplyClient() {
   return (
     <div className="p-5 sm:p-8 max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold text-slate-900 mb-1">New Application</h1>
-      <p className="text-slate-500 text-sm mb-6">Five quick steps — submit the deal and upload documents in one go.</p>
+      <p className="text-slate-500 text-sm">Five quick steps — submit the deal and upload documents in one go.</p>
+      <p role="status" aria-live="polite" className={`mt-1 mb-6 min-h-5 text-xs ${save.state === "error" ? "text-amber-700" : "text-slate-500"}`}>
+        {loadingDraft && "Opening your saved application…"}
+        {!loadingDraft && save.state === "saving" && "Saving…"}
+        {!loadingDraft && save.state === "saved" && (
+          <span className="inline-flex items-center gap-1">
+            <Save size={13} className="text-emerald-600" aria-hidden="true" />
+            Saved{save.at ? ` at ${new Date(save.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : ""}. You can close this page and finish later from your dashboard.
+          </span>
+        )}
+        {!loadingDraft && save.state === "error" && save.msg}
+        {!loadingDraft && save.state === "idle" && "Your answers save automatically as you go."}
+      </p>
 
       {/* Stepper */}
       <div className="flex items-center mb-8">
@@ -504,6 +608,11 @@ export default function ApplyClient() {
             <p className="text-sm text-slate-500">
               Upload what you have — you can also send the rest later. Suggested for {RATE_CONFIG.products[form.product].label}:
             </p>
+            {resumed && files.length === 0 && (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Files aren&apos;t kept with a saved application, so attach them again here before you submit.
+              </p>
+            )}
             <ul className="text-xs text-slate-500 grid sm:grid-cols-2 gap-x-4 gap-y-1">
               {checklist.map((d) => (
                 <li key={d.id} className="flex gap-1.5">

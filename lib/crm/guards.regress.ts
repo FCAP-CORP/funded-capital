@@ -146,6 +146,8 @@ const STAFF_ONLY_MODULES = [
   "lib/crm/reports.server.ts",
   // The nurture page: the whole book classified, plus enrol / stop / retry.
   "lib/nurture/nurture.server.ts",
+  // Term-sheet follow-ups on the dashboard: every deal at term sheet, with names and addresses.
+  "lib/crm/followups.server.ts",
 ];
 
 for (const relPath of STAFF_ONLY_MODULES) {
@@ -341,6 +343,14 @@ const NON_STAFF_SERVER_MODULES: Record<string, string> = {
    */
   "lib/nurture/sync.server.ts": "secret-guarded: Vercel Cron via /api/cron/nurture (and after() from staff actions); consent may only be revoked",
   "lib/comms/klaviyo.server.ts": "HTTP client only: reads no table, logs nothing, cannot subscribe; imported by the nurture sync only",
+
+  /**
+   * SAVED APPLICATIONS (28 Sep 2026). Every broker saves their own unfinished
+   * application through it, so it cannot assert staff. It asserts OWNERSHIP
+   * instead — section 15 pins that every export resolves the owner from the
+   * session first and every statement filters on that owner.
+   */
+  "lib/broker/drafts.server.ts": "owner-guarded: a broker's own drafts only, owner from the session (section 15)",
 };
 
 const exemptPaths = Object.keys(NON_STAFF_SERVER_MODULES);
@@ -607,6 +617,8 @@ if (crmActions) {
     // Route-aware since the record card (2026-09-24), which calls them from three pages.
     "setApplicationNotes", "setContactField",
     "addTask", "toggleTask", "deleteTask",
+    // Term-sheet follow-ups on the dashboard (28 Sep 2026).
+    "stopFollowups",
   ]) {
     const s = starts.findIndex((x) => x.name === name);
     const body = s < 0 ? "" : code.slice(starts[s].at, s + 1 < starts.length ? starts[s + 1].at : undefined);
@@ -646,7 +658,7 @@ if (queueUi) {
  */
 const DASH_DIR = join(ROOT, "app", "crm", "dashboard");
 const DASH_ACTIONS =
-  /\b(setStage|markLost|logContact|setSnooze|clearSnooze|setApplicationNotes|setContactField|addTask|toggleTask|deleteTask)\(([^()]|\([^()]*\))*\)/g;
+  /\b(setStage|markLost|logContact|setSnooze|clearSnooze|setApplicationNotes|setContactField|addTask|toggleTask|deleteTask|stopFollowups|sendEmail)\(([^()]|\([^()]*\))*\)/g;
 let dashCalls = 0;
 for (const f of walk(DASH_DIR).filter((x) => x.endsWith(".tsx"))) {
   const code = codeOnly(readFileSync(f, "utf8"));
@@ -1227,6 +1239,79 @@ console.log("\n=== 14. Nurture: cron secret first, Klaviyo can never subscribe, 
   check("the Klaviyo client is imported by the nurture sync and nothing else", kcImporters.length === 1 && kcImporters[0] === SYNC, kcImporters.join(", ") || "**NOT IMPORTED**");
   const talksToKlaviyo = allSource.filter((f) => rel(f) !== KC && /a\.klaviyo\.com\/api/.test(codeOnly(readFileSync(f, "utf8")))).map(rel);
   check("no other file calls Klaviyo's API (a second client would skip these rules)", talksToKlaviyo.length === 0, talksToKlaviyo.join(", ") || "none");
+}
+
+/* ------------------------------------------------ saved applications */
+
+/**
+ * Saved broker applications (28 Sep 2026). Brokers share these tables, so a
+ * draft read that trusted an id from the browser would hand one brokerage's
+ * borrower to another. Every statement must be pinned to the session's owner.
+ */
+console.log("\n=== 15. Saved applications: the owner comes from the session, and every statement is pinned to it ===");
+{
+  const DS = "lib/broker/drafts.server.ts";
+  const DA = "app/broker-portal/apply/draftActions.ts";
+  const AC = "app/broker-portal/apply/ApplyClient.tsx";
+  const SUBMIT = "app/api/submit-application/route.ts";
+  const dsSrc = readOr(DS), daSrc = readOr(DA), acSrc = readOr(AC), subSrc = readOr(SUBMIT);
+  if (dsSrc) {
+    const code = codeOnly(dsSrc);
+    check(`  ${DS} takes the owner from auth(), never a parameter`, /const \{ userId \} = await auth\(\)/.test(code) && !/export async function \w+\([^)]*\b(userId|clerkUserId|ownerId|firmId)\b/.test(code), "session");
+    check("  ...and requires an ACTIVE broker when not staff", /viewer\.status !== "active"/.test(code) && /isCrmStaff\(\)/.test(code), "active only");
+    const exportsList = [...code.matchAll(/export async function (\w+)/g)].map((m) => m[1]);
+    check("  ...exports the five draft operations", ["saveMyDraft", "loadMyDraft", "listMyDrafts", "discardMyDraft", "markMyDraftSubmitted"].every((n) => exportsList.includes(n)), exportsList.join(", "));
+    for (const name of exportsList) {
+      const body = fnBody(code, name) ?? "";
+      const ownerAt = body.search(/await draftOwner\(\)/);
+      const dbAt = body.search(/db\.(execute|batch)\(/);
+      check(`  ${name}: resolves the owner before touching the database`, ownerAt >= 0 && (dbAt < 0 || ownerAt < dbAt), ownerAt >= 0 ? `owner ${ownerAt} < db ${dbAt}` : "**NO OWNER CHECK**");
+    }
+    const stmts = code.match(/sql`[\s\S]*?`/g) ?? [];
+    const touching = stmts.filter((q) => /application_drafts/.test(q));
+    // Pinned = filtered on the owner, or (the one INSERT) written with the owner as its first value.
+    const pinned = (q: string) =>
+      /clerk_user_id = \$\{me\.userId\}/.test(q) ||
+      /INSERT INTO application_drafts \(clerk_user_id,[^)]*\)\s*VALUES \(\$\{me\.userId\},/.test(q);
+    const unpinned = touching.filter((q) => !pinned(q));
+    check("  ...and EVERY statement on application_drafts is pinned to that owner", touching.length >= 7 && unpinned.length === 0, unpinned.length ? `**UNPINNED: ${unpinned[0].slice(0, 80)}**` : `${touching.length} statements, all pinned`);
+    check("  ...never stores a file", !/files|base64|mimeType/.test(code), "no files");
+  }
+  if (daSrc) {
+    const code = codeOnly(daSrc);
+    check(`  ${DA} is a server-action file`, /^"use server";/.test(daSrc), "use server");
+    check("  ...imports nothing but the owner-guarded module", importsOf(daSrc).every((i) => i === "@/lib/broker/drafts.server"), importsOf(daSrc).join(", "));
+    check("  ...and passes no user or firm id", !/userId|clerkUserId|firmId/.test(code), "clean");
+  }
+  if (acSrc) {
+    const code = codeOnly(acSrc);
+    check(`  ${AC} saves the form, never the files`, /latest = useRef\(\{ form, isPortfolio, schedule, step \}\)/.test(code) && /saveDraftAction\(draftRef\.current, latest\.current\)/.test(code), "form only");
+  }
+  if (subSrc) {
+    const code = codeOnly(subSrc);
+    check(`  ${SUBMIT} closes a draft only through the owner-guarded module, after Drive accepted`, /if \(data\.ok && body\.draftId\)[\s\S]{0,40}markMyDraftSubmitted\(/.test(code) && !/application_drafts/.test(code), "owner-guarded");
+  }
+}
+
+/* ---------------------------------------------- term-sheet follow-ups */
+
+console.log("\n=== 16. Term-sheet follow-ups: Luis sends each one, through the Gmail executor ===");
+{
+  const FS = "lib/crm/followups.server.ts";
+  const FU = "app/crm/dashboard/FollowUps.tsx";
+  const fsSrc = readOr(FS), fuSrc = readOr(FU);
+  if (fsSrc) {
+    const code = codeOnly(fsSrc);
+    check(`  ${FS} sends nothing itself`, !/gmail|sendMessage|executeSendEmail|fetch\(/.test(code), "reads and stops only");
+    check("  ...and writes only the stop and its note", [...new Set((code.match(/(?:INSERT INTO|(?<!FOR |DO )UPDATE)\s+(\w+)/g) ?? []).map((m) => m.split(/\s+/).pop()))].sort().join(",") === "activities,applications", "applications, activities");
+  }
+  if (fuSrc) {
+    const code = codeOnly(fuSrc);
+    const sends = code.match(/\bsendEmail\(/g) ?? [];
+    check(`  ${FU} sends only by Luis pressing Send, through sendEmail`, sends.length === 1 && /onClick=\{send\}/.test(code), `${sends.length} send call(s)`);
+    check("  ...with the series step as the template key, so the step counts as done", /templateKey: f\.step\.templateKey/.test(code), "templateKey");
+    check("  ...and never sends on load", !/useEffect\(/.test(code), "no effects");
+  }
 }
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);

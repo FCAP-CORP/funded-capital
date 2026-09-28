@@ -16,6 +16,7 @@ import {
   type LoggableKind,
 } from "@/lib/crm/followup";
 import { isUuid, parseDueDate, parseTaskTitle } from "@/lib/crm/tasks";
+import { stopTermSheetFollowups } from "@/lib/crm/followups.server";
 import { and, asc, desc, isNull, sql as dsql } from "drizzle-orm";
 
 /**
@@ -379,6 +380,27 @@ export async function setSnooze(
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "could not put that down" };
+  }
+}
+
+/**
+ * "Stop follow-ups" on the dashboard's term-sheet list. The deal stays where
+ * it is; only the follow-up series for THIS term sheet stops (a re-issued term
+ * sheet starts a new one). Rules: lib/crm/termSheetFollowups.ts.
+ */
+export async function stopFollowups(
+  applicationId: string,
+  from: CrmRoute = "/crm/dashboard",
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    if (!isUuid(applicationId)) return { ok: false, error: "application not found" };
+    const contactId = await borrowerContactId(applicationId);
+    const ok = await stopTermSheetFollowups({ applicationId, contactId, by: userId });
+    revalidateFrom(from, "/crm/dashboard");
+    return ok ? { ok: true } : { ok: false, error: "This deal is no longer at term sheet." };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "could not stop the follow-ups" };
   }
 }
 
