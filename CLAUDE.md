@@ -1056,12 +1056,65 @@ list>") sends the emails. Nobody should add people to those lists by hand.
   auto-stop, consent mirror, bounce, removed-by-hand, backoff, retry, no key). Harness note: in
   `@neondatabase/serverless` a batch's PER-QUERY `arrayMode` wins over the transaction's — a fake
   client that lets the transaction's win turns every raw `db.execute` in a `db.batch` into arrays.
-- **Env**: `KLAVIYO_PRIVATE_KEY` (Production; scopes profiles:read/write, lists:read/write). Without
-  it the page works, enrolments queue, and nothing is sent to Klaviyo.
+- **Env**: `KLAVIYO_PRIVATE_KEY` (Production). Scopes: profiles and lists read/write; since the
+  cockpit (28 Sep 2026) also flows read/write, events read, metrics read, templates read. Without
+  the key the page works, enrolments queue, and nothing is sent to Klaviyo. A key without the new
+  scopes still adds/removes, but flows read as unknown, so **nobody is released** and the page
+  shows a one-time-step banner.
 - **Email templates** in Klaviyo (plain, from Luis, no rates, compliance line where a speed or
   leverage claim is made): Quiet 1 `W6rzMJ`, BiggerPockets 1 `S2pwJL`, Lost 1 `TDyTyt`, Past 1
   `X9Mqe3`, Past 2 `Ws97g2`, Investor contacts 1 `QNvVvW`, shared 2 `WJ3SsH` / 3 `RNwKR7` / 4 `XDyWip`. Plain-text unsubscribe tag
   is `{% unsubscribe_link %}` (`unsubscribe_url` fails to render).
-- **Not built yet:** Gmail follow-up sequences for warm leads (track A), automatic daily enrolment,
-  mirroring unsubscribes for people who were never enrolled, nurture results on /crm/reports.
+- **Not built yet:** Gmail follow-up sequences for warm leads (track A), mirroring unsubscribes for
+  people who were never enrolled, bringing the weekly newsletter back without overlapping the flows
+  (paused 28 Sep 2026; its scheduled-task prompt still calls the Excel CRM the system of record).
+
+### Nurture cockpit — Klaviyo run from Lending OS (28 Sep 2026)
+
+Luis does not want to open Klaviyo. `/crm/nurture` now switches each programme's flow on/off,
+chooses how people join, shows what each flow sends, and tracks results. Rules in
+`lib/nurture/cockpit.ts` (pure, `cockpit.regress.ts`, 91 tests, mutation-tested); migration 0016.
+
+- **Enrolment always QUEUES** (`sync_state = 'queued'`, `rows.ts enrolQueuedSql`, shared by the
+  Enrol button and auto-enrol). The warm-up RELEASES queued rows to `pending_add`; the existing
+  drain does the rest. Stopping a queued row goes straight to `removed` — no Klaviyo call.
+- **Warm-up:** weekday mornings 9:30–12:00 New York only; cap per day across all programmes
+  20 → 30 → 40 → 60 → 80 → 100 → 125 → 150, then 200. "Day" = distinct release days in the last
+  30 (a gap of 30 days restarts the ramp). Order: programme priority, then longest waiting.
+- **Nobody is released to a flow not confirmed live** by a read in the last 60 minutes — a
+  list-triggered flow only catches people added after it goes live. A failed read (403 = old key)
+  leaves the cache to go stale, so releases stop: fail closed.
+- **Flow on/off** (`switchFlow` in sync.server, called only from the staff action — guard §14):
+  refuses to switch ON a flow not triggered by its list or missing the "is in list" filter, PATCHes
+  status only (`live`/`draft`, never `manual`), and reads the flow back to confirm.
+- **Modes** (`nurture_programs.mode`): Automatic = each weekday in the window, once per programme
+  per day, a fresh `classify()` of the book queues everyone who fits (live flows only, not while
+  paused). "You choose" = only ticked people. Seeded: four Automatic, Investor contacts "You choose"
+  (Luis called that pool a mix).
+- **Events** (sent/open/click/bounce/spam/unsub, metric ids in `EVENT_METRICS`) are pulled every run
+  for the five flow ids only, matched by Klaviyo profile + programme, deduped on Klaviyo's event id,
+  2-hour overlap, cursor moves only after a complete read. Bot clicks, unsubscribe/preferences-link
+  clicks and Apple machine opens are dropped. **Never written to `activities`**: a marketing email
+  counted as contact would reset the 30-day quiet clock and auto-stop the programme that sent it
+  (guard §14 checks sync.server never mentions a contact kind).
+- **Deliverability guard:** last 7 days (or since the last resume, `health_since`), stop at bounce
+  > 2% or spam > 0.3% once 25+ sent; before that, 5 bounces or 2 complaints. It only ever PAUSES
+  (`nurture_control`); Luis resumes. Pausing stops releases; people already in a flow continue
+  unless their programme's emails are switched off.
+- **Previews:** each flow's definition (emails, subjects, waits) every run; rendered HTML via
+  Klaviyo's template-render (sample "Alex") at most daily or on "Refresh from Klaviyo", stored in
+  `nurture_programs.flow_snapshot`, shown in a `sandbox=""` iframe (no scripts, no forms).
+- **One clock:** release counts, `released_at`, `flow_checked_at` and the health window all use the
+  caller's `now`, not the database's `now()`, so a decision and its record can't disagree.
+- **Clicked list** on the page (last 14 days, still active) with record-card links; the 8:15am
+  website drip task drafts the personal note. **Reports** gained "Nurture emails": per programme,
+  people released in the period, emailed, opened, clicked, replied, new deal within 90 days,
+  unsubscribed (counts only, no names).
+- Klaviyo client now has 8 calls; guard §14 pins that `/events` is read-only (one GET, never POST)
+  and PATCH touches only a flow's status.
+- **Verified on Postgres 16** with Klaviyo faked at `fetch` and a movable clock (48 checks:
+  queueing, flow-off blocks, refusal of an unsafe flow, auto-enrol, day-1 cap of 20, same-day
+  re-run, outside window, day 2, events kept/dropped/deduped, clicked list, guard pause, resume not
+  re-pausing on old bounces, queued stop, queued reply, stale flow check, reports). Harness in the
+  session scratchpad (`nurture/cockpit-sql.test.mts`).
 

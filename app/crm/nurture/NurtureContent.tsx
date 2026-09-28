@@ -13,7 +13,7 @@ export default async function NurtureContent({ searchParams }: { searchParams: P
 
   const sp = await searchParams;
   const program = programByKey(typeof sp.program === "string" ? sp.program : "") ?? PROGRAMS.find((p) => p.key === "quiet")!;
-  const tab: NurtureTab = sp.view === "enrolled" || sp.view === "stopped" ? sp.view : "ready";
+  const tab: NurtureTab = sp.view === "enrolled" || sp.view === "stopped" || sp.view === "emails" ? sp.view : "ready";
 
   const data = await getNurturePage(new Date());
   return <NurtureView data={data} program={program.key} tab={tab} />;

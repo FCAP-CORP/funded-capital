@@ -994,7 +994,7 @@ export const outboundEmails = pgTable("outbound_emails", {
  * Nothing here holds consent. A Klaviyo unsubscribe is mirrored into
  * `contacts.email_subscribed = false` — the one direction consent may flow.
  */
-export const NURTURE_SYNC_STATES = ["pending_add", "added", "pending_remove", "removed"] as const;
+export const NURTURE_SYNC_STATES = ["queued", "pending_add", "added", "pending_remove", "removed"] as const;
 
 export const nurtureEnrollments = pgTable("nurture_enrollments", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -1014,6 +1014,8 @@ export const nurtureEnrollments = pgTable("nurture_enrollments", {
   nextSyncAt: timestamp("next_sync_at", { withTimezone: true }).notNull().defaultNow(),
   syncClaimedAt: timestamp("sync_claimed_at", { withTimezone: true }),
   syncedAt: timestamp("synced_at", { withTimezone: true }),
+  /** When the warm-up released this row from the queue to Klaviyo (0016). */
+  releasedAt: timestamp("released_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
@@ -1021,9 +1023,85 @@ export const nurtureEnrollments = pgTable("nurture_enrollments", {
   statusCheck: check("nurture_enrollments_status_check", sql`${t.status} IN ('active', 'stopped')`),
   stopReasonCheck: check("nurture_enrollments_stop_reason_check", sql`${t.stopReason} IS NULL OR ${t.stopReason} IN ('replied', 'contacted', 'new_deal', 'deal_moved', 'unsubscribed', 'bounced', 'no_email', 'removed_in_klaviyo', 'stopped_by_staff')`),
   stoppedConsistent: check("nurture_enrollments_stopped_consistent_check", sql`(${t.status} = 'active') = (${t.stoppedAt} IS NULL)`),
-  syncStateCheck: check("nurture_enrollments_sync_state_check", sql`${t.syncState} IN ('pending_add', 'added', 'pending_remove', 'removed')`),
+  syncStateCheck: check("nurture_enrollments_sync_state_check", sql`${t.syncState} IN ('queued', 'pending_add', 'added', 'pending_remove', 'removed')`),
   contactProgramKey: uniqueIndex("nurture_enrollments_contact_program_key").on(t.contactId, t.program),
   oneActiveKey: uniqueIndex("nurture_enrollments_one_active_key").on(t.contactId).where(sql`${t.status} = 'active'`),
   syncDueIdx: index("nurture_enrollments_sync_due_idx").on(t.nextSyncAt).where(sql`${t.syncState} IN ('pending_add', 'pending_remove')`),
   programStatusIdx: index("nurture_enrollments_program_status_idx").on(t.program, t.status),
+  queuedIdx: index("nurture_enrollments_queued_idx").on(t.program, t.enrolledAt).where(sql`${t.syncState} = 'queued'`),
+  releasedIdx: index("nurture_enrollments_released_idx").on(t.releasedAt).where(sql`${t.releasedAt} IS NOT NULL`),
+  profileIdx: index("nurture_enrollments_profile_idx").on(t.klaviyoProfileId).where(sql`${t.klaviyoProfileId} IS NOT NULL`),
+}));
+
+/* ------------------------------------------- nurture cockpit (migration 0016) */
+
+/**
+ * One row per programme: how people get in (review = Luis ticks them,
+ * auto = every weekday morning Lending OS queues everyone who qualifies) and
+ * the last thing Lending OS saw of the programme's Klaviyo flow — its status,
+ * its emails and their rendered previews — so the page never calls Klaviyo
+ * while it renders. Marketing copy only; no borrower data.
+ */
+export const nurturePrograms = pgTable("nurture_programs", {
+  program: text("program").primaryKey(),
+  mode: text("mode").$type<"review" | "auto">().notNull().default("review"),
+  flowStatus: text("flow_status"),
+  flowCheckedAt: timestamp("flow_checked_at", { withTimezone: true }),
+  flowError: text("flow_error"),
+  flowSnapshot: jsonb("flow_snapshot"),
+  previewsRenderedAt: timestamp("previews_rendered_at", { withTimezone: true }),
+  lastAutoEnrollOn: date("last_auto_enroll_on"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedBy: text("updated_by"),
+}, (t) => ({
+  programCheck: check("nurture_programs_program_check", sql`${t.program} IN ('past_borrower', 'bp_no_term_sheet', 'quiet', 'lost', 'contacts')`),
+  modeCheck: check("nurture_programs_mode_check", sql`${t.mode} IN ('review', 'auto')`),
+}));
+
+/**
+ * The single switch for every release to Klaviyo. `paused` is set by Luis or
+ * by the deliverability guard (bounces or spam complaints over the line) and
+ * only Luis clears it. `events_synced_until` is where the next read of
+ * Klaviyo's email events starts.
+ */
+export const nurtureControl = pgTable("nurture_control", {
+  id: integer("id").primaryKey().default(1),
+  paused: boolean("paused").notNull().default(false),
+  pausedReason: text("paused_reason"),
+  pausedAt: timestamp("paused_at", { withTimezone: true }),
+  pausedBy: text("paused_by"),
+  /** Set on resume: the guard judges only what was sent since, so old bounces cannot re-pause at once. */
+  healthSince: timestamp("health_since", { withTimezone: true }),
+  eventsSyncedUntil: timestamp("events_synced_until", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  singleRow: check("nurture_control_single_row_check", sql`${t.id} = 1`),
+}));
+
+/**
+ * What Klaviyo reports happened to a nurture email: sent, opened, clicked,
+ * bounced, marked as spam, unsubscribed. Deduplicated on Klaviyo's own event
+ * id. Deliberately NOT written to `activities`: an automated marketing email
+ * is not Luis getting in touch, and counting it as one would reset the
+ * 30-day quiet clock and stop the very programme that sent it.
+ */
+export const NURTURE_EVENT_KINDS = ["sent", "open", "click", "bounce", "spam", "unsub"] as const;
+
+export const nurtureEvents = pgTable("nurture_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  klaviyoEventId: text("klaviyo_event_id").notNull(),
+  enrollmentId: uuid("enrollment_id").notNull().references(() => nurtureEnrollments.id, { onDelete: "cascade" }),
+  contactId: uuid("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  program: text("program").notNull(),
+  kind: text("kind").$type<(typeof NURTURE_EVENT_KINDS)[number]>().notNull(),
+  flowMessageId: text("flow_message_id"),
+  subject: text("subject"),
+  url: text("url"),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  kindCheck: check("nurture_events_kind_check", sql`${t.kind} IN ('sent', 'open', 'click', 'bounce', 'spam', 'unsub')`),
+  klaviyoEventKey: uniqueIndex("nurture_events_klaviyo_event_key").on(t.klaviyoEventId),
+  kindTimeIdx: index("nurture_events_kind_time_idx").on(t.kind, t.occurredAt),
+  enrollmentIdx: index("nurture_events_enrollment_idx").on(t.enrollmentId, t.occurredAt),
 }));

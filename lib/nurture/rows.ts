@@ -151,3 +151,70 @@ export function activeSignalsSql(): SQL {
 }
 
 export { iso as isoOf, str as strOf };
+
+/* ------------------------------------------------ the cockpit (28 Sep 2026) */
+
+/**
+ * Enrol `ids` into one programme as QUEUED — waiting for the warm-up to
+ * release them — with a timeline entry each, in one statement. Shared by
+ * Luis's Enrol button (nurture.server.ts, after its staff check and fresh
+ * re-classify) and the automatic morning enrolment (sync.server.ts, after its
+ * own fresh classify), so the two can never write different rows.
+ * ON CONFLICT DO NOTHING covers both unique rules: never the same programme
+ * twice, never two active programmes.
+ */
+export function enrolQueuedSql(p: { program: string; listId: string; ids: string[]; by: string; subject: string }): SQL {
+  return sql`
+    WITH ins AS (
+      INSERT INTO nurture_enrollments (contact_id, program, enrolled_by, klaviyo_list_id, sync_state)
+      SELECT x, ${p.program}, ${p.by}, ${p.listId}, 'queued'
+      FROM unnest(${uuidArray(p.ids)}) AS x
+      ON CONFLICT DO NOTHING
+      RETURNING id, contact_id
+    ), act AS (
+      INSERT INTO activities (contact_id, kind, source, subject, dedup_key)
+      SELECT contact_id, 'automation', 'nurture', ${p.subject}, 'nurture:in:' || id::text
+      FROM ins
+      ON CONFLICT (dedup_key) DO NOTHING
+    )
+    SELECT count(*)::int AS n FROM ins
+  `;
+}
+
+/**
+ * How many people were released to Klaviyo today (New York day `today`), and
+ * on how many earlier days in the last 30 a release happened — the warm-up's
+ * position (lib/nurture/cockpit.ts dailyCap). Measured against the caller's
+ * `now`, the same instant the release decision uses, not the database clock.
+ */
+export function releaseCountsSql(today: string, now: Date): SQL {
+  return sql`
+    SELECT
+      count(*) FILTER (WHERE (released_at AT TIME ZONE 'America/New_York')::date = ${today}::date)::int AS released_today,
+      count(DISTINCT (released_at AT TIME ZONE 'America/New_York')::date)
+        FILTER (WHERE (released_at AT TIME ZONE 'America/New_York')::date < ${today}::date
+                  AND released_at >= ${now.toISOString()}::timestamptz - interval '30 days')::int AS prior_release_days
+    FROM nurture_enrollments
+    WHERE released_at IS NOT NULL
+  `;
+}
+
+/**
+ * Nurture email events of each kind in the last `days` before `now` — the
+ * deliverability guard's input — or since Luis last resumed sending, if that
+ * is more recent: a week of old bounces must not re-pause the moment he
+ * resumes after fixing the cause.
+ */
+export function healthCountsSql(days: number, now: Date): SQL {
+  return sql`
+    SELECT
+      count(*) FILTER (WHERE kind = 'sent')::int AS sent,
+      count(*) FILTER (WHERE kind = 'bounce')::int AS bounce,
+      count(*) FILTER (WHERE kind = 'spam')::int AS spam,
+      count(*) FILTER (WHERE kind = 'unsub')::int AS unsub
+    FROM nurture_events
+    WHERE occurred_at >= GREATEST(
+      ${now.toISOString()}::timestamptz - make_interval(days => ${days}),
+      COALESCE((SELECT health_since FROM nurture_control WHERE id = 1), '-infinity'::timestamptz))
+  `;
+}

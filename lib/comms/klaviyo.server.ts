@@ -2,11 +2,15 @@
  * The Klaviyo HTTP client for lead nurturing. Talks to Klaviyo and nothing
  * else: reads no table, writes no table, logs nothing.
  *
- * Four calls, and only four:
+ * Eight calls, and only eight:
  *   upsertProfile   POST /api/profile-import — create or update one person
  *   addToList       POST   /api/lists/{id}/relationships/profiles
  *   removeFromList  DELETE /api/lists/{id}/relationships/profiles
  *   listMembers     GET    /api/lists/{id}/profiles (+ their consent)
+ *   getFlow         GET    /api/flows/{id} with its definition   (28 Sep 2026)
+ *   setFlowStatus   PATCH  /api/flows/{id} — live or draft, nothing else
+ *   listEvents      GET    /api/events — READ ONLY; this client never creates an event
+ *   renderTemplate  POST   /api/template-render — a preview; sends nothing
  *
  * IT CANNOT SUBSCRIBE ANYONE. There is no call here to Klaviyo's subscribe,
  * unsuppress or consent endpoints, and guards.regress.ts §14 fails the build
@@ -15,9 +19,13 @@
  * exactly the call this module refuses to make. Consent flows INBOUND only
  * (CLAUDE.md): Klaviyo tells Lending OS who unsubscribed, never the reverse.
  *
- * Key: KLAVIYO_PRIVATE_KEY (Vercel, Production). Scopes needed: profiles:read,
- * profiles:write, lists:read, lists:write. Nothing else. No key = not
- * configured, and the sync does nothing rather than failing loudly every run.
+ * Key: KLAVIYO_PRIVATE_KEY (Vercel, Production). Scopes: profiles:read/write,
+ * lists:read/write (since 26 Sep 2026), and for the cockpit (28 Sep 2026)
+ * flows:read/write, events:read, metrics:read, templates:read. A key missing
+ * the new scopes still adds and removes people; Klaviyo answers the flow,
+ * event and preview calls with 403 and the page says which permission is
+ * missing. No key = not configured, and the sync does nothing rather than
+ * failing loudly every run.
  *
  * Imported by lib/nurture/sync.server.ts only.
  */
@@ -40,7 +48,7 @@ export function klaviyoKey(): string | null {
 
 type Answer = { status: number; json: Record<string, unknown> | null; retryAfter: number | null };
 
-async function call(key: string, path: string, init: { method: "GET" | "POST" | "DELETE"; body?: unknown }): Promise<Answer> {
+async function call(key: string, path: string, init: { method: "GET" | "POST" | "DELETE" | "PATCH"; body?: unknown }): Promise<Answer> {
   try {
     const res = await fetch(`${API}${path}`, {
       method: init.method,
@@ -77,6 +85,9 @@ function reason(a: Answer): string {
   const detail = typeof e?.detail === "string" ? e.detail.slice(0, 120) : "";
   return `Klaviyo ${a.status}${code ? ` ${code}` : ""}${detail ? `: ${detail}` : ""}`;
 }
+
+/** True when Klaviyo refused for a missing permission (the key predates the cockpit scopes). */
+export const isScopeError = (error: string) => /refused the API key/.test(error);
 
 export type Result<T> = ({ ok: true } & T) | { ok: false; error: string; retryable: boolean };
 const fail = (a: Answer): { ok: false; error: string; retryable: boolean } => ({
@@ -152,4 +163,70 @@ export async function listMembers(key: string, listId: string, maxPages = 30): P
     path = typeof next === "string" && next.startsWith(`${API}/`) ? next.slice(API.length) : null;
   }
   return { ok: true, members, complete: path === null };
+}
+
+/* ------------------------------------------------ the cockpit (28 Sep 2026) */
+
+/** One flow with its definition: status, trigger, filter, emails and waits. The raw JSON; lib/nurture/cockpit.ts parses it. */
+export async function getFlow(key: string, flowId: string): Promise<Result<{ json: unknown }>> {
+  const a = await call(key, `/flows/${encodeURIComponent(flowId)}?additional-fields%5Bflow%5D=definition`, { method: "GET" });
+  return a.status === 200 && a.json ? { ok: true, json: a.json } : fail(a);
+}
+
+/**
+ * Switch a flow on (live) or off (draft). Klaviyo applies the status to the
+ * flow and every email in it. "manual" is deliberately not offered: it parks
+ * every send waiting for approval inside Klaviyo, which is exactly the screen
+ * Luis does not use.
+ */
+export async function setFlowStatus(key: string, flowId: string, status: "live" | "draft"): Promise<Result<object>> {
+  const a = await call(key, `/flows/${encodeURIComponent(flowId)}`, {
+    method: "PATCH",
+    body: { data: { type: "flow", id: flowId, attributes: { status } } },
+  });
+  return a.status === 200 ? { ok: true } : fail(a);
+}
+
+export type KlaviyoEvent = { id: string; datetime: string | null; profileId: string | null; properties: Record<string, unknown> };
+
+/** Klaviyo's filter wants an offset, not "Z". */
+const klaviyoTime = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "+00:00");
+
+/**
+ * Events of one metric since `since`, oldest first, 200 a page. READ ONLY.
+ * `complete` is false when the page cap stopped the read, so the caller must
+ * not move its cursor past what it has not seen.
+ */
+export async function listEvents(key: string, metricId: string, since: Date, maxPages = 10): Promise<Result<{ events: KlaviyoEvent[]; complete: boolean }>> {
+  const filter = `and(equals(metric_id,"${metricId.replace(/[^A-Za-z0-9]/g, "")}"),greater-than(datetime,${klaviyoTime(since)}))`;
+  let path: string | null = `/events?filter=${encodeURIComponent(filter)}&sort=datetime&page%5Bsize%5D=200`;
+  const events: KlaviyoEvent[] = [];
+  for (let page = 0; path && page < maxPages; page++) {
+    const a = await call(key, path, { method: "GET" });
+    if (a.status !== 200) return fail(a);
+    for (const d of Array.isArray(a.json?.data) ? (a.json!.data as Record<string, unknown>[]) : []) {
+      const attrs = (d.attributes ?? {}) as { datetime?: unknown; event_properties?: unknown };
+      const rel = (d.relationships ?? {}) as { profile?: { data?: { id?: unknown } } };
+      if (typeof d.id !== "string") continue;
+      events.push({
+        id: d.id,
+        datetime: typeof attrs.datetime === "string" ? attrs.datetime : null,
+        profileId: typeof rel.profile?.data?.id === "string" ? rel.profile.data.id : null,
+        properties: attrs.event_properties && typeof attrs.event_properties === "object" ? (attrs.event_properties as Record<string, unknown>) : {},
+      });
+    }
+    const next = (a.json?.links as { next?: unknown } | undefined)?.next;
+    path = typeof next === "string" && next.startsWith(`${API}/`) ? next.slice(API.length) : null;
+  }
+  return { ok: true, events, complete: path === null };
+}
+
+/** Render one template for a sample person. Returns HTML; sends nothing to anyone. */
+export async function renderTemplate(key: string, templateId: string, context: Record<string, unknown>): Promise<Result<{ html: string }>> {
+  const a = await call(key, "/template-render", {
+    method: "POST",
+    body: { data: { type: "template", id: templateId, attributes: { context } } },
+  });
+  const html = (a.json?.data as { attributes?: { html?: unknown } } | undefined)?.attributes?.html;
+  return (a.status === 200 || a.status === 201) && typeof html === "string" ? { ok: true, html } : fail(a);
 }

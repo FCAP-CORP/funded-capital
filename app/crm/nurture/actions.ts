@@ -4,11 +4,13 @@ import { after } from "next/server";
 import { revalidatePath } from "next/cache";
 import { assertCrmStaff, signedInUser } from "@/lib/crm/access";
 import { parseContactIds, programByKey } from "@/lib/nurture/nurture";
-import { enrollInProgram, retryEnrollmentSync, stopEnrollment } from "@/lib/nurture/nurture.server";
-import { drainNurtureSoon } from "@/lib/nurture/sync.server";
+import { parseMode, MODE_LABEL } from "@/lib/nurture/cockpit";
+import { enrollInProgram, retryEnrollmentSync, setPaused, setProgramMode, stopEnrollment } from "@/lib/nurture/nurture.server";
+import { drainNurtureSoon, refreshFromKlaviyo, switchFlow } from "@/lib/nurture/sync.server";
 
 /**
- * The three buttons on /crm/nurture.
+ * The buttons on /crm/nurture: enrol, stop, try again, and the cockpit's
+ * mode switch, emails on/off, pause/resume and refresh.
  *
  * Each asserts staff first (guards.regress.ts §2) — an action is its own
  * endpoint — and the data layer asserts again. Each refreshes /crm/nurture and
@@ -38,7 +40,7 @@ export async function enrollAction(program: string, contactIds: unknown): Promis
 
   if (r.enrolled === 0) return { ok: false, error: "Nobody was added — they no longer qualify (someone got in touch, a deal started, or they are already in)." };
   const skipped = r.skipped > 0 ? ` ${r.skipped} skipped because they no longer qualify.` : "";
-  return { ok: true, message: `Added ${r.enrolled} to ${p.name}.${skipped}` };
+  return { ok: true, message: `Added ${r.enrolled} to ${p.name}. They're queued and go out on weekday mornings, within the warm-up limit, while this programme's emails are on.${skipped}` };
 }
 
 export async function stopAction(enrollmentId: string): Promise<NurtureActionResult> {
@@ -58,4 +60,52 @@ export async function retryAction(enrollmentId: string): Promise<NurtureActionRe
   revalidatePath(HERE);
   if (ok) after(() => drainNurtureSoon());
   return ok ? { ok: true, message: "Trying Klaviyo again." } : { ok: false, error: "Nothing to retry." };
+}
+
+/* ------------------------------------------------------------- cockpit */
+
+export async function setModeAction(program: string, mode: string): Promise<NurtureActionResult> {
+  await assertCrmStaff();
+  const p = programByKey(program);
+  const m = parseMode(mode);
+  if (!p || !m) return { ok: false, error: "Pick a programme and a mode." };
+  const me = await signedInUser();
+  const ok = await setProgramMode({ program: p.key, mode: m, by: me?.id ?? "staff" });
+  revalidatePath(HERE);
+  if (!ok) return { ok: false, error: "Not saved. Has migration 0016 run?" };
+  return {
+    ok: true,
+    message: m === "auto"
+      ? `${p.name}: ${MODE_LABEL.auto}. Every weekday morning, everyone who qualifies is queued.`
+      : `${p.name}: ${MODE_LABEL.review}. Only the people you tick are added.`,
+  };
+}
+
+/** Switch a programme's emails on or off. Reaches Klaviyo, so it goes through the sync module. */
+export async function setFlowAction(program: string, on: boolean): Promise<NurtureActionResult> {
+  await assertCrmStaff();
+  const p = programByKey(program);
+  if (!p || typeof on !== "boolean") return { ok: false, error: "Pick a programme." };
+  const r = await switchFlow(p.key, on);
+  revalidatePath(HERE);
+  if (r.ok && on) after(() => drainNurtureSoon());
+  return r;
+}
+
+export async function pauseAction(paused: boolean): Promise<NurtureActionResult> {
+  await assertCrmStaff();
+  if (typeof paused !== "boolean") return { ok: false, error: "Not saved." };
+  const me = await signedInUser();
+  const ok = await setPaused({ paused, by: me?.id ?? "staff", now: new Date() });
+  revalidatePath(HERE);
+  if (!ok) return { ok: false, error: "Not saved. Has migration 0016 run?" };
+  if (!paused) after(() => drainNurtureSoon());
+  return { ok: true, message: paused ? "Paused. Nobody new goes to Klaviyo until you resume." : "Resumed. Sending picks up on the next weekday morning window." };
+}
+
+export async function refreshAction(): Promise<NurtureActionResult> {
+  await assertCrmStaff();
+  const r = await refreshFromKlaviyo();
+  revalidatePath(HERE);
+  return r;
 }

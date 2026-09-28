@@ -1177,8 +1177,17 @@ console.log("\n=== 14. Nurture: cron secret first, Klaviyo can never subscribe, 
 
   if (kcSrc) {
     const code = codeOnly(kcSrc);
-    const forbidden = code.match(/profile-subscription|subscription-bulk|\/subscribe|unsuppress|suppression-bulk|push-token|\/events\b|"subscriptions"\s*:/gi) ?? [];
+    const forbidden = code.match(/profile-subscription|subscription-bulk|\/subscribe|unsuppress|suppression-bulk|push-token|"subscriptions"\s*:/gi) ?? [];
     check(`  ${KC} has no subscribe / unsuppress / consent call`, forbidden.length === 0, forbidden.length ? `**FOUND ${forbidden.join(", ")}**` : "none");
+    // Events are READ for the cockpit (28 Sep 2026). Creating one could fire a
+    // flow at anyone, so /events may appear once, inside listEvents, as a GET.
+    const eventPaths = code.match(/[`"]\/events/g) ?? [];
+    const le = fnBody(code, "listEvents") ?? "";
+    check("  ...reads events and never creates one", eventPaths.length === 1 && /[`"]\/events/.test(le) && /method:\s*"GET"/.test(le) && !/"POST"/.test(le), `${eventPaths.length} /events path(s)`);
+    // The one write to a flow: its status, live or draft, nothing else.
+    const patches = (code.match(/method:\s*"PATCH"/g) ?? []).length;
+    const sf = fnBody(code, "setFlowStatus") ?? "";
+    check("  ...PATCHes only a flow's status, to live or draft", patches === 1 && /method:\s*"PATCH"/.test(sf) && /\/flows\//.test(sf) && /status:\s*"live"\s*\|\s*"draft"/.test(code) && /attributes:\s*\{\s*status\s*\}/.test(sf), `${patches} PATCH call(s)`);
     check("  ...is server-only", /^\s*import\s+"server-only";/m.test(kcSrc), "server-only");
     check("  ...never logs (keys and addresses leak through logs)", !/\bconsole\.\w+\(/.test(code), "no console");
     check("  ...reads no table", !/from\s+"@\/lib\/db/.test(kcSrc), "no db import");
@@ -1190,8 +1199,15 @@ console.log("\n=== 14. Nurture: cron secret first, Klaviyo can never subscribe, 
     const consentWrites = code.match(/email_subscribed\s*=\s*\w+/g) ?? [];
     check(`  ${SYNC} writes email_subscribed only as false`, consentWrites.length >= 1 && consentWrites.every((w) => /=\s*false$/.test(w)), consentWrites.join(" | ") || "**NO MIRROR?**");
     check("  ...touches no other consent column", !/sms_consent|sms_opted_out|smsConsent|smsOptedOut|emailSubscribed:\s*true/.test(code), "clean");
-    const tables = [...new Set((code.match(/(?:INSERT INTO|(?<!FOR )UPDATE)\s+(\w+)/g) ?? []).map((m) => m.split(/\s+/).pop()))].sort();
-    check("  ...writes only nurture_enrollments, activities and contacts", JSON.stringify(tables) === JSON.stringify(["activities", "contacts", "nurture_enrollments"]), tables.join(", "));
+    const tables = [...new Set((code.match(/(?:INSERT INTO|(?<!FOR |DO )UPDATE)\s+(\w+)/g) ?? []).map((m) => m.split(/\s+/).pop()))].sort();
+    const allowed = ["activities", "contacts", "nurture_control", "nurture_enrollments", "nurture_events", "nurture_programs"];
+    check("  ...writes only its own tables, activities and contacts", tables.every((t) => allowed.includes(t!)) && tables.includes("nurture_enrollments"), tables.join(", "));
+    check("  ...never records a nurture email as contact (it would reset the quiet clock and stop the programme)", !/email_out|sms_out|'call'/.test(code), "no contact kinds");
+    const relBody = fnBody(code, "releaseQueued") ?? "";
+    check("  ...releases only to flows confirmed live, through the warm-up plan", /flowIsLive\(/.test(relBody) && /planRelease\(/.test(relBody) && /sync_state = 'queued'/.test(relBody), "flow live + plan");
+    const ae = fnBody(code, "autoEnroll") ?? "";
+    check("  ...auto-enrols on a fresh classify, only live Automatic programmes, in the window", /classify\(/.test(ae) && /flowIsLive\(/.test(ae) && /mode === "auto"/.test(ae) && /inReleaseWindow\(/.test(ae), "fresh + live + auto + window");
+    check("  ...the deliverability guard can only ever pause", /SET paused = true/.test(fnBody(code, "applyDeliverabilityGuard") ?? "") && !/SET\s+paused\s*=\s*false/.test(code), "pause only");
     check("  ...runs the auto-stop before any Klaviyo call", (fnBody(code, "runNurtureSync") ?? "").search(/applyAutoStops\(/) >= 0 && (fnBody(code, "runNurtureSync") ?? "").search(/applyAutoStops\(/) < (fnBody(code, "runNurtureSync") ?? "").search(/drain\(/), "stops first");
     check("  ...re-checks consent on a fresh read before adding anyone", /person\.emailSubscribed === false/.test(code), "fresh read");
     check("  ...never uses db.transaction", !/\.transaction\(/.test(code), "db.batch");
@@ -1201,6 +1217,12 @@ console.log("\n=== 14. Nurture: cron secret first, Klaviyo can never subscribe, 
     const n = (code.match(/revalidatePath\(/g) ?? []).length;
     check(`  ${ACT} refreshes only /crm/nurture`, /const HERE = "\/crm\/nurture"/.test(code) && (code.match(/revalidatePath\(HERE\)/g) ?? []).length === n, `${n} refresh call(s)`);
   }
+  // The two sync exports that reach Klaviyo for a person pressing a button must be behind the staff actions.
+  for (const fn of ["switchFlow", "refreshFromKlaviyo"]) {
+    const users = allSource.filter((f) => rel(f) !== SYNC && new RegExp(`\\b${fn}\\b`).test(codeOnly(readFileSync(f, "utf8")))).map(rel);
+    check(`${fn} is called only from ${ACT}`, users.length === 1 && users[0] === ACT, users.join(", ") || "**UNUSED**");
+  }
+  check("enrolment always starts queued (the warm-up decides when Klaviyo hears)", /sync_state\)\s*\n?\s*SELECT x, \$\{p\.program\}, \$\{p\.by\}, \$\{p\.listId\}, 'queued'/.test(readOr("lib/nurture/rows.ts")) && !/INSERT INTO nurture_enrollments/.test(codeOnly(readOr("lib/nurture/nurture.server.ts"))) && !/INSERT INTO nurture_enrollments/.test(codeOnly(readOr(SYNC))), "queued");
   const kcImporters = importersOf(/(^|\/)klaviyo\.server$/);
   check("the Klaviyo client is imported by the nurture sync and nothing else", kcImporters.length === 1 && kcImporters[0] === SYNC, kcImporters.join(", ") || "**NOT IMPORTED**");
   const talksToKlaviyo = allSource.filter((f) => rel(f) !== KC && /a\.klaviyo\.com\/api/.test(codeOnly(readFileSync(f, "utf8")))).map(rel);

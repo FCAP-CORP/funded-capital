@@ -50,6 +50,13 @@ export type Program = {
   klaviyoListId: string;
   klaviyoListName: string;
   /**
+   * The Klaviyo flow that emails this list ("Added to list" trigger, filter
+   * "is in <this list>"). Lending OS reads its status and emails, can switch
+   * it on or off, and releases nobody to the list while it is not live — a
+   * list-triggered flow only catches people added after it goes live.
+   */
+  klaviyoFlowId: string;
+  /**
    * Whether the Ready list starts ticked. False for the old spreadsheet
    * contacts: Luis said that pool is a mix, so every person is a deliberate tick.
    */
@@ -84,6 +91,7 @@ export const PROGRAMS: readonly Program[] = [
     who: `Funded with us ${PAST_BORROWER_MIN_DAYS / 30}+ months ago, nothing in progress now.`,
     what: "A check-in about their next project, then a note every month or so.",
     klaviyoListId: "WwZmFn",
+    klaviyoFlowId: "SQQjV4",
     klaviyoListName: "Lending OS · Past borrowers",
     preselect: true,
   },
@@ -93,6 +101,7 @@ export const PROGRAMS: readonly Program[] = [
     who: `Came from BiggerPockets, never got a term sheet, quiet ${QUIET_DAYS}+ days.`,
     what: "A short series on how our loans work, then a note every month or so.",
     klaviyoListId: "VYBzq9",
+    klaviyoFlowId: "WSv8R7",
     klaviyoListName: "Lending OS · BiggerPockets, no term sheet",
     preselect: true,
   },
@@ -102,6 +111,7 @@ export const PROGRAMS: readonly Program[] = [
     who: `Asked about a loan, nothing in progress, nobody in touch for ${QUIET_DAYS}+ days.`,
     what: "A short series picking the conversation back up, then a note every month or so.",
     klaviyoListId: "Yq4vxf",
+    klaviyoFlowId: "TWFaDN",
     klaviyoListName: "Lending OS · Quiet leads",
     preselect: true,
   },
@@ -111,6 +121,7 @@ export const PROGRAMS: readonly Program[] = [
     who: `Marked Closed – Lost ${LOST_MIN_DAYS}+ days ago (not duplicates or not-a-fit).`,
     what: "A light touch — what's changed since, and an open door — then a note every few months.",
     klaviyoListId: "SW9AEq",
+    klaviyoFlowId: "YqFvfY",
     klaviyoListName: "Lending OS · Lost deals",
     preselect: true,
   },
@@ -120,6 +131,7 @@ export const PROGRAMS: readonly Program[] = [
     who: `In your contacts but never sent us a deal; nobody in touch for ${QUIET_DAYS}+ days.`,
     what: "A short introduction to how we lend, then a note every month or so.",
     klaviyoListId: "S2b2zL",
+    klaviyoFlowId: "UTRYvx",
     klaviyoListName: "Lending OS · Investor contacts",
     preselect: false,
   },
@@ -518,7 +530,12 @@ export function profilePayload(
 
 /* ---------------------------------------------------------------- syncing */
 
-export type SyncState = "pending_add" | "added" | "pending_remove" | "removed";
+/**
+ * `queued` (0016): enrolled, waiting for the warm-up to release them to
+ * Klaviyo (lib/nurture/cockpit.ts). Never reached Klaviyo, so stopping a
+ * queued row needs no removal call.
+ */
+export type SyncState = "queued" | "pending_add" | "added" | "pending_remove" | "removed";
 
 /** After this many failures a row stops retrying and the page offers "Try again". */
 export const MAX_SYNC_ATTEMPTS = 8;
@@ -532,10 +549,11 @@ export function retryDelayMinutes(attempts: number): number {
 /** Where a stopped enrolment's Klaviyo state goes. A row never added needs no removal call — but
  *  one mid-add might land, so anything not already "removed" is removed. */
 export function stateAfterStop(state: SyncState): SyncState {
-  return state === "removed" ? "removed" : "pending_remove";
+  return state === "removed" || state === "queued" ? "removed" : "pending_remove";
 }
 
 export const SYNC_LABEL: Record<SyncState, string> = {
+  queued: "Waiting to send",
   pending_add: "Queued for Klaviyo",
   added: "In Klaviyo",
   pending_remove: "Removing from Klaviyo",
@@ -584,6 +602,8 @@ export type ProgramSummary = {
   key: ProgramKey;
   ready: number;
   active: number;
+  /** Of the active: still waiting for the warm-up to release them. */
+  queued: number;
   /** Stopped, by reason. */
   stopped: Partial<Record<StopReason, number>>;
   wins: number;
@@ -622,6 +642,7 @@ export function summarize(
       key: p.key,
       ready: candidates[p.key].length,
       active: rows.filter((e) => e.status === "active").length,
+      queued: rows.filter((e) => e.status === "active" && e.syncState === "queued").length,
       stopped,
       wins: WIN_REASONS.reduce((n, r) => n + (stopped[r] ?? 0), 0),
       syncFailed: rows.filter((e) => e.syncAttempts >= MAX_SYNC_ATTEMPTS && (e.syncState === "pending_add" || e.syncState === "pending_remove")).length,

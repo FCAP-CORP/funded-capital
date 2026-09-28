@@ -3,6 +3,7 @@ import { cardClass } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { compactMoney } from "@/lib/crm/dashboardView";
 import type { SourceGroup } from "@/lib/crm/dashboardView";
+import type { NurtureReportLine } from "@/lib/nurture/cockpit";
 import {
   RANGES, RANGE_LABEL, SOURCE_LABEL_SHORT, durationLabel, niceMax, pctLabel,
   type RangeKey, type ReportsModel, type TrendBucket,
@@ -423,5 +424,64 @@ export function ReportsBody({ m }: { m: ReportsModel }) {
         <Lost m={m} />
       </div>
     </div>
+  );
+}
+
+/* --------------------------------------------------------------- nurture */
+
+/**
+ * What the Klaviyo nurture programmes produced, for people released to
+ * Klaviyo in the period. Server-rendered table, no client JavaScript.
+ */
+export function NurtureReport({ r, periodLabel }: { r: { lines: NurtureReportLine[]; total: NurtureReportLine | null }; periodLabel: string }) {
+  const th = "px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.08em] text-slate-500";
+  const td = "whitespace-nowrap px-3 py-2.5 tabular-nums";
+  const rows = r.total ? [...r.lines.filter((l) => l.released > 0), r.total] : [];
+  return (
+    <section aria-labelledby="nur-h" className={card}>
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 id="nur-h" className={h2}>Nurture emails</h2>
+        <span className={quiet}>people sent to Klaviyo {periodLabel.toLowerCase()}</span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-sm text-slate-600">Nobody was sent to a nurture programme in this period.</p>
+      ) : (
+        <div className="-mx-5 overflow-x-auto">
+          <table className="w-full min-w-[720px] border-collapse text-[13px]">
+            <thead className="border-b border-slate-200">
+              <tr>
+                <th scope="col" className={`${th} pl-5`}>Programme</th>
+                <th scope="col" className={`${th} text-right`}>People</th>
+                <th scope="col" className={`${th} text-right`}>Emailed</th>
+                <th scope="col" className={`${th} text-right`}>Opened</th>
+                <th scope="col" className={`${th} text-right`}>Clicked</th>
+                <th scope="col" className={`${th} text-right`}>Replied</th>
+                <th scope="col" className={`${th} text-right`}>New deal ≤ 90 days</th>
+                <th scope="col" className={`${th} pr-5 text-right`}>Unsubscribed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((l) => (
+                <tr key={l.key} className={`border-b border-slate-100 last:border-0 ${l.key === "all" ? "bg-slate-50 font-semibold" : ""}`}>
+                  <th scope="row" className={`${td} pl-5 text-left font-semibold text-navy-900`}>{l.name}</th>
+                  <td className={`${td} text-right`}>{n(l.released)}</td>
+                  <td className={`${td} text-right`}>{n(l.reached)}</td>
+                  <td className={`${td} text-right`}>{pctLabel(l.openPct)}</td>
+                  <td className={`${td} text-right`}>{pctLabel(l.clickPct)}</td>
+                  <td className={`${td} text-right`}>{n(l.replied)}</td>
+                  <td className={`${td} text-right font-semibold text-navy-900`}>{n(l.deals)}</td>
+                  <td className={`${td} pr-5 text-right`}>{n(l.unsubscribed)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className={note}>
+        Opened and clicked are shares of people emailed at least once. Apple Mail&apos;s automatic opens are left out where
+        Klaviyo flags them, but opens still run high — clicks and replies are the honest signal. A new deal is any enquiry
+        from that person within 90 days of being sent to Klaviyo.
+      </p>
+    </section>
   );
 }

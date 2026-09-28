@@ -21,6 +21,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { assertCrmStaff } from "@/lib/crm/access";
 import type { ReportRow } from "./reports";
+import type { NurtureReportRow } from "@/lib/nurture/cockpit";
 
 type Row = Record<string, unknown>;
 const rowsOf = (r: unknown): Row[] => (r as { rows?: Row[] }).rows ?? (r as Row[]);
@@ -106,5 +107,41 @@ export async function getReportRows(): Promise<ReportRow[]> {
     fundedAt: iso(r.funded_at),
     lostAt: iso(r.lost_at),
     lostReason: str(r.lost_reason),
+  }));
+}
+
+/**
+ * One row per person released to a nurture programme: what Klaviyo reported
+ * (emails sent, opened, clicked — counts only), how it ended, and whether an
+ * enquiry arrived within 90 days of release. No names, no emails, no subjects.
+ */
+export async function getNurtureReportRows(): Promise<NurtureReportRow[]> {
+  await assertCrmStaff();
+  const result = await db.execute(sql`
+    SELECT
+      e.program, e.released_at, e.status, e.stop_reason,
+      count(ne.id) FILTER (WHERE ne.kind = 'sent')::int AS sent,
+      count(ne.id) FILTER (WHERE ne.kind = 'open')::int AS opened,
+      count(ne.id) FILTER (WHERE ne.kind = 'click')::int AS clicked,
+      EXISTS (
+        SELECT 1 FROM applications a
+        WHERE a.id IN (SELECT p.application_id FROM participants p WHERE p.contact_id = e.contact_id)
+          AND COALESCE(a.submitted_at, a.created_at) > e.released_at
+          AND COALESCE(a.submitted_at, a.created_at) <= e.released_at + interval '90 days'
+      ) AS deal_within_90
+    FROM nurture_enrollments e
+    LEFT JOIN nurture_events ne ON ne.enrollment_id = e.id
+    WHERE e.released_at IS NOT NULL
+    GROUP BY e.id
+  `);
+  return rowsOf(result).map((r): NurtureReportRow => ({
+    program: String(r.program),
+    releasedAt: iso(r.released_at),
+    status: r.status === "stopped" ? "stopped" : "active",
+    stopReason: str(r.stop_reason),
+    sent: Number(r.sent ?? 0),
+    opened: Number(r.opened ?? 0),
+    clicked: Number(r.clicked ?? 0),
+    dealWithin90: r.deal_within_90 === true || r.deal_within_90 === "t",
   }));
 }

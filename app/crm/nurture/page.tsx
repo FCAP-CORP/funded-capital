@@ -48,7 +48,7 @@ export default function NurturePage({
     <main className="mx-auto flex max-w-[1400px] flex-col px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
       <PageHeader
         title="Nurture"
-        description="Klaviyo email programmes for leads who went quiet. You choose who goes in; a reply, a new deal or an unsubscribe takes them out on its own."
+        description="Email programmes for leads who went quiet, run from here: switch them on, choose who goes in, see what they send and what came back. A reply, a new deal or an unsubscribe takes someone out on its own."
       />
       <Suspense fallback={<NurtureSkeleton />}>
         <NurtureContent searchParams={searchParams} />

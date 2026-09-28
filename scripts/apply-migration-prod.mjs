@@ -35,6 +35,7 @@ import { stdin, stdout } from "node:process";
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import { sql as raw } from "drizzle-orm";
+import { offencesIn } from "./migration-safety.mjs";
 
 const ROOT = process.cwd();
 /**
@@ -129,18 +130,7 @@ log(`- **This machine normally uses:** \`${currentUrl ? hostOf(currentUrl) : "(u
 const MIGRATIONS = readdirSync(join(ROOT, "drizzle"))
   .filter((f) => f.endsWith(".sql")).sort().map((f) => join("drizzle", f));
 
-/**
- * Patterns that can lose data or break a live site mid-deploy. Deliberately
- * blunt: this refuses rather than tries to judge intent, because the cost of a
- * wrong judgement here is borrower records.
- */
-const FORBIDDEN = [
-  [/\bDROP\s+(TABLE|COLUMN|TYPE|SCHEMA|DATABASE|CONSTRAINT|INDEX)\b/i, "DROP"],
-  [/\bTRUNCATE\b/i, "TRUNCATE"],
-  [/\bDELETE\s+FROM\b/i, "DELETE"],
-  [/\bRENAME\s+(TO|COLUMN)\b/i, "RENAME"],
-  [/\bALTER\s+COLUMN\b[\s\S]*?\bSET\s+NOT\s+NULL\b/i, "SET NOT NULL on an existing column"],
-];
+/* The rules (and their one narrow exception) live in scripts/migration-safety.mjs. */
 
 const statementsByFile = new Map();
 const offences = [];
@@ -151,11 +141,7 @@ for (const m of MIGRATIONS) {
     .map((s) => s.trim().replace(/;$/, "").trim())
     .filter(Boolean);
   statementsByFile.set(m, stmts);
-  for (const s of stmts) {
-    for (const [re, name] of FORBIDDEN) {
-      if (re.test(s)) offences.push({ file: m, name, snippet: s.replace(/\s+/g, " ").slice(0, 100) });
-    }
-  }
+  for (const o of offencesIn(stmts)) offences.push({ file: m, ...o });
 }
 
 const total = [...statementsByFile.values()].reduce((n, a) => n + a.length, 0);
@@ -176,7 +162,8 @@ if (offences.length) {
 
 log();
 log("Every statement is additive — no DROP, TRUNCATE, DELETE, RENAME or");
-log("SET NOT NULL. Safe to apply to a live database.");
+log("SET NOT NULL (a CHECK rule replaced in the same file is allowed: it cannot");
+log("remove data). Safe to apply to a live database.");
 
 /* ---- row counts, before -------------------------------------------------- */
 const db = drizzle(neon(prodUrl));

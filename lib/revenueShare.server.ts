@@ -45,6 +45,32 @@ import {
  */
 const REVALIDATE_SECONDS = 1800;
 
+/**
+ * The endpoint URL, cleaned of what copy-and-paste adds.
+ *
+ * Verified against the live endpoint: a trailing SPACE, a trailing SLASH, or a
+ * zero-width character each turns a working /exec URL into an HTTP 404, and
+ * none of them are visible when you look at the value in a settings page. That
+ * cost an outage nobody could see the cause of — the URL in Vercel was, to the
+ * eye, character-for-character correct.
+ *
+ * A trailing newline happens to be tolerated by Google, which makes the failure
+ * even less predictable. So this does not trust any of it.
+ */
+function endpointUrl(): string {
+  const raw = process.env.PARTICIPANT_WEBAPP_URL ?? "";
+  return raw
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")  // zero-width and BOM
+    .trim()
+    .replace(/\/+$/, "");                     // /exec/ is not /exec
+}
+
+/** Secrets get the same treatment: a trailing space fails the comparison. */
+function cleanSecret(value: string | undefined): string {
+  return (value ?? "").replace(/[\u200B-\u200D\uFEFF]/g, "").trim();
+}
+
+
 interface RawPacket {
   /** Every row carrying this email — one per participation. */
   participants?: ParticipantRecord[];
@@ -76,8 +102,8 @@ async function callScript<T>(
   params: Record<string, string>,
   opts: { cache?: boolean } = {}
 ): Promise<FetchOutcome<T>> {
-  const url = process.env.PARTICIPANT_WEBAPP_URL;
-  const secret = process.env.PARTICIPANT_WEBAPP_SECRET;
+  const url = endpointUrl();
+  const secret = cleanSecret(process.env.PARTICIPANT_WEBAPP_SECRET);
   if (!url || !secret) return { ok: false, reason: "unconfigured" };
 
   const qs = new URLSearchParams({ secret, ...params });
@@ -108,6 +134,11 @@ async function callScript<T>(
 
       if (!res.ok) {
         detail = `HTTP ${res.status} ${res.statusText}`.trim();
+        if (res.status === 404) {
+          detail +=
+            " — the /exec URL did not resolve. Check PARTICIPANT_WEBAPP_URL for a " +
+            "stray character, and that the Apps Script deployment still exists.";
+        }
       } else {
         const text = await res.text();
         try {
@@ -274,8 +305,8 @@ export const getBook = cache(loadBook);
 async function callWrite(
   payload: Record<string, unknown>
 ): Promise<FetchOutcome<{ message: string; [key: string]: unknown }>> {
-  const url = process.env.PARTICIPANT_WEBAPP_URL;
-  const secret = process.env.PARTICIPANT_WEBAPP_WRITE_SECRET;
+  const url = endpointUrl();
+  const secret = cleanSecret(process.env.PARTICIPANT_WEBAPP_WRITE_SECRET);
   if (!url || !secret) return { ok: false, reason: "unconfigured" };
 
   try {
@@ -354,7 +385,7 @@ async function callWrite(
 
 /** True when the write path is configured. Drives whether the panel renders. */
 export function isWriteConfigured(): boolean {
-  return Boolean(process.env.PARTICIPANT_WEBAPP_URL && process.env.PARTICIPANT_WEBAPP_WRITE_SECRET);
+  return Boolean(endpointUrl() && cleanSecret(process.env.PARTICIPANT_WEBAPP_WRITE_SECRET));
 }
 
 export type { AdminState, AwaitingCapital, OutstandingRun } from "./revenueShare";

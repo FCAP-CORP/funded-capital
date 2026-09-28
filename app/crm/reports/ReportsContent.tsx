@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import { isCrmStaff } from "@/lib/crm/access";
-import { getReportRows } from "@/lib/crm/reports.server";
+import { getNurtureReportRows, getReportRows } from "@/lib/crm/reports.server";
 import { buildReports, parseRange, RANGE_LABEL } from "@/lib/crm/reports";
-import { RangePicker, ReportsBody } from "./ReportsView";
+import { nurtureReport } from "@/lib/nurture/cockpit";
+import { NurtureReport, RangePicker, ReportsBody } from "./ReportsView";
 
 /**
  * The part of /crm/reports that depends on the request: the period in the
@@ -15,8 +16,9 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
 
   const range = parseRange((await searchParams).range);
   const now = new Date();
-  const rows = await getReportRows();
+  const [rows, nurtureRows] = await Promise.all([getReportRows(), getNurtureReportRows()]);
   const model = buildReports(rows, range, now);
+  const nurture = nurtureReport(nurtureRows, model.window);
 
   return (
     <div className="flex flex-col gap-5">
@@ -27,6 +29,7 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
         </p>
       </div>
       <ReportsBody m={model} />
+      <NurtureReport r={nurture} periodLabel={model.window.label} />
     </div>
   );
 }
