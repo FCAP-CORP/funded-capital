@@ -157,7 +157,7 @@ async function ProgramBook() {
         s.capitalReturning > 0
           ? `Capital to return — ${money(s.capitalReturning)}`
           : "Capital to return",
-      value: s.paidOffCount,
+      value: s.capitalReturningCount,
       icon: Undo2,
       tone: s.capitalReturnOverdueCount > 0 ? "text-red-600" : s.capitalReturning > 0 ? "text-sky-600" : "text-slate-400",
     },

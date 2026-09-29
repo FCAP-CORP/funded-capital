@@ -192,6 +192,12 @@ export interface BookSummary {
   capitalReturnBy: string | null;
   /** Return deadlines already in the past with no return date recorded. */
   capitalReturnOverdueCount: number;
+  /**
+   * How many payoffs are still waiting on their capital. Not the same as
+   * paidOffCount, which never falls once a loan repays — this one empties as
+   * the returns are recorded, which is what an operator actually wants to see.
+   */
+  capitalReturningCount: number;
 }
 
 /* ------------------------------------------------------------------ */
@@ -422,6 +428,41 @@ export function termProgress(p: ParticipationView, today = todayIso()): number {
  * Fields are listed explicitly rather than spread-and-delete so that a new
  * column added to the tracker cannot silently reach a participant's browser.
  */
+/**
+ * What a participation with no designated loan shows in place of an address.
+ *
+ * Kept here rather than in each page so the three surfaces that render it —
+ * Overview, the participation detail and Documents — cannot drift apart. No
+ * rate, tier or programme name appears in it, so it is safe on the
+ * participant side of toParticipationView().
+ */
+export const DEPLOYMENT_SUMMARY =
+  "Deployed across Funded Capital's active loan portfolio";
+
+/**
+ * Whether this participation is tied to one specific loan.
+ *
+ * Anchor Series capital is deployed across the active loan book rather than
+ * secured against a single property, so those rows carry no loan reference,
+ * no address and no loan size. Older participations do.
+ *
+ * This deliberately reads the absence of loan fields rather than the program
+ * version: programVersion and tier never leave the server, and inferring from
+ * the data keeps it that way. A row that somehow has partial loan detail still
+ * counts as designated, so nothing a participant is entitled to see is hidden.
+ */
+export function hasDesignatedLoan(p: {
+  loanReference?: string;
+  property?: string;
+  designatedLoanSize?: number;
+}): boolean {
+  return Boolean(
+    (p.loanReference || "").trim() ||
+      (p.property || "").trim() ||
+      (p.designatedLoanSize || 0) > 0
+  );
+}
+
 export function toParticipationView(r: ParticipantRecord): ParticipationView {
   return {
     participationId: r.participantId,
@@ -690,10 +731,12 @@ export function summarizeBook(
   let capitalReturning = 0;
   let capitalReturnBy: string | null = null;
   let capitalReturnOverdueCount = 0;
+  let capitalReturningCount = 0;
   for (const r of paidOff) {
     const returned = String(r.capitalReturned || "").slice(0, 10);
     if (/^\d{4}-\d{2}-\d{2}$/.test(returned)) continue;
     capitalReturning += r.capitalContributed || 0;
+    capitalReturningCount += 1;
     const due = String(r.capitalReturnDue || "").slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(due)) continue;
     if (capitalReturnBy === null || due < capitalReturnBy) capitalReturnBy = due;
@@ -724,6 +767,7 @@ export function summarizeBook(
     capitalReturning,
     capitalReturnBy,
     capitalReturnOverdueCount,
+    capitalReturningCount,
   };
 }
 

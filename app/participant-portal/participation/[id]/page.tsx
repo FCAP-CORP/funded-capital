@@ -1,9 +1,11 @@
 import Link from "next/link";
-import { ArrowLeft, Building2 } from "lucide-react";
+import { ArrowLeft, Building2, Layers } from "lucide-react";
 import { getMyParticipationById } from "@/lib/revenueShare.server";
 import {
   capitalReturn,
+  DEPLOYMENT_SUMMARY,
   formatDate,
+  hasDesignatedLoan,
   isPaidOff,
   lockUpCleared,
   money,
@@ -66,6 +68,10 @@ export default async function ParticipationDetailPage({
   const cleared = lockUpCleared(p);
   const paidOff = isPaidOff(p);
   const ret = capitalReturn(p);
+  // Anchor Series capital is not secured against one property, so those rows
+  // carry no loan reference, address or loan size. Showing "$0" and "Property
+  // details pending" would read as missing data rather than as the structure.
+  const designated = hasDesignatedLoan(p);
   const many = packet.participations.length > 1;
 
   return (
@@ -85,7 +91,7 @@ export default async function ParticipationDetailPage({
         title={p.participationId}
         meta={
           <span className="inline-flex items-center gap-3 flex-wrap">
-            <span>{p.property || "Property details pending"}</span>
+            <span>{designated ? p.property || "Property details pending" : DEPLOYMENT_SUMMARY}</span>
             {p.status && <StatusPill label={p.status} className={statusStyle(p.status)} />}
           </span>
         }
@@ -151,18 +157,29 @@ export default async function ParticipationDetailPage({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Loan reference and address only. Borrower identity is confidential
             under the agreement and is never sent to the browser. */}
-        <Panel title="Designated Loan" description="The loan this contribution supports">
+        <Panel
+          title={designated ? "Designated Loan" : "Capital Deployment"}
+          description={
+            designated
+              ? "The loan this contribution supports"
+              : "How this contribution is put to work"
+          }
+        >
           <div className="flex items-start gap-3 mb-3">
             <span className="mt-0.5 h-9 w-9 shrink-0 grid place-items-center rounded-md bg-slate-100 text-slate-500">
-              <Building2 size={17} />
+              {designated ? <Building2 size={17} /> : <Layers size={17} />}
             </span>
             <p className="text-sm font-semibold text-ink leading-snug">
-              {p.property || "Property details pending"}
+              {designated ? p.property || "Property details pending" : DEPLOYMENT_SUMMARY}
             </p>
           </div>
           <dl>
-            <DetailRow label="Loan reference" value={p.loanReference || "—"} mono />
-            <DetailRow label="Loan amount" value={money(p.designatedLoanSize)} mono />
+            {designated && (
+              <>
+                <DetailRow label="Loan reference" value={p.loanReference || "—"} mono />
+                <DetailRow label="Loan amount" value={money(p.designatedLoanSize)} mono />
+              </>
+            )}
             <DetailRow label="Term" value={p.termMonths ? `${p.termMonths} months` : "—"} mono />
           </dl>
         </Panel>
@@ -219,7 +236,7 @@ export default async function ParticipationDetailPage({
         >
           {schedule.length === 0 ? (
             <p className="px-5 py-10 text-center text-sm text-slate-500">
-              The schedule will appear here once this designated loan funds.
+              The schedule will appear here once this contribution is funded.
             </p>
           ) : (
             <div className="overflow-x-auto">

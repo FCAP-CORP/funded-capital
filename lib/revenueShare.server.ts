@@ -320,7 +320,7 @@ async function callWrite(
       // ours to control — measured between 0.9s and 34s for the same call. A
       // button that hangs indefinitely is worse than one that says it timed
       // out, because the second at least tells you to go and check the sheet.
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(45000),
     });
 
     const text = await res.text();

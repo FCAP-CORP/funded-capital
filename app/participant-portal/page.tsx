@@ -1,7 +1,15 @@
 import Link from "next/link";
 import { ArrowRight, ChevronRight, Send } from "lucide-react";
 import { getMyParticipation } from "@/lib/revenueShare.server";
-import { capitalReturn, formatDate, isPaidOff, money, statusStyle } from "@/lib/revenueShare";
+import {
+  capitalReturn,
+  DEPLOYMENT_SUMMARY,
+  formatDate,
+  hasDesignatedLoan,
+  isPaidOff,
+  money,
+  statusStyle,
+} from "@/lib/revenueShare";
 import {
   CapitalReturnNotice,
   Figure,
@@ -153,7 +161,7 @@ export default async function ParticipantOverviewPage() {
         title={many ? "Your Participations" : "Your Participation"}
         description={
           many
-            ? "Each participation supports its own designated loan. Select one for full detail."
+            ? "Select one for full detail."
             : undefined
         }
         flush
@@ -177,7 +185,9 @@ export default async function ParticipantOverviewPage() {
                       )}
                     </div>
                     <p className="mt-1 text-sm text-slate-600 truncate">
-                      {v.property || "Property details pending"}
+                      {hasDesignatedLoan(v)
+                        ? v.property || "Property details pending"
+                        : DEPLOYMENT_SUMMARY}
                     </p>
                     <p className="mt-0.5 text-xs text-slate-400 tabular-nums">
                       {v.loanReference ? `Loan ${v.loanReference} · ` : ""}

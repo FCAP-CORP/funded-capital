@@ -3,7 +3,9 @@ import { getMyParticipation } from "@/lib/revenueShare.server";
 import {
   allPayments,
   formatDate,
+  DEPLOYMENT_SUMMARY,
   formatDateLong,
+  hasDesignatedLoan,
   money,
   moneyExact,
   todayIso,
@@ -186,7 +188,7 @@ export default async function DocumentsPage() {
                     <tr key={v.participationId} className="border-b border-slate-100 last:border-0">
                       <td className="py-2.5 font-semibold text-ink tabular-nums">{v.participationId}</td>
                       <td className="py-2.5 text-slate-600">
-                        {v.property || "—"}
+                        {hasDesignatedLoan(v) ? v.property || "—" : DEPLOYMENT_SUMMARY}
                         {v.loanReference && (
                           <span className="block text-[11px] text-slate-400 tabular-nums">
                             Loan {v.loanReference}
@@ -270,7 +272,7 @@ export default async function DocumentsPage() {
             Confidential. Prepared for the named participant. This statement summarises
             activity under your Revenue Share Participation Agreement{many ? "s" : ""} and does
             not modify {many ? "them" : "it"}. Contributed capital is returned in full at the
-            maturity of each designated loan. This is not a securities offering.
+            end of each participation's term. This is not a securities offering.
           </p>
         </div>
       </section>
