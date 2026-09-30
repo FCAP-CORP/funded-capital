@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "New Construction Loans — Up to 90% of Cost, Ground-Up Financing | Funded Capital",
+  title: "New Construction Loans — Up to 90% of Cost, Ground-Up Financing",
   description:
     "Ground-up construction loans up to 90% of cost for experienced builders, 85% standard, plus a financed interest reserve. Draw schedules, milestone funding. Rates from 8.75%. SFR, townhomes, small multifamily, ADUs.",
 };

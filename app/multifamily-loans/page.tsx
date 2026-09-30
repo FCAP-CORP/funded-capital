@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Multifamily Loans — Bridge & Term Financing for 5+ Units | Funded Capital",
+  title: "Multifamily Loans — Bridge & Term Financing for 5+ Units",
   description:
     "Multifamily bridge and term loans for 5+ unit assets. Up to 75% LTV. Rates from 8.0%. Value-add and stabilized properties. Apply in minutes.",
 };

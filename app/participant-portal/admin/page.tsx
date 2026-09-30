@@ -3,7 +3,15 @@ import { notFound } from "next/navigation";
 import { AlertTriangle, CalendarClock, CheckCircle2, Undo2 } from "lucide-react";
 import { getAdminState, getBook, isPortalAdmin, isWriteConfigured } from "@/lib/revenueShare.server";
 import AdminActions from "./AdminActions";
-import { formatDate, isPaidOff, money, statusStyle, todayIso } from "@/lib/revenueShare";
+import {
+  formatDate,
+  hasDesignatedLoan,
+  isPaidOff,
+  money,
+  moneySmart,
+  statusStyle,
+  todayIso,
+} from "@/lib/revenueShare";
 import { Figure, PageHeader, Panel, PortalMessage, StatusPill } from "../ui";
 
 export const metadata = {
@@ -130,7 +138,11 @@ async function ProgramBook() {
     const aOwed = (a.balanceOwed || 0) > 0 ? 0 : 1;
     const bOwed = (b.balanceOwed || 0) > 0 ? 0 : 1;
     if (aOwed !== bOwed) return aOwed - bOwed;
-    return (a.daysToMaturity || 9999) - (b.daysToMaturity || 9999);
+    // Number.isFinite, not `|| 9999`: zero is falsy, so a participation
+    // maturing TODAY was pushed to the bottom of a table sorted to surface it.
+    const da = Number.isFinite(a.daysToMaturity) ? a.daysToMaturity : 9999;
+    const db = Number.isFinite(b.daysToMaturity) ? b.daysToMaturity : 9999;
+    return da - db;
   });
 
   const alerts = [
@@ -214,7 +226,7 @@ async function ProgramBook() {
             className={`text-sm font-bold ${s.capitalReturnOverdueCount > 0 ? "text-red-800" : "text-ink"}`}
           >
             {money(s.capitalReturning)} of capital to return on{" "}
-            {s.paidOffCount} early payoff{s.paidOffCount === 1 ? "" : "s"}
+            {s.capitalReturningCount} early payoff{s.capitalReturningCount === 1 ? "" : "s"}
             {s.capitalReturnBy ? ` — first due ${formatDate(s.capitalReturnBy)}` : ""}
           </p>
           <p
@@ -286,8 +298,10 @@ async function ProgramBook() {
                       <td className="px-4 py-3.5 text-slate-600">{r.programVersion || "—"}</td>
                       <td className="px-4 py-3.5 text-slate-600">{r.tier || "—"}</td>
                       <td className="px-4 py-3.5 text-right font-medium text-ink tabular-nums">{money(r.capitalContributed)}</td>
-                      <td className="px-4 py-3.5 text-right text-slate-600 tabular-nums">{money(r.designatedLoanSize)}</td>
-                      <td className="px-4 py-3.5 text-right font-semibold text-ink tabular-nums">{money(r.monthlyRevenueShare)}</td>
+                      <td className="px-4 py-3.5 text-right text-slate-600 tabular-nums">
+                        {hasDesignatedLoan(r) ? money(r.designatedLoanSize) : "—"}
+                      </td>
+                      <td className="px-4 py-3.5 text-right font-semibold text-ink tabular-nums">{moneySmart(r.monthlyRevenueShare)}</td>
                       <td className="px-4 py-3.5 text-slate-600 tabular-nums">{formatDate(r.fundingDate)}</td>
                       <td className="px-4 py-3.5 text-slate-600 tabular-nums">
                         {off ? (

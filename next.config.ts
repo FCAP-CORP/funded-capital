@@ -45,6 +45,42 @@ const nextConfig: NextConfig = {
    * a redirect for a URL nobody requests is dead config, and a redirect that
    * shadows a real route is a bug.
    */
+  /**
+   * Security headers.
+   *
+   * The portal shows named people their private financial records, and until
+   * now the only header set was HSTS — nothing stopped another site framing it.
+   * These four are safe to apply globally; they add no runtime cost and break
+   * nothing, because the site embeds no third-party frames and asks for no
+   * device permissions.
+   *
+   * Content-Security-Policy is deliberately NOT here. A CSP strict enough to be
+   * worth having has to enumerate Clerk, Google Fonts and Vercel's analytics,
+   * and getting it wrong takes the sign-in flow down for everyone. It wants its
+   * own pass, in report-only first.
+   */
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          // Blocks cross-site framing, which is the clickjacking vector for an
+          // authenticated portal. SAMEORIGIN rather than DENY so Clerk's own
+          // flows keep working.
+          { key: "X-Frame-Options", value: "SAMEORIGIN" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          // Sends the origin but never the path off-site, so a participation id
+          // cannot ride out in a referrer header.
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          {
+            key: "Permissions-Policy",
+            value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+          },
+        ],
+      },
+    ];
+  },
+
   async redirects() {
     return [
       { source: "/our-story", destination: "/about", permanent: true },

@@ -158,6 +158,13 @@ export interface HolderTotals {
   /** Capital already returned after an early payoff. History, not a balance. */
   capitalReturned: number;
   paidOffCount: number;
+  /**
+   * Of those payoffs, how many are still waiting on their capital. paidOffCount
+   * never falls once a loan repays, so it is the wrong number to put next to a
+   * figure that does fall — "$50,000 across 3 repaid loans" when two of the
+   * three are already back.
+   */
+  capitalReturningCount: number;
 }
 
 export interface ParticipantPacket {
@@ -224,6 +231,20 @@ export function money(n: number | null | undefined): string {
 }
 
 /** Currency with cents, for payment confirmations where exactness matters. */
+/**
+ * Whole dollars when the amount is whole, cents when it isn't.
+ *
+ * Every Original-table amount is round — $500, $1,250, $2,500 — so money() was
+ * fine until the Anchor Series arrived. Anchor pays 35% of capital divided by
+ * twelve, which is $291.67, $583.33, $2,187.50. money() rounds those to $292,
+ * $583 and $2,188, so a participant reads a monthly figure that is not the one
+ * they are paid. Use this anywhere a participant sees an amount they receive.
+ */
+export function moneySmart(n: number | null | undefined): string {
+  if (n === null || n === undefined || !Number.isFinite(n)) return "—";
+  return Number.isInteger(n) ? USD.format(n) : USD_CENTS.format(n);
+}
+
 export function moneyExact(n: number | null | undefined): string {
   if (n === null || n === undefined || !Number.isFinite(n)) return "—";
   return USD_CENTS.format(n);
@@ -265,8 +286,32 @@ export function formatDateLong(value: string | null | undefined): string {
 }
 
 /** Today as YYYY-MM-DD, in the same date-only space the sheet uses. */
+/**
+ * The timezone the programme is administered in. Every due date, payoff and
+ * capital-return deadline is a Miami business date, not a UTC one.
+ */
+export const PROGRAM_TIME_ZONE = "America/New_York";
+
+/**
+ * Today, as YYYY-MM-DD, in Funded Capital's own timezone.
+ *
+ * This must NOT be `new Date().toISOString().slice(0, 10)`, which is what it
+ * used to be. The server runs in UTC, four to five hours ahead of Miami, so
+ * from about 8pm every evening a UTC date is already tomorrow — and every
+ * comparison below moved with it. A payment due today read "overdue" at 8pm on
+ * the day it was due; a statement printed at 8:30pm on 31 December was headed
+ * January 1 and reported no payments for the year just ended.
+ *
+ * en-CA is the locale whose short date format is already YYYY-MM-DD, which is
+ * exactly the shape every date in the tracker uses, so no reassembly is needed.
+ */
 export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: PROGRAM_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 /* ------------------------------------------------------------------ */
@@ -503,7 +548,17 @@ export function toParticipationView(r: ParticipantRecord): ParticipationView {
 /* Holder aggregation (participant-facing)                             */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Active means the status says so AND the loan has not repaid.
+ *
+ * The two can disagree: isPaidOff() treats a payoff date as authoritative the
+ * moment it is typed, deliberately, so the portal tells the truth before the
+ * Status dropdown is changed. Without the second half of this test, a row in
+ * that window is counted as capital at work and as capital being returned at
+ * the same time, on the same screen.
+ */
 function isActiveView(v: ParticipationView): boolean {
+  if (isPaidOff(v)) return false;
   return (v.status || "").trim().toLowerCase() === "active";
 }
 
@@ -643,6 +698,7 @@ export function summarizeHolder(
     capitalReturnBy,
     capitalReturned,
     paidOffCount: returns.length,
+    capitalReturningCount: returns.filter((r) => r.state !== "returned").length,
   };
 }
 
@@ -678,7 +734,9 @@ export function allScheduled(
 /* Book aggregation (admin)                                            */
 /* ------------------------------------------------------------------ */
 
+/** Book-side twin of isActiveView — see the note there on why payoff wins. */
 function isActive(r: ParticipantRecord): boolean {
+  if (isPaidOff(r)) return false;
   return (r.status || "").trim().toLowerCase() === "active";
 }
 

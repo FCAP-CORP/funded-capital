@@ -4,6 +4,7 @@ import {
   allPayments,
   allScheduled,
   formatDate,
+  hasDesignatedLoan,
   isSettledState,
   money,
   moneyExact,
@@ -188,7 +189,9 @@ export default async function PaymentsPage() {
       >
         {scheduled.length === 0 ? (
           <p className="px-5 py-10 text-center text-sm text-slate-500">
-            Your payment schedule will appear here once your designated loan funds.
+            {participations.some((p) => hasDesignatedLoan(p.view))
+              ? "Your payment schedule will appear here once your designated loan funds."
+              : "Your payment schedule will appear here once your contribution is funded."}
           </p>
         ) : (
           <div className="overflow-x-auto">

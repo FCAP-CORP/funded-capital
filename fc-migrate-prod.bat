@@ -17,6 +17,7 @@ REM  window cancels it.
 REM ==========================================================
 
 cd /d "C:\Users\luis\repos\funded-capital"
+set RESULT=1
 
 echo ============================================
 echo   PRODUCTION MIGRATION
@@ -33,6 +34,8 @@ if errorlevel 1 (
   echo.
   echo   ^>^> Could not fetch from Vercel.
   echo   ^>^> If it asked you to log in, log in and run this again.
+  echo   ^>^> Nothing was changed.
+  set RESULT=1
   goto cleanup
 )
 
@@ -67,3 +70,5 @@ if exist ".env.vercel" (
 )
 echo.
 pause
+REM Hand the result back, so a script that calls this one can stop on failure.
+endlocal & exit /b %RESULT%

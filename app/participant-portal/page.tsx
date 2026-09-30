@@ -8,6 +8,7 @@ import {
   hasDesignatedLoan,
   isPaidOff,
   money,
+  moneySmart,
   statusStyle,
 } from "@/lib/revenueShare";
 import {
@@ -93,7 +94,7 @@ export default async function ParticipantOverviewPage() {
         />
         <Figure
           label={many ? "Combined Monthly Share" : "Monthly Revenue Share"}
-          value={money(totals.monthlyRevenueShare)}
+          value={moneySmart(totals.monthlyRevenueShare)}
           note={
             totals.monthlyRevenueShare > 0
               ? "Paid on or before the 15th"
@@ -118,7 +119,7 @@ export default async function ParticipantOverviewPage() {
               {totals.capitalReturnBy
                 ? `Expected by ${formatDate(totals.capitalReturnBy)}`
                 : "Within ten business days of payoff"}
-              {totals.paidOffCount > 1 && ` · across ${totals.paidOffCount} repaid loans`}
+              {totals.capitalReturningCount > 1 && ` · across ${totals.capitalReturningCount} repaid loans`}
             </p>
           </Panel>
         </div>
@@ -203,7 +204,7 @@ export default async function ParticipantOverviewPage() {
                     <p
                       className={`text-sm font-bold tabular-nums ${off ? "text-slate-400" : "text-ink"}`}
                     >
-                      {money(v.monthlyRevenueShare)}
+                      {moneySmart(v.monthlyRevenueShare)}
                     </p>
                     <p className="text-xs text-slate-400">
                       {off ? "payments ended" : "per month"}

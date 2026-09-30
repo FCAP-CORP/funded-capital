@@ -6,8 +6,10 @@ import {
   DEPLOYMENT_SUMMARY,
   formatDateLong,
   hasDesignatedLoan,
+  isPaidOff,
   money,
   moneyExact,
+  moneySmart,
   todayIso,
 } from "@/lib/revenueShare";
 import { PacketUnavailable, PageHeader, Panel, ProgramDisclaimer } from "../ui";
@@ -32,20 +34,31 @@ export default async function DocumentsPage() {
 
   // The statement covers the current calendar year across every participation —
   // which is what a holder needs at tax time and what "year to date" means.
+  //
+  // CASH BASIS: a payment belongs to the year it was SENT, not the year of the
+  // period it covers. The December period paid on 8 January is the participant's
+  // January income. Filtering on the period put it on the 2026 statement with a
+  // "Date Sent" of Jan 8 2027, and then excluded it from the 2027 statement — so
+  // it appeared in a year it was not received and never in the year it was.
   const ytd = allPayments(participations).filter(
-    (r) => String(r.paymentPeriod || r.dateSent).slice(0, 4) === year
+    (r) => String(r.dateSent || r.paymentPeriod).slice(0, 4) === year
   );
   const ytdTotal = ytd.reduce((n, r) => n + (r.amountSent || 0), 0);
 
   // Folder links live per participation; dedupe so one folder shared across
   // several participations is offered once.
-  const folders = Array.from(
-    new Map(
-      participations
-        .filter((p) => p.view.documentsFolder)
-        .map((p) => [p.view.documentsFolder, p.view])
-    ).values()
-  );
+  // A Map keyed on the URL kept only the LAST participation using that folder,
+  // so a folder shared by two was labelled with one of them and the holder had
+  // no way to tell the other's documents were in there. Collect every id.
+  const folderMap = new Map<string, { view: (typeof participations)[number]["view"]; ids: string[] }>();
+  for (const p of participations) {
+    const url = p.view.documentsFolder;
+    if (!url) continue;
+    const found = folderMap.get(url);
+    if (found) found.ids.push(p.view.participationId);
+    else folderMap.set(url, { view: p.view, ids: [p.view.participationId] });
+  }
+  const folders = Array.from(folderMap.values());
 
   return (
     <div className="p-5 sm:p-8 lg:p-10 max-w-5xl mx-auto">
@@ -68,7 +81,7 @@ export default async function DocumentsPage() {
           >
             {folders.length > 0 ? (
               <ul className="space-y-2">
-                {folders.map((v) => (
+                {folders.map(({ view: v, ids }) => (
                   <li key={v.documentsFolder}>
                     <a
                       href={v.documentsFolder}
@@ -82,7 +95,9 @@ export default async function DocumentsPage() {
                         </span>
                         <span className="min-w-0">
                           <span className="block text-sm font-semibold text-ink">
-                            {many ? `Participation ${v.participationId}` : "Your participation documents"}
+                            {many
+                              ? `Participation${ids.length > 1 ? "s" : ""} ${ids.join(", ")}`
+                              : "Your participation documents"}
                           </span>
                           <span className="block text-xs text-slate-500 truncate">
                             {v.property || "Agreement, deposit form and related records"}
@@ -149,9 +164,12 @@ export default async function DocumentsPage() {
 
           <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-5 py-6 border-b border-slate-200">
             {[
-              { label: "Total Capital Contributed", value: money(totals.capitalContributed) },
-              { label: "Combined Monthly Share", value: money(totals.monthlyRevenueShare) },
-              { label: `Received in ${year}`, value: money(ytdTotal) },
+              // Active-only, hence the labels. "Total Capital Contributed" over an
+              // active-only figure told a holder whose participation had repaid that
+              // they had contributed $0.
+              { label: "Capital at Work", value: money(totals.capitalContributed) },
+              { label: "Current Monthly Share", value: moneySmart(totals.monthlyRevenueShare) },
+              { label: `Received in ${year}`, value: moneyExact(ytdTotal) },
               { label: "Received to Date", value: money(totals.totalPaidToDate) },
             ].map(({ label, value }) => (
               <div key={label}>
@@ -172,7 +190,16 @@ export default async function DocumentsPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left border-b border-slate-200">
-                    {["ID", "Designated Loan", "Funded", "Matures", "Capital", "Monthly"].map((h) => (
+                    {[
+                      "ID",
+                      participations.some(({ view: v }) => hasDesignatedLoan(v))
+                        ? "Designated Loan"
+                        : "Capital Deployment",
+                      "Funded",
+                      "Matures",
+                      "Capital",
+                      "Monthly",
+                    ].map((h) => (
                       <th
                         key={h}
                         scope="col"
@@ -196,25 +223,82 @@ export default async function DocumentsPage() {
                         )}
                       </td>
                       <td className="py-2.5 text-slate-600 tabular-nums">{formatDate(v.fundingDate)}</td>
-                      <td className="py-2.5 text-slate-600 tabular-nums">{formatDate(v.maturityDate)}</td>
+                      <td className="py-2.5 text-slate-600 tabular-nums">
+                        {isPaidOff(v) ? (
+                          <>
+                            <span className="block">Repaid {formatDate(v.payoffDate)}</span>
+                            <span className="block text-[11px] text-slate-400">
+                              early — was {formatDate(v.maturityDate)}
+                            </span>
+                          </>
+                        ) : (
+                          formatDate(v.maturityDate)
+                        )}
+                      </td>
                       <td className="py-2.5 text-right text-slate-600 tabular-nums">{money(v.capitalContributed)}</td>
-                      <td className="py-2.5 text-right font-semibold text-ink tabular-nums">{money(v.monthlyRevenueShare)}</td>
+                      <td className="py-2.5 text-right font-semibold text-ink tabular-nums">{moneySmart(v.monthlyRevenueShare)}</td>
                     </tr>
                   ))}
+                  {/* This table lists EVERY participation, so its Total sums every
+                      row shown. The tiles above are active-only on purpose and are
+                      labelled as such — a total that disagrees with the column above
+                      it is the fastest way to lose a participant's trust in the
+                      whole document. */}
                   <tr>
                     <td colSpan={4} className="pt-3 text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">
                       Total
                     </td>
                     <td className="pt-3 text-right font-bold text-ink tabular-nums">
-                      {money(totals.capitalContributed)}
+                      {money(
+                        participations.reduce((n, { view: v }) => n + (v.capitalContributed || 0), 0)
+                      )}
                     </td>
                     <td className="pt-3 text-right font-bold text-ink tabular-nums">
-                      {money(totals.monthlyRevenueShare)}
+                      {moneySmart(
+                        participations.reduce((n, { view: v }) => n + (v.monthlyRevenueShare || 0), 0)
+                      )}
                     </td>
                   </tr>
                 </tbody>
               </table>
             </div>
+
+            {/* Early payoff belongs on the statement.
+                Every other participant-facing surface says payments have ended
+                and capital is due back within ten business days. Until now this
+                document — the one a holder is most likely to keep or forward —
+                said nothing, and its footer promised the capital at end of term.
+                A statement that contradicts the portal is worse than no
+                statement. */}
+            {(totals.capitalReturning > 0 || totals.capitalReturned > 0) && (
+              <dl className="mt-5 pt-4 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+                {totals.capitalReturning > 0 && (
+                  <div>
+                    <dt className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                      Capital Being Returned
+                    </dt>
+                    <dd className="mt-1 text-sm font-bold text-ink tabular-nums">
+                      {money(totals.capitalReturning)}
+                      {totals.capitalReturnBy && (
+                        <span className="ml-2 font-normal text-slate-500">
+                          expected by {formatDate(totals.capitalReturnBy)}
+                        </span>
+                      )}
+                    </dd>
+                  </div>
+                )}
+                {totals.capitalReturned > 0 && (
+                  <div>
+                    <dt className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                      Capital Already Returned
+                    </dt>
+                    <dd className="mt-1 text-sm font-bold text-ink tabular-nums">
+                      {money(totals.capitalReturned)}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+            )}
           </div>
 
           <div className="py-6 border-b border-slate-200">
@@ -272,7 +356,8 @@ export default async function DocumentsPage() {
             Confidential. Prepared for the named participant. This statement summarises
             activity under your Revenue Share Participation Agreement{many ? "s" : ""} and does
             not modify {many ? "them" : "it"}. Contributed capital is returned in full at the
-            end of each participation's term. This is not a securities offering.
+            end of each participation's term, or within ten business days of an early payoff.
+            This is not a securities offering.
           </p>
         </div>
       </section>

@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Fix & Flip Loans — Up to 90% LTC, 5–10 Day Closings | Funded Capital",
+  title: "Fix & Flip Loans — Up to 90% LTC, 5–10 Day Closings",
   description:
     "Fix & Flip loans up to 90% LTC. No income verification. Rates from 8.75%. Close in 5–10 business days. Apply for your term sheet in 2 hours.",
 };

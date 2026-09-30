@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "DSCR Loans — Qualify on Rental Income, Not Your W-2 | Funded Capital",
+  title: "DSCR Loans — Qualify on Rental Income, Not Your W-2",
   description:
     "DSCR rental loans up to 80% LTV. No income docs. Rates from 6.0%. 30-year fixed. Scale your rental portfolio without W-2 restrictions. Apply in minutes.",
 };

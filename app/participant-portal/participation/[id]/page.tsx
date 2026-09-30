@@ -9,6 +9,7 @@ import {
   isPaidOff,
   lockUpCleared,
   money,
+  moneySmart,
   nextScheduledPayment,
   PAYMENT_STATE_META,
   paymentState,
@@ -72,6 +73,14 @@ export default async function ParticipationDetailPage({
   // carry no loan reference, address or loan size. Showing "$0" and "Property
   // details pending" would read as missing data rather than as the structure.
   const designated = hasDesignatedLoan(p);
+  /**
+   * Counted from the Payment Log rows, which is the same source the Overview
+   * and Payments pages use. `p.paymentsLogged` is the tracker's own column and
+   * is maintained separately, so the two drift: with a run marked in the
+   * Participants tab but not yet written to the log, the Overview said "11
+   * payments received" while this page said "12 payments sent".
+   */
+  const paymentsSent = participation.payments?.length ?? 0;
   const many = packet.participations.length > 1;
 
   return (
@@ -119,14 +128,14 @@ export default async function ParticipationDetailPage({
         />
         <Figure
           label="Monthly Revenue Share"
-          value={money(p.monthlyRevenueShare)}
+          value={moneySmart(p.monthlyRevenueShare)}
           note={paidOff ? "Payments ended — loan repaid early" : "Paid on or before the 15th"}
           emphasis={!paidOff}
         />
         <Figure
           label="Paid to Date"
           value={money(p.totalPaidToDate)}
-          note={`${p.paymentsLogged || 0} payment${p.paymentsLogged === 1 ? "" : "s"} sent`}
+          note={`${paymentsSent} payment${paymentsSent === 1 ? "" : "s"} sent`}
         />
       </div>
 
