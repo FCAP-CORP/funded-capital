@@ -1032,7 +1032,8 @@ export const nurtureEnrollments = pgTable("nurture_enrollments", {
 }, (t) => ({
   programCheck: check("nurture_enrollments_program_check", sql`${t.program} IN ('past_borrower', 'bp_no_term_sheet', 'quiet', 'lost', 'contacts')`),
   statusCheck: check("nurture_enrollments_status_check", sql`${t.status} IN ('active', 'stopped')`),
-  stopReasonCheck: check("nurture_enrollments_stop_reason_check", sql`${t.stopReason} IS NULL OR ${t.stopReason} IN ('replied', 'contacted', 'new_deal', 'deal_moved', 'unsubscribed', 'bounced', 'no_email', 'removed_in_klaviyo', 'stopped_by_staff')`),
+  // 'finished' (0020): the flow sent every email; the row stops and leaves the Klaviyo list.
+  stopReasonCheck: check("nurture_enrollments_stop_reason_check", sql`${t.stopReason} IS NULL OR ${t.stopReason} IN ('replied', 'contacted', 'new_deal', 'deal_moved', 'unsubscribed', 'bounced', 'no_email', 'removed_in_klaviyo', 'stopped_by_staff', 'finished')`),
   stoppedConsistent: check("nurture_enrollments_stopped_consistent_check", sql`(${t.status} = 'active') = (${t.stoppedAt} IS NULL)`),
   syncStateCheck: check("nurture_enrollments_sync_state_check", sql`${t.syncState} IN ('queued', 'pending_add', 'added', 'pending_remove', 'removed')`),
   contactProgramKey: uniqueIndex("nurture_enrollments_contact_program_key").on(t.contactId, t.program),
@@ -1086,6 +1087,8 @@ export const nurtureControl = pgTable("nurture_control", {
   eventsSyncedUntil: timestamp("events_synced_until", { withTimezone: true }),
   /** Klaviyo unsubscribes mirrored for EVERYONE, not only people in a programme (migration 0019). */
   unsubsSyncedUntil: timestamp("unsubs_synced_until", { withTimezone: true }),
+  /** When the sync last began reading Klaviyo; off-hours runs skip Klaviyo until it is ~45 minutes old (migration 0020). */
+  klaviyoReadAt: timestamp("klaviyo_read_at", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   singleRow: check("nurture_control_single_row_check", sql`${t.id} = 1`),
@@ -1196,4 +1199,132 @@ export const documentRequests = pgTable("document_requests", {
   labelCheck: check("document_requests_label_check", sql`char_length(${t.label}) BETWEEN 2 AND 120`),
   appItemUq: uniqueIndex("document_requests_app_item_uq").on(t.applicationId, t.itemKey),
   openIdx: index("document_requests_open_idx").on(t.applicationId).where(sql`${t.status} = 'requested'`),
+}));
+
+/* ==================================================================== */
+/* Revenue Share read mirror                                            */
+/*                                                                      */
+/* A CACHE of the participant tracker spreadsheet, never the source of  */
+/* truth. The sheet stays the system of record and stays Luis's working */
+/* surface; a sync copies it here and the portal reads from here rather */
+/* than calling Apps Script on every request.                           */
+/*                                                                      */
+/* Safe to truncate and re-sync at any time. The portal keeps its Apps  */
+/* Script path as a fallback, so a broken sync degrades to the old      */
+/* behaviour rather than to an error.                                   */
+/*                                                                      */
+/* Dates are TEXT in YYYY-MM-DD, not DATE, on purpose: the portal parses */
+/* ISO strings directly and never constructs a Date, because doing so   */
+/* once shifted a due date by a day and flipped every participation to  */
+/* PAYMENT BEHIND. Storing text keeps that discipline end to end.       */
+/*                                                                      */
+/* Phone is deliberately NOT mirrored. No participant-facing or admin   */
+/* surface renders it, so copying it here would widen the data held for */
+/* no benefit.                                                          */
+/* ==================================================================== */
+
+export const rsParticipations = pgTable("rs_participations", {
+  participationId: text("participation_id").primaryKey(),
+  fullName: text("full_name"),
+  entityName: text("entity_name"),
+  /** Lowercased by the sync. The only key a participant is resolved by. */
+  email: text("email").notNull(),
+  /** Internal only — never reaches a browser. See toParticipationView(). */
+  programVersion: text("program_version"),
+  tier: text("tier"),
+  capitalContributed: numeric("capital_contributed", { precision: 14, scale: 2 }),
+  designatedLoanSize: numeric("designated_loan_size", { precision: 14, scale: 2 }),
+  monthlyRevenueShare: numeric("monthly_revenue_share", { precision: 14, scale: 2 }),
+  loanReference: text("loan_reference"),
+  property: text("property"),
+  fundingDate: text("funding_date"),
+  termMonths: integer("term_months"),
+  maturityDate: text("maturity_date"),
+  firstPaymentDue: text("first_payment_due"),
+  paymentMethod: text("payment_method"),
+  status: text("status"),
+  lockUpEnds: text("lock_up_ends"),
+  paymentsLogged: integer("payments_logged"),
+  totalPaidToDate: numeric("total_paid_to_date", { precision: 14, scale: 2 }),
+  daysToMaturity: integer("days_to_maturity"),
+  documentsFolder: text("documents_folder"),
+  payoffDate: text("payoff_date"),
+  capitalReturnDue: text("capital_return_due"),
+  capitalReturned: text("capital_returned"),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  emailIdx: index("rs_participations_email_idx").on(t.email),
+}));
+
+export const rsSchedule = pgTable("rs_schedule", {
+  participationId: text("participation_id").notNull(),
+  paymentNumber: integer("payment_number").notNull(),
+  dueDate: text("due_date"),
+  scheduledAmount: numeric("scheduled_amount", { precision: 14, scale: 2 }),
+  status: text("status"),
+  datePaid: text("date_paid"),
+  amountPaid: numeric("amount_paid", { precision: 14, scale: 2 }),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  pk: uniqueIndex("rs_schedule_pk_idx").on(t.participationId, t.paymentNumber),
+  dueIdx: index("rs_schedule_due_idx").on(t.dueDate),
+}));
+
+export const rsPayments = pgTable("rs_payments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  participationId: text("participation_id").notNull(),
+  dateSent: text("date_sent"),
+  paymentPeriod: text("payment_period"),
+  amountSent: numeric("amount_sent", { precision: 14, scale: 2 }),
+  method: text("method"),
+  confirmationRef: text("confirmation_ref"),
+  syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  /**
+   * A payment log row has no id in the sheet, so its identity is this tuple.
+   * That is what lets the sync upsert: neon-http has no transactions, and a
+   * delete-then-reinsert would leave a window where a participant's payment
+   * history reads as empty.
+   */
+  naturalUq: uniqueIndex("rs_payments_natural_uq").on(
+    t.participationId, t.paymentPeriod, t.dateSent, t.amountSent
+  ),
+  participationIdx: index("rs_payments_participation_idx").on(t.participationId),
+}));
+
+export const RS_SYNC_STATUSES = ["running", "ok", "failed"] as const;
+
+export const rsSyncRuns = pgTable("rs_sync_runs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  status: text("status").$type<(typeof RS_SYNC_STATUSES)[number]>().notNull().default("running"),
+  participationCount: integer("participation_count"),
+  scheduleCount: integer("schedule_count"),
+  paymentCount: integer("payment_count"),
+  removedCount: integer("removed_count"),
+  durationMs: integer("duration_ms"),
+  error: text("error"),
+}, (t) => ({
+  statusCheck: check("rs_sync_runs_status_check", sql`${t.status} IN ('running', 'ok', 'failed')`),
+  recentIdx: index("rs_sync_runs_recent_idx").on(t.startedAt),
+}));
+
+/**
+ * Which participation a rolled-over one became.
+ *
+ * Kizzy's FC-015 rolled into FC-016 on 14 September — the capital never left,
+ * it was redeployed. The tracker has no way to record that, so all-time capital
+ * raised counts the same $20,000 twice and the two rows are related only by
+ * inference. Kept out of rs_participations because the sync overwrites that
+ * table from the sheet and this fact does not come from the sheet.
+ */
+export const rsRollovers = pgTable("rs_rollovers", {
+  fromParticipationId: text("from_participation_id").primaryKey(),
+  toParticipationId: text("to_participation_id").notNull(),
+  rolledOn: text("rolled_on"),
+  note: text("note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  notSelf: check("rs_rollovers_not_self", sql`${t.fromParticipationId} <> ${t.toParticipationId}`),
 }));

@@ -79,20 +79,20 @@ const programs = [
     description:
       "Fund your ground-up development projects with a construction loan structured around your build schedule. We release draws as milestones are hit, minimizing carrying costs.",
     highlights: [
-      "85% of full cost; 90% with 5+ completed builds",
-      "Rates from 8.75% to 10.25% interest-only",
+      "85% of full cost; 90% with 20+ completed builds",
+      "Rates from 8.99% interest-only",
       "Terms: 12 or 24 months",
       "Draw schedule aligned to milestones",
       "SFR, townhomes, small multifamily",
-      "Credit score: 660+ (best tiers 680+)",
+      "Credit score: 680+",
       "Experienced builders preferred",
     ],
     table: {
       headers: ["Project Size", "Max LTC", "Rate", "Draws", "Term"],
       rows: [
-        ["Up to $1M", "85–90% of cost", "From 8.75%", "Monthly", "12 mo"],
-        ["$1M–$5M", "85–90% of cost", "From 9.50%", "Milestone", "12–24 mo"],
-        ["$5M+", "85–90% of cost", "From 10.25%", "Negotiated", "Up to 24 mo"],
+        ["Up to $1M", "85–90% of cost", "From 8.99%", "Monthly", "12 mo"],
+        ["$1M–$5M", "85–90% of cost", "From 8.99%", "Milestone", "12–24 mo"],
+        ["$5M+", "85–90% of cost", "Case by case", "Negotiated", "Up to 24 mo"],
       ],
     },
     cta: "Apply for Construction Loan",

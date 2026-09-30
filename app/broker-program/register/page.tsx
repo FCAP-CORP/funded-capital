@@ -4,7 +4,7 @@ import { ArrowLeft, BadgeCheck, Clock, HandCoins } from "lucide-react";
 import BrokerForm from "@/components/BrokerForm";
 
 export const metadata: Metadata = {
-  title: "Register as a Broker Partner | Funded Capital",
+  title: "Register as a Broker Partner",
   description:
     "Register as a Funded Capital broker partner. Free to register, no minimum deal volume, referral fees paid at closing, and a dedicated account manager within 24 hours.",
   alternates: { canonical: "/broker-program/register" },

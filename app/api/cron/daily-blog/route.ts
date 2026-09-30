@@ -6,10 +6,9 @@ import {
   SYSTEM_RULES,
   buildBrief,
   checkOutput,
-  draftedToday,
+  decideRun,
   newYorkDate,
   parseModelOutput,
-  pickNextBlog,
   repairRequest,
   slugsFromSitemap,
   type CheckedDraft,
@@ -30,6 +29,9 @@ import { callModel, withoutThinking, type Message as ModelMessage } from "@/lib/
  *   1. CRON_SECRET is checked before anything else. Fails closed.
  *   2. Nothing is claimed until the configuration is known to be complete, so a
  *      missing key leaves the queue exactly as it was.
+ *   2b. Nothing is claimed while another run is still writing (a claim younger
+ *      than CLAIM_FRESH_MINUTES), even with ?force=1, and nothing is claimed
+ *      once today's draft has landed unless ?force=1. See decideRun.
  *   3. Once claimed, the request NEVER stays in_progress: every failure below
  *      marks it failed with a sentence Luis can act on, and /crm/marketing
  *      shows it.
@@ -165,7 +167,8 @@ export async function GET(request: Request) {
 
   const started = Date.now();
   const deadline = started + BUDGET_MS;
-  const today = newYorkDate(new Date());
+  const now = new Date();
+  const today = newYorkDate(now); // the one "today": the post's date and the already-drafted check
   const force = new URL(request.url).searchParams.get("force") === "1";
 
   // 2. Configuration, before anything is claimed.
@@ -185,29 +188,40 @@ export async function GET(request: Request) {
     console.error(`[cron/daily-blog] queue read failed: ${why}`);
     return NextResponse.json({ ok: false, error: `The content queue could not be read (${why}).` }, { status: 502 });
   }
-  const item = pickNextBlog((read.json.items as QueueItem[]) ?? []);
-  if (!item) {
-    console.log("[cron/daily-blog] queue empty; no post today");
-    return NextResponse.json({ ok: true, skipped: "No blog request is waiting." });
-  }
-
-  // A second invocation on the same morning (Vercel can repeat a cron) writes nothing.
-  // ?force=1, still behind CRON_SECRET, is for a deliberate second post.
+  // A run is writing already, nothing is waiting, or today's post has landed:
+  // decideRun (dailyBlog.ts) says which, in words fc-run-daily-blog.bat prints.
+  // The drafts are read only when they can change the answer (force skips them).
+  let drafts: { draftedAt: string | null }[] = [];
   if (!force) {
     const res = await fetch(`${QUEUE}?view=drafts`, {
       headers: { Authorization: `Bearer ${queueToken}` },
       cache: "no-store",
       signal: AbortSignal.timeout(20_000),
     }).catch(() => null);
-    const drafts = res && res.ok ? (((await res.json()) as Json).items as { draftedAt: string | null }[]) : [];
-    if (draftedToday(drafts ?? [], today)) {
-      console.log("[cron/daily-blog] a blog draft already landed today; not writing a second");
-      return NextResponse.json({ ok: true, skipped: "A blog draft was already delivered today." });
-    }
+    const listed = res && res.ok ? ((await res.json().catch(() => ({}))) as Json).items : null;
+    drafts = Array.isArray(listed) ? (listed as { draftedAt: string | null }[]) : [];
   }
+  const decision = decideRun({ items: (read.json.items as QueueItem[]) ?? [], drafts, now, force });
+  if (!decision.run) {
+    // 200, not an error: for a repeated cron delivery this IS the right outcome.
+    console.log(`[cron/daily-blog] not writing (${decision.kind}): ${decision.message}`);
+    return NextResponse.json({ ok: true, drafted: false, skipped: decision.message });
+  }
+  const item = decision.item;
 
   // 4. Claim. From here on the request must never be left in_progress.
   const claim = await queue(queueToken, { body: { id: item.id, status: "in_progress", by: BY } }).catch(() => null);
+  if (claim?.status === 409) {
+    // Two runs started in the same moment and picked the same topic; the queue's
+    // conditional UPDATE let only the other one have it. Nothing was written twice.
+    console.log(`[cron/daily-blog] lost the claim race: ${String(claim.json.error ?? "")}`);
+    return NextResponse.json({
+      ok: true,
+      drafted: false,
+      skipped:
+        "Not started: another run picked up the same topic a moment ago, so this one stopped and nothing will be written twice. Open /crm/marketing in about 15 minutes to read the draft. No need to run this again or send it to Claude.",
+    });
+  }
   if (!claim || claim.status !== 200 || claim.json.to !== "in_progress") {
     const why = claim ? `HTTP ${claim.status} ${String(claim.json.error ?? "")}` : "unreachable";
     console.error(`[cron/daily-blog] claim failed: ${why}`);

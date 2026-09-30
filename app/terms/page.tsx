@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/terms" },
   title: "Terms & Conditions",
   description:
     "The terms governing your use of the Funded Capital website and services, including our SMS/text messaging program terms. Reply STOP to opt out or HELP for help.",

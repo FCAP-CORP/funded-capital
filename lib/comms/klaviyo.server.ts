@@ -137,14 +137,17 @@ export type ListMember = { profileId: string; externalId: string | null; email: 
 /**
  * Everyone on a list, with their email consent. 100 per page.
  *
- * `complete` is false when the page cap stopped the read early — the caller
- * must then NOT conclude that someone missing from `members` was removed.
+ * `complete` is false when the page cap — or the caller's `deadline`
+ * (Date.now() ms), checked between pages so a long list cannot overrun the
+ * cron's maxDuration — stopped the read early. The caller must then NOT
+ * conclude that someone missing from `members` was removed.
  */
-export async function listMembers(key: string, listId: string, maxPages = 30): Promise<Result<{ members: ListMember[]; complete: boolean }>> {
+export async function listMembers(key: string, listId: string, maxPages = 30, deadline?: number): Promise<Result<{ members: ListMember[]; complete: boolean }>> {
   const members: ListMember[] = [];
   let path: string | null =
     `/lists/${encodeURIComponent(listId)}/profiles?additional-fields%5Bprofile%5D=subscriptions&page%5Bsize%5D=100`;
   for (let page = 0; path && page < maxPages; page++) {
+    if (page > 0 && deadline !== undefined && Date.now() > deadline) break;
     const a = await call(key, path, { method: "GET" });
     if (a.status !== 200) return fail(a);
     const data = Array.isArray(a.json?.data) ? (a.json!.data as Record<string, unknown>[]) : [];
@@ -200,24 +203,29 @@ export type KlaviyoEvent = {
 const klaviyoTime = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "+00:00");
 
 /**
- * Events of one metric since `since`, oldest first, 200 a page. READ ONLY.
- * `complete` is false when the page cap stopped the read, so the caller must
- * not move its cursor past what it has not seen.
+ * Events of one metric at or after `since`, oldest first, 200 a page. READ ONLY.
+ * `complete` is false when the page cap or the caller's `deadline` stopped the
+ * read, so the caller must not move its cursor past the last event returned.
+ *
+ * `greater-or-equal`, not `greater-than` (30 Sep 2026): a caller that resumes
+ * from the last event it processed must see the other events sharing that
+ * exact timestamp, not skip them. It deduplicates the one it already had.
  */
 export async function listEvents(
   key: string,
   metricId: string,
   since: Date,
   maxPages = 10,
-  opts: { withEmail?: boolean } = {},
+  opts: { withEmail?: boolean; deadline?: number } = {},
 ): Promise<Result<{ events: KlaviyoEvent[]; complete: boolean }>> {
-  const filter = `and(equals(metric_id,"${metricId.replace(/[^A-Za-z0-9]/g, "")}"),greater-than(datetime,${klaviyoTime(since)}))`;
+  const filter = `and(equals(metric_id,"${metricId.replace(/[^A-Za-z0-9]/g, "")}"),greater-or-equal(datetime,${klaviyoTime(since)}))`;
   // withEmail: Klaviyo returns each event's profile address in `included`, so an
   // unsubscribe can be matched to a contact who was never in a programme.
   const extra = opts.withEmail ? "&include=profile&fields%5Bprofile%5D=email" : "";
   let path: string | null = `/events?filter=${encodeURIComponent(filter)}&sort=datetime&page%5Bsize%5D=200${extra}`;
   const events: KlaviyoEvent[] = [];
   for (let page = 0; path && page < maxPages; page++) {
+    if (page > 0 && opts.deadline !== undefined && Date.now() > opts.deadline) break;
     const a = await call(key, path, { method: "GET" });
     if (a.status !== 200) return fail(a);
     const emails = new Map<string, string>();

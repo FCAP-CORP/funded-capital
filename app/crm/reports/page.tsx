@@ -26,7 +26,7 @@ import ReportsContent from "./ReportsContent";
  */
 
 export const metadata = {
-  title: "Reports | Funded Capital Lending OS",
+  title: "Reports",
 };
 
 function ReportsSkeleton() {

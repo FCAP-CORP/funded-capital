@@ -7,7 +7,8 @@ import WorkspaceShell from "@/components/workspace/WorkspaceShell";
 import AccessGate from "./AccessGate";
 
 export const metadata: Metadata = {
-  title: "Broker Portal | Funded Capital",
+  // Pages set a bare name ("Dashboard"); this template makes it "Dashboard | Funded Capital Broker Portal".
+  title: { default: "Broker Portal", template: "%s | Funded Capital Broker Portal" },
   robots: { index: false, follow: false },
 };
 

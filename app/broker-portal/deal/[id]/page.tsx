@@ -9,7 +9,7 @@ import { docSummary } from "@/lib/crm/docRequests";
 import DealDocuments from "./DealDocuments";
 
 export const metadata = {
-  title: "Deal | Funded Capital Broker Portal",
+  title: "Deal",
   robots: { index: false, follow: false },
 };
 

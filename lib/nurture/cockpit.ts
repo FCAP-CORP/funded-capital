@@ -107,6 +107,84 @@ export function flowIsLive(status: string | null | undefined, checkedAt: string 
   return Number.isFinite(t) && now.getTime() - t <= FLOW_FRESH_MINUTES * 60_000 && t <= now.getTime() + 60_000;
 }
 
+/* ------------------------------------------------------ Klaviyo cadence */
+
+/** The cron's schedule (vercel.json): every 15 minutes. */
+export const CRON_EVERY_MINUTES = 15;
+/**
+ * Outside the release window, Klaviyo is read (flows, list consent, events,
+ * opt-outs, previews) when the last read began at least this long ago — with a
+ * 15-minute cron, every third run, about every 45 minutes. It must stay
+ * under FLOW_FRESH_MINUTES minus one cron gap so a flow read on schedule never
+ * shows as "unconfirmed" between reads (cockpit.regress.ts pins this).
+ */
+export const KLAVIYO_READ_EVERY_MINUTES = 40;
+/** Every run reads Klaviyo from this long before the window opens until it closes. */
+export const PRE_WINDOW_MINUTES = 30;
+
+/** Weekday, from 30 minutes before the release window opens until it closes (New York). */
+export function nearReleaseWindow(now: Date): boolean {
+  const c = nyClock(now);
+  return c.weekday >= 1 && c.weekday <= 5 && c.minutes >= RELEASE_OPENS_MIN - PRE_WINDOW_MINUTES && c.minutes < RELEASE_CLOSES_MIN;
+}
+
+/**
+ * What this cron run should ask of Klaviyo. The auto-stop (database only) runs
+ * every time regardless. Before 30 Sep 2026 every one of the 96 runs a day
+ * made ~13 Klaviyo calls although only ~10 can release anyone.
+ *
+ *   read   — flows, list consent, events, opt-outs, previews: in and just
+ *            before the release window (so releases always see a flow status
+ *            under 15 minutes old), and otherwise about every 45 minutes.
+ *   drain  — the add/remove calls: whenever something is due (someone
+ *            stopped or finished, a retry, a release), and on every read run.
+ *
+ * `lastReadAt` is when the last read BEGAN (nurture_control.klaviyo_read_at),
+ * success or not, so a broken key costs one read per interval, not one per run.
+ */
+export function syncCadence(i: { now: Date; lastReadAt: string | null; syncDue: boolean }): { read: boolean; drain: boolean } {
+  const t = i.lastReadAt ? Date.parse(i.lastReadAt) : NaN;
+  const age = Number.isFinite(t) ? i.now.getTime() - t : Infinity;
+  // A read stamped in the future (clock trouble) is not trusted to hold reads back.
+  const due = age >= KLAVIYO_READ_EVERY_MINUTES * 60_000 || age < -60_000;
+  const read = nearReleaseWindow(i.now) || due;
+  return { read, drain: read || i.syncDue };
+}
+
+/* ------------------------------------------------------------ finishing */
+
+/**
+ * Days after a flow's last email before the enrolment counts as finished.
+ * Room for a wait that lands on a weekend and for Klaviyo's send-time rules,
+ * and a reply to that last email in those days still counts as a win.
+ */
+export const FINISH_GRACE_DAYS = 3;
+/**
+ * When Lending OS has never read the flow's emails, finish anyway after this
+ * long, so no enrolment can stay "active" for ever. The flows run 6–13 weeks.
+ */
+export const FINISH_FALLBACK_DAYS = 120;
+
+/** Days from joining the list to the flow's last email, or null when no email is known. */
+export function flowLengthDays(snap: FlowSnapshot | null): number | null {
+  const days = (snap?.emails ?? []).map((e) => Number(e.afterDays)).filter((d) => Number.isFinite(d));
+  return days.length === 0 ? null : Math.max(0, ...days);
+}
+
+/**
+ * When an enrolment is finished: the moment the person joined the Klaviyo
+ * list (`addedAt`, the add call's success — the flow starts then), plus the
+ * flow's length (`flowDays`, the last email's day), plus FINISH_GRACE_DAYS.
+ * Null when they never reached Klaviyo: a queued or failing row is not
+ * receiving emails, so it cannot have finished them.
+ */
+export function finishAt(addedAt: string | null, flowDays: number | null): string | null {
+  const t = addedAt ? Date.parse(addedAt) : NaN;
+  if (!Number.isFinite(t)) return null;
+  const days = flowDays === null || !Number.isFinite(flowDays) ? FINISH_FALLBACK_DAYS : Math.ceil(Math.max(0, flowDays)) + FINISH_GRACE_DAYS;
+  return new Date(t + days * 86_400_000).toISOString();
+}
+
 /* --------------------------------------------------------------- release */
 
 export type QueuedLite = { id: string; program: string; enrolledAt: string | null };
@@ -281,12 +359,60 @@ export const EVENT_OVERLAP_MINUTES = 120;
 export const EVENT_FIRST_READ_DAYS = 30;
 export const EVENT_MAX_LOOKBACK_DAYS = 60;
 
+/**
+ * Where a read starts, from a stored cursor: EVENT_OVERLAP_MINUTES before it,
+ * never later than now. A cursor from a complete read is that run's `now`, so
+ * the next read re-reads the last 2 hours (Klaviyo records some events a
+ * little late). A cursor from a PARTIAL read is stored overlap-ahead of the
+ * last event actually processed (cursorAfter), so the next read starts
+ * exactly there — a keyset, which keeps a backlog moving instead of re-reading
+ * the same 2,000 events forever. A cursor further ahead than that cannot come
+ * from this code (clock trouble): treat it as "now", the old behaviour.
+ */
+function readStart(cursor: string | null, now: Date): number | null {
+  const c = cursor ? Date.parse(cursor) : NaN;
+  if (!Number.isFinite(c)) return null;
+  const overlap = EVENT_OVERLAP_MINUTES * 60_000;
+  return c > now.getTime() + overlap ? now.getTime() - overlap : Math.min(c - overlap, now.getTime());
+}
+
 /** Where this run's read of Klaviyo events starts. */
 export function eventsFrom(cursor: string | null, now: Date): Date {
   const floor = now.getTime() - EVENT_MAX_LOOKBACK_DAYS * 86_400_000;
-  const c = cursor ? Date.parse(cursor) : NaN;
-  if (!Number.isFinite(c)) return new Date(now.getTime() - EVENT_FIRST_READ_DAYS * 86_400_000);
-  return new Date(Math.max(floor, Math.min(c, now.getTime()) - EVENT_OVERLAP_MINUTES * 60_000));
+  const start = readStart(cursor, now);
+  if (start === null) return new Date(now.getTime() - EVENT_FIRST_READ_DAYS * 86_400_000);
+  return new Date(Math.max(floor, start));
+}
+
+/** One metric's read in a run: did it answer, did it reach the end, and the datetime of the last event it returned. */
+export type MetricRead = { ok: boolean; complete: boolean; lastAt: string | null };
+
+/**
+ * The cursor to store after a run's reads (one entry per metric the run was
+ * meant to read), or null to leave the stored one alone.
+ *
+ *   - any metric failed or was not read (deadline) → null: nothing is claimed.
+ *   - every metric read to the end → `now` (the next read overlaps 2 hours).
+ *   - some stopped at the page cap → the EARLIEST last-processed event across
+ *     them, stored overlap-ahead so readStart returns exactly that moment.
+ *     Klaviyo is asked for datetime >= that moment, so events sharing the
+ *     boundary timestamp are read again rather than skipped; they are
+ *     deduplicated (nurture_events by Klaviyo's event id; opt-outs are an
+ *     idempotent update). Metrics that did finish re-read from there too —
+ *     harmless for the same reason.
+ */
+export function cursorAfter(reads: readonly MetricRead[], now: Date): string | null {
+  if (reads.length === 0 || reads.some((r) => !r.ok)) return null;
+  let upTo = Infinity;
+  for (const r of reads) {
+    if (r.complete) continue;
+    const t = r.lastAt ? Date.parse(r.lastAt) : NaN;
+    // Partial with nothing usable processed: no progress to claim.
+    if (!Number.isFinite(t)) return null;
+    upTo = Math.min(upTo, t, now.getTime());
+  }
+  if (upTo === Infinity) return now.toISOString();
+  return new Date(upTo + EVENT_OVERLAP_MINUTES * 60_000).toISOString();
 }
 
 /* ----------------------------------------------------- flows and previews */
@@ -303,6 +429,8 @@ export type FlowEmail = {
   afterDays: number;
   /** Rendered preview (Klaviyo's own renderer, sample name "Alex"), when fetched. */
   html?: string | null;
+  /** When the last render of this email's template failed; it is not retried within PREVIEW_RETRY_HOURS. */
+  renderFailedAt?: string | null;
 };
 
 export type FlowSnapshot = {
@@ -392,20 +520,47 @@ export function flowProblems(snap: FlowSnapshot | null): string[] {
   return out;
 }
 
-/** Keep previews already rendered for templates that have not changed. */
+/** Keep previews already rendered — and the time of a failed render — for templates that have not changed. */
 export function carryPreviews(prev: FlowSnapshot | null, next: FlowSnapshot): FlowSnapshot {
-  const byTemplate = new Map((prev?.emails ?? []).filter((e) => e.templateId && e.html).map((e) => [e.templateId!, e.html!]));
-  return { ...next, emails: next.emails.map((e) => ({ ...e, html: e.templateId ? byTemplate.get(e.templateId) ?? null : null })) };
+  const byTemplate = new Map((prev?.emails ?? []).filter((e) => e.templateId).map((e) => [e.templateId!, e]));
+  return {
+    ...next,
+    emails: next.emails.map((e) => {
+      const old = e.templateId ? byTemplate.get(e.templateId) : undefined;
+      return { ...e, html: old?.html ?? null, renderFailedAt: old?.renderFailedAt ?? null };
+    }),
+  };
 }
 
 export const PREVIEW_MAX_AGE_HOURS = 24;
+/** A template whose render failed is tried again at most this often (not every 15-minute run). */
+export const PREVIEW_RETRY_HOURS = 1;
 
-/** Re-render when an email has no preview, or the previews are a day old (a template edited in Klaviyo). */
-export function previewsStale(snap: FlowSnapshot | null, renderedAt: string | null, now: Date): boolean {
-  if (!snap || snap.emails.length === 0) return false;
-  if (snap.emails.some((e) => e.templateId && !e.html)) return true;
+/**
+ * Which templates to render this run.
+ *
+ *   full    — on "Refresh from Klaviyo", or once the last full pass is a day
+ *             old (a template edited in Klaviyo): every email. `renderedAt`
+ *             is when the last full pass was ATTEMPTED, success or not, so one
+ *             broken template cannot make every run re-render all ~17 with a
+ *             1.1 s pause each (the 29 Sep storm).
+ *   retry   — otherwise, only emails with no preview yet (a new email in the
+ *             flow) or whose last render failed, and not within the last
+ *             PREVIEW_RETRY_HOURS. A failed render keeps the last good
+ *             preview until a retry succeeds; successful renders are kept.
+ */
+export function previewsToRender(snap: FlowSnapshot | null, renderedAt: string | null, now: Date, force = false): { templateIds: string[]; full: boolean } {
+  const withTemplate = (snap?.emails ?? []).filter((e) => e.templateId);
+  if (withTemplate.length === 0) return { templateIds: [], full: false };
   const t = renderedAt ? Date.parse(renderedAt) : NaN;
-  return !Number.isFinite(t) || now.getTime() - t > PREVIEW_MAX_AGE_HOURS * 3_600_000;
+  if (force || !Number.isFinite(t) || now.getTime() - t > PREVIEW_MAX_AGE_HOURS * 3_600_000) {
+    return { templateIds: [...new Set(withTemplate.map((e) => e.templateId!))], full: true };
+  }
+  const retryable = (e: FlowEmail) => {
+    const f = e.renderFailedAt ? Date.parse(e.renderFailedAt) : NaN;
+    return !Number.isFinite(f) || now.getTime() - f >= PREVIEW_RETRY_HOURS * 3_600_000;
+  };
+  return { templateIds: [...new Set(withTemplate.filter((e) => (!e.html || e.renderFailedAt) && retryable(e)).map((e) => e.templateId!))], full: false };
 }
 
 /** The sample person every preview is rendered for. */
@@ -428,6 +583,7 @@ export function snapshotOf(v: unknown): FlowSnapshot | null {
       templateId: s(e.templateId) || null, status: s(e.status),
       afterDays: Number.isFinite(Number(e.afterDays)) ? Number(e.afterDays) : 0,
       html: typeof e.html === "string" ? e.html : null,
+      ...(typeof e.renderFailedAt === "string" ? { renderFailedAt: e.renderFailedAt } : {}),
     })),
   };
 }
@@ -525,10 +681,11 @@ export const OPT_OUT_METRICS: readonly { kind: "unsub" | "spam"; metricId: strin
 /** The first read goes back far enough to catch the newsletter years. */
 export const OPT_OUT_FIRST_READ_DAYS = 800;
 
+/** Where this run's read of opt-outs starts. Same cursor rules as the email events (readStart, cursorAfter). */
 export function optOutsFrom(cursor: string | null, now: Date): Date {
-  const c = cursor ? Date.parse(cursor) : NaN;
-  if (!Number.isFinite(c)) return new Date(now.getTime() - OPT_OUT_FIRST_READ_DAYS * 86_400_000);
-  return new Date(Math.min(c, now.getTime()) - EVENT_OVERLAP_MINUTES * 60_000);
+  const start = readStart(cursor, now);
+  if (start === null) return new Date(now.getTime() - OPT_OUT_FIRST_READ_DAYS * 86_400_000);
+  return new Date(start);
 }
 
 /** Lower-cased, de-duplicated, plausible addresses. Anything odd is skipped, never guessed at. */

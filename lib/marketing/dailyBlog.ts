@@ -39,19 +39,65 @@ export interface QueueItem {
   notes: string | null;
   status: string;
   requestedAt: string | null;
+  /** When a run claimed it (moved it to in_progress). The queue API sends it. */
+  claimedAt?: string | null;
 }
 
 /**
  * The oldest blog request still waiting.
  *
- * `in_progress` is left alone on purpose: another run owns it, or it is stuck
- * and Luis retries it from /crm/marketing, where a stuck row is flagged.
+ * `in_progress` rows are never picked: another run owns them, or they are
+ * stuck and Luis deals with them on /crm/marketing, where a stuck row is
+ * flagged. But picking is not the whole decision. A FRESH in_progress row means
+ * another run is writing right now, and this run must not start a second post
+ * beside it. That is `decideRun` below; call it, not this, from the route.
  */
 export function pickNextBlog(items: readonly QueueItem[]): QueueItem | null {
   const waiting = items
     .filter((i) => i.channel === "blog" && i.status === "requested")
     .sort((a, b) => (a.requestedAt ?? "").localeCompare(b.requestedAt ?? ""));
   return waiting[0] ?? null;
+}
+
+/**
+ * How long a claim counts as "a run is writing this right now".
+ *
+ * A run cannot live longer than the route's maxDuration (800 s, about 13
+ * minutes, on Vercel Pro): Vercel kills the function at that point. So a claim
+ * older than 20 minutes belongs to a run that is dead, whatever the row says,
+ * and it must not block anything. That is the stale-claim escape: a crashed
+ * run can hold the blog back for 20 minutes, never for a day.
+ * dailyBlog.regress.ts checks this stays above the route's maxDuration.
+ */
+export const CLAIM_FRESH_MINUTES = 20;
+
+/** Whole minutes since `iso`, or null when there is no readable date. */
+function minutesSince(iso: string | null | undefined, now: Date): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return Number.isNaN(t) ? null : (now.getTime() - t) / 60_000;
+}
+
+/**
+ * The blog request another run is writing right now, if any: in_progress and
+ * claimed less than CLAIM_FRESH_MINUTES ago. Newest claim first.
+ *
+ * An in_progress row with no claim date, or a date older than the window, is a
+ * crashed run (the cron never leaves a live row without claimed_at), so it is
+ * NOT busy. A date a little in the future is clock skew and counts as fresh; a
+ * date far in the future is bad data and does not block.
+ */
+export function claimInProgress(
+  items: readonly QueueItem[],
+  now: Date,
+  minutes: number = CLAIM_FRESH_MINUTES,
+): (QueueItem & { minutesAgo: number }) | null {
+  const fresh = items
+    .filter((i) => i.channel === "blog" && i.status === "in_progress")
+    .map((i) => ({ ...i, minutesAgo: minutesSince(i.claimedAt, now) }))
+    .filter((i): i is QueueItem & { minutesAgo: number } => i.minutesAgo !== null && i.minutesAgo > -minutes && i.minutesAgo < minutes)
+    .sort((a, b) => a.minutesAgo - b.minutesAgo);
+  return fresh[0] ?? null;
 }
 
 /** Today's date on the New York calendar, "YYYY-MM-DD". Posts are dated in Eastern time. */
@@ -70,7 +116,78 @@ export function newYorkDate(now: Date): string {
  * once for the same schedule, and two posts in one morning is not the cadence.
  */
 export function draftedToday(drafts: readonly { draftedAt: string | null }[], today: string): boolean {
-  return drafts.some((d) => d.draftedAt !== null && newYorkDate(new Date(d.draftedAt)) === today);
+  return drafts.some((d) => {
+    if (d.draftedAt === null) return false;
+    const t = new Date(d.draftedAt);
+    return !Number.isNaN(t.getTime()) && newYorkDate(t) === today;
+  });
+}
+
+/**
+ * Should this run write a post, and if not, what does it tell the person (or
+ * the log) that asked?
+ *
+ * WHY THIS EXISTS (30 Sep 2026). A run takes 5-13 minutes with Opus, and until
+ * the draft lands the only trace of it is an in_progress row. The old check
+ * looked only at finished drafts, and picking skipped the in_progress row and
+ * took the NEXT topic. So a repeated Vercel cron delivery, or
+ * fc-run-daily-blog.bat double-clicked while the 7am run was still writing,
+ * started a second post the same morning.
+ *
+ * THE RULES, in order:
+ *   1. Another run claimed a blog request less than CLAIM_FRESH_MINUTES ago
+ *      and it is still in_progress: do nothing. `force` does NOT override this;
+ *      force means "a second post today on purpose", never "two at once".
+ *   2. Nothing is waiting: do nothing.
+ *   3. A blog draft already landed today (New York calendar, the same `today`
+ *      the post is dated with): do nothing, unless `force` (the .bat, behind
+ *      CRON_SECRET, for a deliberate second post).
+ *   4. Otherwise write the oldest waiting request.
+ *
+ * Two runs starting in the same second both see no claim and pick the SAME
+ * oldest request; the queue's claim is a conditional UPDATE, so only one wins
+ * and the other gets a 409. That race is closed by the database, this closes
+ * the minutes-long one.
+ *
+ * `drafts` may be empty when force is set (the route does not read them then).
+ */
+export type RunDecision =
+  | { run: true; item: QueueItem }
+  | { run: false; kind: "busy" | "empty" | "drafted"; message: string };
+
+export function decideRun(input: {
+  items: readonly QueueItem[];
+  drafts: readonly { draftedAt: string | null }[];
+  now: Date;
+  force: boolean;
+}): RunDecision {
+  const busy = claimInProgress(input.items, input.now);
+  if (busy) {
+    const ago = Math.max(0, Math.floor(busy.minutesAgo));
+    const mins = (n: number) => (n === 1 ? "1 minute" : `${n} minutes`);
+    // A run can live about 13 minutes; past 14 it has almost certainly died.
+    const next =
+      ago < 14
+        ? `Give it about ${mins(14 - ago)} more, then open /crm/marketing to read the draft. No need to run this again or send it to Claude.`
+        : `It should have finished by now. If /crm/marketing still shows it as "Being written" ${mins(Math.max(1, CLAIM_FRESH_MINUTES - ago))} from now, that run stopped: cancel it there, and running this again will write the next topic.`;
+    return {
+      run: false,
+      kind: "busy",
+      message:
+        `Not started: another run is already writing a post right now ` +
+        `(it started ${ago === 0 ? "less than a minute" : mins(ago)} ago, topic "${busy.topic}"). ` +
+        `Nothing new was claimed, so there will not be a second post. ${next}`,
+    };
+  }
+
+  const item = pickNextBlog(input.items);
+  if (!item) return { run: false, kind: "empty", message: "No blog request is waiting." };
+
+  if (!input.force && draftedToday(input.drafts, newYorkDate(input.now))) {
+    return { run: false, kind: "drafted", message: "A blog draft was already delivered today." };
+  }
+
+  return { run: true, item };
 }
 
 /** Every /blog/<slug> in the live sitemap. */
@@ -147,8 +264,8 @@ RESEARCH FIRST with the web_search tool. Never invent a figure. Cite every rate,
 - Read the finished post once for repeated sentences and remove them.
 
 NUMBERS, current as of 23 Sep 2026. Do not copy figures from older posts.
-- Ground-Up leverage: 85% of full cost (purchase + sunk costs + remaining budget) as standard; 90% for builders with five or more completed ground-up projects; a further 5% of cost on top of either finances the interest reserve, so an experienced builder reaches 95% all-in with the reserve financed. After-repair loan-to-value is a second cap and the lower one governs. NEVER write a flat "85% LTC" for ground-up.
-- Fix & Flip from 8.75%. DSCR from 6.0%. Rate RANGES only, never a guarantee.
+- Ground-Up leverage: 85% of full cost (purchase + sunk costs + remaining budget) as standard; 90% for builders with 20 or more completed ground-up builds; a further 5% of cost on top of either finances the interest reserve, so an experienced builder reaches 95% all-in with the reserve financed. After-repair loan-to-value is a second cap and the lower one governs. NEVER write a flat "85% LTC" for ground-up.
+- Fix & Flip from 8.75%. Ground-Up from 8.99%. DSCR from 6.0%. Rate RANGES only, never a guarantee.
 - Credit: most programs 660+, best tiers 680+, 640-659 case-by-case. Never a hard "680 floor".
 - Coverage: 45 states, excluded VT, UT, OR, SD, ND. Never "44 states".
 - Closing: "5-10 business days". Never "as little as 5 days".

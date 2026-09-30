@@ -4,7 +4,10 @@ import { isCrmStaff } from "@/lib/crm/access";
 import WorkspaceShell from "@/components/workspace/WorkspaceShell";
 
 export const metadata: Metadata = {
-  title: "Lending OS | Funded Capital",
+  // Pages set a bare name ("Pipeline"); this template makes it "Pipeline | Lending OS".
+  // (A plain string here let the ROOT template add "| Funded Capital" after
+  // pages that already said "Funded Capital Lending OS".)
+  title: { default: "Lending OS", template: "%s | Lending OS" },
   // Internal tooling. Never in the index, never in the sitemap.
   robots: { index: false, follow: false },
 };

@@ -30,7 +30,8 @@ const HERE = "/crm" as const;
  */
 
 export const metadata = {
-  title: "Pipeline | Funded Capital Lending OS",
+  // Same folder as app/crm/layout.tsx, so its title template does not apply here.
+  title: { absolute: "Pipeline | Lending OS" },
 };
 
 /** Everything that touches the database lives in here, behind the boundary. */

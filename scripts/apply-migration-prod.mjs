@@ -127,8 +127,25 @@ log(`- **Credentials from:** ${credentialSource}`);
 log(`- **This machine normally uses:** \`${currentUrl ? hostOf(currentUrl) : "(unset)"}\``);
 
 /* ---- 3: refuse anything that can destroy data ---------------------------- */
-const MIGRATIONS = readdirSync(join(ROOT, "drizzle"))
+const ALL_MIGRATIONS = readdirSync(join(ROOT, "drizzle"))
   .filter((f) => f.endsWith(".sql")).sort().map((f) => join("drizzle", f));
+
+/**
+ * FC_MIGRATE_ONLY (optional): comma-separated file names, e.g.
+ * "0020_nurture_complete.sql". Set by a commit .bat that ships ONE change while
+ * another piece of work has an unpublished migration sitting in drizzle/ — so
+ * this run never applies someone else's half-finished database change early.
+ * Unset = every file, as before. A name that does not exist refuses the run.
+ */
+const ONLY = (process.env.FC_MIGRATE_ONLY ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+const missingOnly = ONLY.filter((n) => !ALL_MIGRATIONS.some((m) => m.endsWith(n)));
+if (missingOnly.length) {
+  log();
+  log(`**REFUSED** — FC_MIGRATE_ONLY names a file that is not in drizzle/: ${missingOnly.join(", ")}. Nothing was done.`);
+  finish(1);
+}
+const MIGRATIONS = ONLY.length ? ALL_MIGRATIONS.filter((m) => ONLY.some((n) => m.endsWith(n))) : ALL_MIGRATIONS;
+if (ONLY.length) log(`- **Only applying:** ${MIGRATIONS.map((m) => `\`${m}\``).join(", ")}`);
 
 /* The rules (and their one narrow exception) live in scripts/migration-safety.mjs. */
 

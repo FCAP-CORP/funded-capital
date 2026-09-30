@@ -18,6 +18,14 @@
  *   "is in list <this list>", so removal takes them out of the flow before the
  *   next email.
  *
+ *   Finishing (30 Sep 2026): each flow is 3–4 emails over about 6–13 weeks.
+ *   A few days after the flow's last email the enrolment is marked finished
+ *   (stop reason "finished", not a win) and the person is taken off the list.
+ *   Without that the row stayed "active" forever, the one-active rule blocked
+ *   them from every later programme, and a reply months later counted as a
+ *   win. Finished frees them for a DIFFERENT programme; the same one never
+ *   comes round again (unique contact + programme, and `already_done`).
+ *
  * ONE PERSON, ONE PROGRAMME. A person qualifies for at most one programme at a
  * time, picked by PRIORITY below. Four emails from four programmes in one week
  * is how a lender ends up in the spam folder.
@@ -89,7 +97,7 @@ export const PROGRAMS: readonly Program[] = [
     key: "past_borrower",
     name: "Past borrowers",
     who: `Funded with us ${PAST_BORROWER_MIN_DAYS / 30}+ months ago, nothing in progress now.`,
-    what: "A check-in about their next project, then a note every month or so.",
+    what: "A check-in about their next project: 3–4 emails over about 6–13 weeks, then they stop.",
     klaviyoListId: "WwZmFn",
     klaviyoFlowId: "SQQjV4",
     klaviyoListName: "Lending OS · Past borrowers",
@@ -99,7 +107,7 @@ export const PROGRAMS: readonly Program[] = [
     key: "bp_no_term_sheet",
     name: "BiggerPockets, no term sheet",
     who: `Came from BiggerPockets, never got a term sheet, quiet ${QUIET_DAYS}+ days.`,
-    what: "A short series on how our loans work, then a note every month or so.",
+    what: "A short series on how our loans work: 3–4 emails over about 6–13 weeks, then they stop.",
     klaviyoListId: "VYBzq9",
     klaviyoFlowId: "WSv8R7",
     klaviyoListName: "Lending OS · BiggerPockets, no term sheet",
@@ -109,7 +117,7 @@ export const PROGRAMS: readonly Program[] = [
     key: "quiet",
     name: "Quiet leads",
     who: `Asked about a loan, nothing in progress, nobody in touch for ${QUIET_DAYS}+ days.`,
-    what: "A short series picking the conversation back up, then a note every month or so.",
+    what: "A short series picking the conversation back up: 3–4 emails over about 6–13 weeks, then they stop.",
     klaviyoListId: "Yq4vxf",
     klaviyoFlowId: "TWFaDN",
     klaviyoListName: "Lending OS · Quiet leads",
@@ -119,7 +127,7 @@ export const PROGRAMS: readonly Program[] = [
     key: "lost",
     name: "Lost deals",
     who: `Marked Closed – Lost ${LOST_MIN_DAYS}+ days ago (not duplicates or not-a-fit).`,
-    what: "A light touch — what's changed since, and an open door — then a note every few months.",
+    what: "A light touch — what's changed since, and an open door: 3–4 emails over about 6–13 weeks, then they stop.",
     klaviyoListId: "SW9AEq",
     klaviyoFlowId: "YqFvfY",
     klaviyoListName: "Lending OS · Lost deals",
@@ -129,7 +137,7 @@ export const PROGRAMS: readonly Program[] = [
     key: "contacts",
     name: "Investor contacts",
     who: `In your contacts but never sent us a deal; nobody in touch for ${QUIET_DAYS}+ days.`,
-    what: "A short introduction to how we lend, then a note every month or so.",
+    what: "A short introduction to how we lend: 3–4 emails over about 6–13 weeks, then they stop.",
     klaviyoListId: "S2b2zL",
     klaviyoFlowId: "UTRYvx",
     klaviyoListName: "Lending OS · Investor contacts",
@@ -158,6 +166,37 @@ export const EARLY_STAGES = ["lead", "qualified"] as const;
 export const FUNDED_STAGES = ["funded", "active", "draw_cycle", "extension", "payoff"] as const;
 
 const has = (list: readonly string[], v: string) => list.includes(v);
+
+/**
+ * Pipeline order — a copy of lib/crm/brokerUpdates.ts STAGE_ORDER, kept here so
+ * this module (imported by client components) never pulls in the broker view.
+ * nurture.regress.ts fails if the two lists ever differ.
+ */
+export const STAGE_ORDER = [
+  "lead", "qualified", "term_sheet_issued", "term_sheet_signed", "application_in", "underwriting",
+  "conditional_approval", "conditions_clearing", "clear_to_close", "docs_out", "funded",
+  "active", "draw_cycle", "extension", "payoff", "closed_lost",
+] as const;
+
+/**
+ * Whether a stage move is the deal moving FORWARD — the auto-stop's
+ * "deal_moved" signal, and a programme win: later in STAGE_ORDER than where it
+ * came from (a past borrower's loan going into a draw cycle counts, as it
+ * always has). Not a step back — before 30 Sep 2026 a correction
+ * (underwriting back to lead) stopped the programme and counted as a win —
+ * not a move into closed_lost (marking a quiet lead lost is who nurture is
+ * for), and not a deal's first stage (no `from`). Reopening a lost deal
+ * counts, as before: the borrower came back. rows.ts activeSignalsSql is the
+ * same rule in SQL.
+ */
+export function isForwardMove(from: string | null | undefined, to: string): boolean {
+  if (!from || to === "closed_lost") return false;
+  const t = (STAGE_ORDER as readonly string[]).indexOf(to);
+  if (t < 0) return false;
+  if (from === "closed_lost") return true;
+  const f = (STAGE_ORDER as readonly string[]).indexOf(from);
+  return f >= 0 && t > f;
+}
 
 /**
  * Lost reasons that mean "never email them marketing about this deal".
@@ -367,7 +406,9 @@ export type StopReason =
   | "bounced"
   | "no_email"
   | "removed_in_klaviyo"
-  | "stopped_by_staff";
+  | "stopped_by_staff"
+  /** Every email in the flow went out (migration 0020). Not a win, not a failure: the programme ran its course. */
+  | "finished";
 
 export const STOP_LABEL: Record<StopReason, string> = {
   replied: "They wrote back",
@@ -379,6 +420,7 @@ export const STOP_LABEL: Record<StopReason, string> = {
   no_email: "Email address removed",
   removed_in_klaviyo: "Removed from the list in Klaviyo",
   stopped_by_staff: "You stopped it",
+  finished: "Got all the emails",
 };
 
 /** The stops that count as the programme WORKING — shown as results on the page. */
@@ -394,28 +436,41 @@ export type StopSignals = {
   lastOutboundAt: string | null;
   /** Latest arrival of any application for this person. */
   lastArrivalAt: string | null;
-  /** Latest stage move INTO anything other than closed_lost. Marking a deal lost is not a reason to stop. */
+  /** Latest FORWARD stage move (isForwardMove). A correction backwards, or marking a deal lost, is not a reason to stop. */
   lastForwardMoveAt: string | null;
+  /**
+   * When the flow has sent its last email, plus a few days' grace
+   * (cockpit.ts finishAt). Null while the person has not reached Klaviyo.
+   * Anything that happens AFTER this is not the programme's doing: a reply
+   * months later is not a win.
+   */
+  finishAt?: string | null;
 };
 
 /**
  * Should this enrolment stop, and why. Checked every sync run against a fresh
  * read. The order puts consent first (it is a legal line, not a preference),
- * then the wins, then Luis reaching out himself.
+ * then the wins, then Luis reaching out himself, then — once the flow has run
+ * its course (`finishAt` passed, measured against `now`) — "finished".
+ *
+ * Only signals between enrolling and `finishAt` count, so a cron that was down
+ * over the finish date cannot turn a later reply into a programme win.
  */
-export function stopReason(s: StopSignals): StopReason | null {
+export function stopReason(s: StopSignals, now?: Date): StopReason | null {
   if (s.emailSubscribed === false) return "unsubscribed";
   if (!cleanEmail(s.email)) return "no_email";
   const since = ms(s.enrolledAt);
   if (since === null) return null;
+  const end = ms(s.finishAt ?? null);
   const after = (iso: string | null) => {
     const v = ms(iso);
-    return v !== null && v > since;
+    return v !== null && v > since && (end === null || v <= end);
   };
   if (after(s.lastInboundAt)) return "replied";
   if (after(s.lastArrivalAt)) return "new_deal";
   if (after(s.lastForwardMoveAt)) return "deal_moved";
   if (after(s.lastOutboundAt)) return "contacted";
+  if (end !== null && now && now.getTime() >= end) return "finished";
   return null;
 }
 
@@ -546,7 +601,7 @@ export function retryDelayMinutes(attempts: number): number {
   return Math.min(2 ** n, 360);
 }
 
-/** Where a stopped enrolment's Klaviyo state goes. A row never added needs no removal call — but
+/** Where a stopped (or finished) enrolment's Klaviyo state goes. A row never added needs no removal call — but
  *  one mid-add might land, so anything not already "removed" is removed. */
 export function stateAfterStop(state: SyncState): SyncState {
   return state === "removed" || state === "queued" ? "removed" : "pending_remove";

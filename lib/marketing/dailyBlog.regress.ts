@@ -10,7 +10,10 @@ import {
   SYSTEM_RULES,
   bodyWordCount,
   buildBrief,
+  CLAIM_FRESH_MINUTES,
   checkOutput,
+  claimInProgress,
+  decideRun,
   draftedToday,
   newYorkDate,
   parseModelOutput,
@@ -21,6 +24,8 @@ import {
   type ModelOutput,
   type QueueItem,
 } from "./dailyBlog";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 let pass = 0, fail = 0;
 const check = (name: string, cond: boolean, detail = "") => {
@@ -115,9 +120,64 @@ const item = (id: string, over: Partial<QueueItem> = {}): QueueItem => ({
   id, channel: "blog", topic: `Topic ${id}`, notes: null, status: "requested", requestedAt: `2026-09-2${id}T10:00:00Z`, ...over,
 });
 check("oldest requested blog wins", pickNextBlog([item("3"), item("1"), item("2")])?.id === "1");
-check("in_progress is left alone", pickNextBlog([item("1", { status: "in_progress" }), item("2")])?.id === "2");
+// pickNextBlog never picks an in_progress row; whether the run may go ahead at
+// all while one exists is decideRun's job (section 1b).
+check("pickNextBlog never picks an in_progress row", pickNextBlog([item("1", { status: "in_progress" }), item("2")])?.id === "2");
 check("other channels are ignored", pickNextBlog([item("1", { channel: "linkedin" }), item("2")])?.id === "2");
 check("nothing waiting returns null", pickNextBlog([item("1", { status: "drafted" })]) === null);
+
+console.log("\n=== 1b. One post a morning: a run that is still writing blocks a second ===");
+// The 7am cron (11:00 UTC) claimed request 1 at 11:00:20 and is still writing.
+const NOW = new Date("2026-09-25T11:06:00Z");
+const writing = (claimedAt: string | null) => item("1", { status: "in_progress", claimedAt });
+const waitingNext = item("2");
+const busy = decideRun({ items: [writing("2026-09-25T11:00:20Z"), waitingNext], drafts: [], now: NOW, force: false });
+check("a claim 6 minutes old blocks the repeated cron delivery", !busy.run && busy.kind === "busy", JSON.stringify(busy).slice(0, 120));
+check("...and the second request is NOT claimed", !busy.run, busy.run ? `**CLAIMED ${busy.item.id}**` : "");
+const bat = decideRun({ items: [writing("2026-09-25T11:00:20Z"), waitingNext], drafts: [], now: NOW, force: true });
+check("the .bat (force=1) is refused too while the cron is writing", !bat.run && bat.kind === "busy", bat.run ? `**CLAIMED ${bat.item.id}**` : bat.kind);
+const msg = bat.run ? "" : bat.message;
+check("...with a message a person can act on", /another run is already writing/.test(msg) && /5 minutes ago/.test(msg) && /Topic 1/.test(msg) && /\/crm\/marketing/.test(msg) && /No need to run this again/.test(msg), msg);
+check("...that says nothing was claimed", /Nothing new was claimed/.test(msg), msg);
+check("a claim seconds old blocks", !decideRun({ items: [writing("2026-09-25T11:05:50Z"), waitingNext], drafts: [], now: NOW, force: true }).run);
+check("a claim a little in the future (clock skew) still blocks", !decideRun({ items: [writing("2026-09-25T11:06:30Z"), waitingNext], drafts: [], now: NOW, force: false }).run);
+check("a claim 19 minutes old still blocks", !decideRun({ items: [writing("2026-09-25T10:47:00Z"), waitingNext], drafts: [], now: NOW, force: true }).run);
+const lateMsg = decideRun({ items: [writing("2026-09-25T10:50:00Z"), waitingNext], drafts: [], now: NOW, force: true });
+check("past 14 minutes the message says the run has probably stopped", !lateMsg.run && /should have finished/.test(lateMsg.message) && /cancel it there/.test(lateMsg.message), lateMsg.run ? "" : lateMsg.message);
+check("busy is reported even when nothing else is waiting", (() => { const d = decideRun({ items: [writing("2026-09-25T11:00:20Z")], drafts: [], now: NOW, force: false }); return !d.run && d.kind === "busy"; })());
+
+// The stale-claim escape: a crashed run must not hold the blog back for long.
+const stale = decideRun({ items: [writing("2026-09-25T10:40:00Z"), waitingNext], drafts: [], now: NOW, force: false });
+check(`a claim ${CLAIM_FRESH_MINUTES}+ minutes old is a crashed run and does not block`, stale.run && stale.item.id === "2", stale.run ? stale.item.id : stale.message);
+const yesterdays = decideRun({ items: [writing("2026-09-24T11:00:20Z"), waitingNext], drafts: [], now: NOW, force: false });
+check("yesterday's stuck claim does not block", yesterdays.run && yesterdays.item.id === "2");
+check("an in_progress row with no claim date does not block", decideRun({ items: [writing(null), waitingNext], drafts: [], now: NOW, force: false }).run);
+check("an unreadable claim date does not block", decideRun({ items: [writing("not a date"), waitingNext], drafts: [], now: NOW, force: false }).run);
+check("a claim date far in the future (bad data) does not block", decideRun({ items: [writing("2026-09-26T11:00:00Z"), waitingNext], drafts: [], now: NOW, force: false }).run);
+check("an in_progress LinkedIn request does not block the blog", decideRun({ items: [item("1", { channel: "linkedin", status: "in_progress", claimedAt: "2026-09-25T11:05:00Z" }), waitingNext], drafts: [], now: NOW, force: false }).run);
+check("claimInProgress returns the newest fresh claim", claimInProgress([writing("2026-09-25T11:00:00Z"), item("9", { status: "in_progress", claimedAt: "2026-09-25T11:04:00Z" })], NOW)?.id === "9");
+
+// Already drafted today.
+const draftedAlready = decideRun({ items: [waitingNext], drafts: [{ draftedAt: "2026-09-25T11:09:00Z" }], now: new Date("2026-09-25T13:00:00Z"), force: false });
+check("a draft already delivered today blocks the next run", !draftedAlready.run && draftedAlready.kind === "drafted", JSON.stringify(draftedAlready).slice(0, 120));
+check("...but force (a deliberate second post) may go ahead", decideRun({ items: [waitingNext], drafts: [{ draftedAt: "2026-09-25T11:09:00Z" }], now: new Date("2026-09-25T13:00:00Z"), force: true }).run);
+check("yesterday's draft does not block today's run", decideRun({ items: [waitingNext], drafts: [{ draftedAt: "2026-09-24T11:09:00Z" }], now: new Date("2026-09-25T11:00:00Z"), force: false }).run);
+check("'today' is New York's: a draft at 23:30 ET blocks a run at 23:50 ET (next day in UTC)",
+  !decideRun({ items: [waitingNext], drafts: [{ draftedAt: "2026-09-26T03:30:00Z" }], now: new Date("2026-09-26T03:50:00Z"), force: false }).run);
+check("...and does not block the 7am run the next morning",
+  decideRun({ items: [waitingNext], drafts: [{ draftedAt: "2026-09-26T03:30:00Z" }], now: new Date("2026-09-26T11:00:00Z"), force: false }).run);
+check("nothing waiting is 'empty'", (() => { const d = decideRun({ items: [], drafts: [], now: NOW, force: false }); return !d.run && d.kind === "empty"; })());
+check("a normal morning writes the oldest waiting request", (() => { const d = decideRun({ items: [item("3"), waitingNext], drafts: [], now: NOW, force: false }); return d.run && d.item.id === "2"; })());
+
+// The window must outlast the longest possible run, or a slow run would stop
+// blocking before it finishes. The route's maxDuration is the hard ceiling.
+const routeSrc = readFileSync(join(__dirname, "..", "..", "app", "api", "cron", "daily-blog", "route.ts"), "utf8");
+const maxDuration = Number(/export const maxDuration = (\d+)/.exec(routeSrc)?.[1] ?? NaN);
+check("the fresh-claim window outlasts the route's maxDuration", maxDuration > 0 && CLAIM_FRESH_MINUTES * 60 > maxDuration, `${CLAIM_FRESH_MINUTES} min vs ${maxDuration} s`);
+check("the route decides with decideRun before it claims", (() => {
+  const d = routeSrc.indexOf("decideRun({"), c = routeSrc.indexOf('status: "in_progress"');
+  return d > 0 && c > d && !/pickNextBlog\(/.test(routeSrc);
+})(), "decideRun precedes the claim");
 
 console.log("\n=== 2. Dates on the New York calendar ===");
 check("11:00 UTC is the same day in New York", newYorkDate(new Date("2026-09-25T11:00:00Z")) === "2026-09-25");

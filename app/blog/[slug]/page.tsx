@@ -24,7 +24,10 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     title: post.title,
     description: post.description,
     keywords: post.keywords,
+    // Relative, so it resolves against the root layout's metadataBase (www).
+    alternates: { canonical: `/blog/${slug}` },
     openGraph: {
+      url: `/blog/${slug}`,
       title: post.title,
       description: post.description,
       type: "article",

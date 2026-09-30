@@ -14,7 +14,7 @@ import RecordCardSlot from "../_record/RecordCardSlot";
 const HERE = "/crm/board" as const;
 
 export const metadata = {
-  title: "Pipeline Board | Funded Capital Lending OS",
+  title: "Pipeline Board",
 };
 
 function BoardSkeleton() {

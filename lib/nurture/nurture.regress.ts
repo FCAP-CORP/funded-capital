@@ -11,10 +11,13 @@
  */
 import {
   ENROLL_MAX, LOST_MIN_DAYS, MAX_SYNC_ATTEMPTS, PAST_BORROWER_MIN_DAYS, PROGRAMS, PROGRAM_KEYS, QUIET_DAYS,
-  candidateOf, classify, klaviyoVerdict, loanWords, lostReasonExcluded, parseContactIds, profilePayload,
+  STAGE_ORDER, STOP_LABEL, WIN_REASONS,
+  candidateOf, classify, isForwardMove, klaviyoVerdict, loanWords, lostReasonExcluded, parseContactIds, profilePayload,
   programByKey, retryDelayMinutes, stateAfterStop, stopReason, summarize,
   type NurtureApp, type NurtureContact, type StopSignals,
 } from "./nurture";
+import { STAGE_ORDER as BROKER_STAGE_ORDER } from "../crm/brokerUpdates";
+import { stageEnum } from "../db/schema";
 
 let pass = 0, fail = 0;
 const check = (name: string, cond: boolean, detail: string) => {
@@ -162,6 +165,46 @@ check("Luis emailed/called them himself → stop", stopReason(sig({ lastOutbound
 check("unsubscribe beats everything", stopReason(sig({ emailSubscribed: false, lastInboundAt: ago(1) })) === "unsubscribed", "");
 check("email removed → stop", stopReason(sig({ email: "" })) === "no_email", "");
 check("a reply outranks Luis's own follow-up (credit the programme)", stopReason(sig({ lastInboundAt: ago(1), lastOutboundAt: ago(1) })) === "replied", "");
+console.log("\n§3b finishing (30 Sep 2026)");
+{
+  const fin = ago(1); // the flow's last email + grace passed yesterday
+  check("flow ran its course, nothing else happened → finished", stopReason(sig({ finishAt: fin }), NOW) === "finished", "");
+  check("not yet at the finish date → keeps going", stopReason(sig({ finishAt: new Date(NOW.getTime() + 86_400_000).toISOString() }), NOW) === null, "");
+  check("no finish date (never reached Klaviyo) → never finished", stopReason(sig({ finishAt: null }), NOW) === null, "");
+  check("without a clock, nothing finishes (old callers unchanged)", stopReason(sig({ finishAt: fin })) === null, "");
+  check("a reply BEFORE the finish date is still a win", stopReason(sig({ finishAt: fin, lastInboundAt: ago(2) }), NOW) === "replied", "");
+  check("a reply AFTER the finish date is not the programme's win → finished", stopReason(sig({ finishAt: ago(5), lastInboundAt: ago(2) }), NOW) === "finished", "");
+  check("a deal move after the finish date is not a win either", stopReason(sig({ finishAt: ago(5), lastForwardMoveAt: ago(2) }), NOW) === "finished", "");
+  check("an unsubscribe still outranks finishing (consent first)", stopReason(sig({ finishAt: fin, emailSubscribed: false }), NOW) === "unsubscribed", "");
+  check("'finished' is labelled, and is not a win", STOP_LABEL.finished === "Got all the emails" && !WIN_REASONS.includes("finished"), STOP_LABEL.finished);
+  check("finishing takes them off the Klaviyo list", stateAfterStop("added") === "pending_remove", "");
+  const sf = summarize([], [
+    { program: "quiet", status: "stopped", stopReason: "finished", syncState: "removed", syncAttempts: 0 },
+    { program: "quiet", status: "stopped", stopReason: "replied", syncState: "removed", syncAttempts: 0 },
+  ], NOW).byProgram.find((b) => b.key === "quiet")!;
+  check("finished people count under Stopped, not as wins, not as enrolled", sf.stopped.finished === 1 && sf.wins === 1 && sf.active === 0, JSON.stringify(sf));
+  // Loops: finished frees the person, but never for the same programme.
+  check("finished the quiet programme → quiet is never offered again", why(person({ priorPrograms: ["quiet"] })) === "already_done", "");
+  const lostNow = person({ priorPrograms: ["quiet"], apps: [app({ stage: "closed_lost", lostAt: ago(120), lostReason: "Stopped responding" })] });
+  check("...but a different programme is, once they fit it (lost deal)", prog(lostNow).program === "lost", String(prog(lostNow).program ?? prog(lostNow).exclusion));
+  check("no programme still promises 'a note every month'", PROGRAMS.every((p) => !/every (month|few months)/i.test(p.what) && /then they stop\.$/.test(p.what)), PROGRAMS.map((p) => p.what).join(" | "));
+}
+
+console.log("\n§3c which stage moves count as 'moved forward'");
+check("the stage order is lib/crm/brokerUpdates.ts STAGE_ORDER, exactly", JSON.stringify(STAGE_ORDER) === JSON.stringify(BROKER_STAGE_ORDER), STAGE_ORDER.join(","));
+check("...and covers every stage the database has", stageEnum.enumValues.every((v) => (STAGE_ORDER as readonly string[]).includes(v)) && STAGE_ORDER.length === stageEnum.enumValues.length, `${stageEnum.enumValues.length} stages`);
+check("lead → term sheet issued: forward", isForwardMove("lead", "term_sheet_issued"), "");
+check("underwriting → funded: forward", isForwardMove("underwriting", "funded"), "");
+check("underwriting → lead (a correction): NOT forward", !isForwardMove("underwriting", "lead"), "");
+check("term sheet signed → issued (a correction): NOT forward", !isForwardMove("term_sheet_signed", "term_sheet_issued"), "");
+check("anything → closed_lost: NOT forward", !isForwardMove("lead", "closed_lost") && !isForwardMove("underwriting", "closed_lost"), "");
+check("closed_lost → qualified (reopened, the borrower came back): forward", isForwardMove("closed_lost", "qualified"), "");
+check("a deal's first stage (no from) is not a move", !isForwardMove(null, "lead") && !isForwardMove(undefined, "qualified"), "");
+check("a past borrower's loan moving on (active → draw cycle) still counts, as before", isForwardMove("active", "draw_cycle"), "");
+check("...but back from draw cycle to active does not", !isForwardMove("draw_cycle", "active"), "");
+check("the same stage twice is not a move", !isForwardMove("qualified", "qualified"), "");
+check("an unknown stage is not a move", !isForwardMove("mystery", "funded") && !isForwardMove("lead", "mystery"), "");
+
 check("stopping never skips removal of a row that might be mid-add", stateAfterStop("pending_add") === "pending_remove" && stateAfterStop("added") === "pending_remove" && stateAfterStop("removed") === "removed", "");
 
 console.log("\n§4 reading Klaviyo");

@@ -9,7 +9,8 @@ import DashboardClient from "./DashboardClient";
  * signed in. See the note in the layout.
  */
 export const metadata = {
-  title: "Dashboard | Funded Capital Broker Portal",
+  // Same folder as the portal layout, so its title template does not apply here.
+  title: { absolute: "Dashboard | Funded Capital Broker Portal" },
 };
 
 export default function DashboardPage() {

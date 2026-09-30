@@ -16,9 +16,16 @@
  *
  * EACH RUN, IN THIS ORDER:
  *
- *   1. AUTO-STOP. Anyone who wrote back, started a deal, had a deal move, was
- *      contacted by Luis, or unsubscribed stops — before anything else runs,
- *      so no step below can add a person who should have stopped.
+ *   1. AUTO-STOP. Anyone who wrote back, started a deal, had a deal move
+ *      forward, was contacted by Luis, or unsubscribed stops — before anything
+ *      else runs, so no step below can add a person who should have stopped.
+ *      A few days after a flow's last email the enrolment FINISHES and the
+ *      person is taken off the list (30 Sep 2026). Database only; every run.
+ *
+ *   Steps 2–7 talk to Klaviyo only when it is useful (cockpit.ts
+ *   syncCadence): in and just before the weekday-morning release window, and
+ *   otherwise about every 45 minutes. Step 8 runs whenever a row is due.
+ *
  *   2. FLOWS. Read each programme's Klaviyo flow: live or not, its emails,
  *      and (once a day) rendered previews. Stored so the page never waits on
  *      Klaviyo. Nobody is released to a flow that is not confirmed live.
@@ -32,7 +39,9 @@
  *   6. AUTO-ENROL. Weekday mornings, once per programme per day, programmes
  *      set to Automatic queue everyone who qualifies on a fresh read.
  *   7. RELEASE. The warm-up moves queued people to "add to Klaviyo", within
- *      today's cap, weekday mornings only, never while paused.
+ *      today's cap, weekday mornings only, never while paused. The cap is
+ *      re-counted under a row lock, so the cron and a button's background
+ *      drain running together cannot both spend it.
  *   8. DRAIN. Make the Klaviyo calls the rows ask for — add or remove — with
  *      a claim lease so two runs cannot make the same call, and backoff on
  *      failure. A row that fails MAX_SYNC_ATTEMPTS times stops retrying and
@@ -54,12 +63,13 @@ import {
   retryDelayMinutes, stopReason, type ProgramKey, type StopReason,
 } from "./nurture";
 import {
-  EVENT_METRICS, HEALTH_DAYS, OPT_OUT_METRICS, PREVIEW_CONTEXT, optOutEmails, optOutsFrom, carryPreviews, deliverability, eventsFrom, flowIsLive, flowProblems,
-  inReleaseWindow, nyClock, parseFlow, parseMode, planRelease, previewsStale, snapshotOf, toNurtureEvent,
-  type FlowSnapshot, type ReleaseBlock,
+  EVENT_METRICS, HEALTH_DAYS, OPT_OUT_METRICS, PREVIEW_CONTEXT, optOutEmails, optOutsFrom, carryPreviews, cursorAfter, deliverability, eventsFrom,
+  finishAt, flowIsLive, flowProblems, inReleaseWindow, nyClock, parseFlow, parseMode, planRelease, previewsToRender, snapshotOf, syncCadence,
+  toNurtureEvent,
+  type FlowEmail, type FlowSnapshot, type MetricRead, type ReleaseBlock,
 } from "./cockpit";
 import {
-  activeSignalsSql, enrolQueuedSql, healthCountsSql, isoOf, nurtureContactsSql, releaseCountsSql, strOf,
+  activeSignalsSql, enrolQueuedSql, flowDaysSql, healthCountsSql, isoOf, nurtureContactsSql, releaseCountsSql, strOf,
   toNurtureContact, uuidArray,
 } from "./rows";
 
@@ -73,7 +83,11 @@ export function nurtureSyncConfigured(): boolean {
 
 export type SyncSummary = {
   configured: boolean;
+  /** Whether this run read Klaviyo (flows, lists, events, opt-outs) — see syncCadence. */
+  klaviyoRead: boolean;
   stopped: number;
+  /** Of the stopped: enrolments that ran their course (every email sent). */
+  finished: number;
   unsubscribedMirrored: number;
   flowsRead: number;
   events: number;
@@ -106,7 +120,7 @@ function stopStatement(id: string, reason: StopReason, by: string, syncState: "p
     )
     INSERT INTO activities (contact_id, kind, source, subject, dedup_key)
     SELECT contact_id, 'automation', 'nurture',
-           'Nurture stopped (' || CASE program ${sql.raw(PROGRAMS.map((p) => `WHEN '${p.key}' THEN '${p.name.replace(/'/g, "''")}'`).join(" "))} ELSE program END || '): ' || ${STOP_LABEL[reason]},
+           ${reason === "finished" ? "Nurture finished (" : "Nurture stopped ("}::text || CASE program ${sql.raw(PROGRAMS.map((p) => `WHEN '${p.key}' THEN '${p.name.replace(/'/g, "''")}'`).join(" "))} ELSE program END || '): ' || ${STOP_LABEL[reason]},
            'nurture:out:' || id::text
     FROM s
     ON CONFLICT (dedup_key) DO NOTHING
@@ -122,23 +136,40 @@ async function runBatch(statements: ReturnType<typeof sql>[]): Promise<void> {
   }
 }
 
-async function applyAutoStops(): Promise<number> {
-  const rows = rowsOf(await db.execute(activeSignalsSql()));
+/**
+ * Stop whoever should stop, and finish whoever has had every email. One
+ * round trip to read, one per 50 writes. Finishing sends the row to
+ * pending_remove like any stop, so the drain takes them off the list and the
+ * flow's "is in list" filter can never email them again.
+ */
+async function applyAutoStops(now: Date): Promise<{ stopped: number; finished: number }> {
+  const [signals, flows] = await db.batch([db.execute(activeSignalsSql()), db.execute(flowDaysSql())]);
+  const flowDays = new Map(rowsOf(flows).map((r) => [String(r.program), r.flow_days === null || r.flow_days === undefined ? null : Number(r.flow_days)]));
   const stops: ReturnType<typeof sql>[] = [];
-  for (const r of rows) {
+  const finishes: ReturnType<typeof sql>[] = [];
+  for (const r of rowsOf(signals)) {
+    // The flow starts when the add to the list succeeds (synced_at); only a row in Klaviyo can finish.
+    const addedAt = r.sync_state === "added" ? isoOf(r.synced_at) ?? isoOf(r.released_at) : null;
     const reason = stopReason({
-      enrolledAt: isoOf(r.enrolled_at) ?? new Date().toISOString(),
+      enrolledAt: isoOf(r.enrolled_at) ?? now.toISOString(),
       email: strOf(r.email),
       emailSubscribed: r.email_subscribed === null || r.email_subscribed === undefined ? null : r.email_subscribed === true,
       lastInboundAt: isoOf(r.last_inbound_at),
       lastOutboundAt: isoOf(r.last_outbound_at),
       lastArrivalAt: isoOf(r.last_arrival_at),
       lastForwardMoveAt: isoOf(r.last_forward_move_at),
-    });
-    if (reason) stops.push(stopStatement(String(r.id), reason, "nurture-sync"));
+      finishAt: finishAt(addedAt, flowDays.get(String(r.program)) ?? null),
+    }, now);
+    if (reason === "finished") finishes.push(stopStatement(String(r.id), reason, "nurture-sync"));
+    else if (reason) stops.push(stopStatement(String(r.id), reason, "nurture-sync"));
   }
   await runBatch(stops);
-  return stops.length;
+  // Separate batches: "finished" needs migration 0020's widened check. If
+  // production is ever deployed before it is migrated, the real stops above
+  // (replies, unsubscribes) must still land; finishing waits for the migration.
+  let finished = 0;
+  try { await runBatch(finishes); finished = finishes.length; } catch { finished = 0; }
+  return { stopped: stops.length, finished };
 }
 
 /* ------------------------------------------------------------- mirroring */
@@ -153,7 +184,7 @@ async function mirrorKlaviyo(key: string, deadline: number): Promise<{ stopped: 
   const lists = [...new Set(rows.map((r) => String(r.klaviyo_list_id)))];
   for (const listId of lists) {
     if (Date.now() > deadline) break;
-    const read = await listMembers(key, listId);
+    const read = await listMembers(key, listId, 30, deadline);
     if (!read.ok) continue; // the drain will surface a broken key; a missed mirror is caught next run
     const byProfile = new Map(read.members.map((m) => [m.profileId, m]));
     const statements: ReturnType<typeof sql>[] = [];
@@ -365,8 +396,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * Read each programme's flow and store what the page shows. A failed read
  * records the error and leaves `flow_checked_at` alone, so the cached "live"
  * goes stale within the hour and releases stop — the safe direction.
- * Previews are rendered at most once a day (Klaviyo allows 60 renders a
- * minute), or on demand from the page's "Refresh from Klaviyo".
+ * Previews are rendered in full at most once a day (Klaviyo allows 60 renders
+ * a minute), or on demand from the page's "Refresh from Klaviyo"; a render
+ * that fails is retried alone, at most hourly (cockpit.ts previewsToRender).
  */
 async function refreshFlows(key: string, deadline: number, now: Date, forcePreviews = false): Promise<{ read: number; error: string | null }> {
   const programs = await readPrograms();
@@ -387,25 +419,32 @@ async function refreshFlows(key: string, deadline: number, now: Date, forcePrevi
       continue;
     }
     let snap = carryPreviews(row?.snapshot ?? null, parsed);
-    let rendered = false;
-    if ((forcePreviews || previewsStale(snap, forcePreviews ? null : row?.previewsRenderedAt ?? null, now)) && Date.now() < deadline - 30_000) {
-      const emails = [];
-      let allOk = true;
+    let fullPass = false;
+    const todo = previewsToRender(snap, row?.previewsRenderedAt ?? null, now, forcePreviews);
+    if (todo.templateIds.length > 0 && Date.now() < deadline - 30_000) {
+      const want = new Set(todo.templateIds);
+      const failedAt = now.toISOString();
+      const emails: FlowEmail[] = [];
+      let refused = false, calls = 0;
       for (const e of snap.emails) {
-        if (!e.templateId) { emails.push(e); continue; }
+        if (!e.templateId || !want.has(e.templateId)) { emails.push(e); continue; }
+        // A key without the templates permission refuses them all: note them failed, don't ask again this hour.
+        if (refused) { emails.push({ ...e, renderFailedAt: failedAt }); continue; }
+        if (calls++ > 0) await sleep(1_100); // Klaviyo: 3 renders a second burst, 60 a minute steady
         const r = await renderTemplate(key, e.templateId, PREVIEW_CONTEXT);
-        emails.push({ ...e, html: r.ok ? r.html.slice(0, 200_000) : e.html ?? null });
-        if (!r.ok) { allOk = false; if (isScopeError(r.error)) break; }
-        await sleep(1_100); // Klaviyo: 3 renders a second burst, 60 a minute steady
+        // A failure keeps the last good preview, and records when, so it is not re-tried every run.
+        emails.push(r.ok ? { ...e, html: r.html.slice(0, 200_000), renderFailedAt: null } : { ...e, renderFailedAt: failedAt });
+        if (!r.ok && isScopeError(r.error)) refused = true;
       }
-      snap = { ...snap, emails: [...emails, ...snap.emails.slice(emails.length)] };
-      rendered = allOk;
+      snap = { ...snap, emails };
+      // The ATTEMPT is recorded, success or not: the next full pass is a day away either way.
+      fullPass = todo.full;
     }
     await db.execute(sql`
       UPDATE nurture_programs
       SET flow_status = ${parsed.status || null}, flow_checked_at = ${now.toISOString()}::timestamptz, flow_error = NULL,
           flow_snapshot = ${JSON.stringify(snap)}::jsonb,
-          previews_rendered_at = CASE WHEN ${rendered} THEN ${now.toISOString()}::timestamptz ELSE previews_rendered_at END,
+          previews_rendered_at = CASE WHEN ${fullPass} THEN ${now.toISOString()}::timestamptz ELSE previews_rendered_at END,
           updated_at = now()
       WHERE program = ${p.key}
     `);
@@ -421,19 +460,22 @@ async function refreshFlows(key: string, deadline: number, now: Date, forcePrevi
  * enrolment by Klaviyo profile and programme. An event for someone Lending OS
  * did not enrol (a test send, a profile added by hand) matches nothing and is
  * not kept. Deduplicated on Klaviyo's event id, so the overlap between runs
- * is harmless. The cursor only moves when every metric was read to the end.
+ * is harmless. The cursor is a keyset (cockpit.ts cursorAfter): a read cut
+ * short by the page cap still moves it to the last event processed, so a
+ * busy window can never freeze it.
  */
 async function pullEvents(key: string, deadline: number, now: Date): Promise<number> {
   const c = rowsOf(await db.execute(sql`SELECT events_synced_until FROM nurture_control WHERE id = 1`));
   if (c.length === 0) return 0;
   const from = eventsFrom(isoOf(c[0].events_synced_until), now);
-  let complete = true;
+  const reads: MetricRead[] = [];
   let kept = 0;
   for (const m of EVENT_METRICS) {
-    if (Date.now() > deadline) { complete = false; break; }
-    const got = await listEvents(key, m.metricId, from);
-    if (!got.ok) { complete = false; if (isScopeError(got.error)) break; continue; }
-    if (!got.complete) complete = false;
+    // A metric not read this run (deadline, broken key) counts as a failed read: the cursor stays put.
+    if (Date.now() > deadline) { reads.push({ ok: false, complete: false, lastAt: null }); break; }
+    const got = await listEvents(key, m.metricId, from, 10, { deadline });
+    if (!got.ok) { reads.push({ ok: false, complete: false, lastAt: null }); if (isScopeError(got.error)) break; continue; }
+    reads.push({ ok: true, complete: got.complete, lastAt: lastDatetime(got.events) });
     const inserts: ReturnType<typeof sql>[] = [];
     for (const raw of got.events) {
       const e = toNurtureEvent(m.kind, raw);
@@ -451,10 +493,20 @@ async function pullEvents(key: string, deadline: number, now: Date): Promise<num
     await runBatch(inserts);
     kept += inserts.length;
   }
-  if (complete) {
-    await db.execute(sql`UPDATE nurture_control SET events_synced_until = ${now.toISOString()}::timestamptz, updated_at = now() WHERE id = 1`);
+  const cursor = reads.length === EVENT_METRICS.length ? cursorAfter(reads, now) : null;
+  if (cursor) {
+    await db.execute(sql`UPDATE nurture_control SET events_synced_until = ${cursor}::timestamptz, updated_at = now() WHERE id = 1`);
   }
   return kept;
+}
+
+/** The datetime of the last event in Klaviyo's (oldest-first) order that has one: how far a read got. */
+function lastDatetime(events: readonly { datetime: string | null }[]): string | null {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const d = events[i].datetime;
+    if (d && Number.isFinite(Date.parse(d))) return d;
+  }
+  return null;
 }
 
 /* ------------------------------------------- unsubscribes from anyone */
@@ -463,19 +515,20 @@ async function pullEvents(key: string, deadline: number, now: Date): Promise<num
  * Mirror every Klaviyo unsubscribe and spam complaint into Lending OS, for
  * people who were never in a programme too (lib/nurture/cockpit.ts,
  * OPT_OUT_METRICS). Matched on the email address; `email_subscribed` only ever
- * goes to FALSE (guard §14). The cursor moves only after a complete read.
+ * goes to FALSE (guard §14). Same keyset cursor as the email events, so the
+ * first 800-day read works through a long history over several runs.
  */
 async function mirrorAllOptOuts(key: string, deadline: number, now: Date): Promise<number> {
   const c = rowsOf(await db.execute(sql`SELECT unsubs_synced_until FROM nurture_control WHERE id = 1`));
   if (c.length === 0) return 0;
   const from = optOutsFrom(isoOf(c[0].unsubs_synced_until), now);
-  let complete = true;
+  const reads: MetricRead[] = [];
   let changed = 0;
   for (const m of OPT_OUT_METRICS) {
-    if (Date.now() > deadline) { complete = false; break; }
-    const got = await listEvents(key, m.metricId, from, 10, { withEmail: true });
-    if (!got.ok) { complete = false; if (isScopeError(got.error)) break; continue; }
-    if (!got.complete) complete = false;
+    if (Date.now() > deadline) { reads.push({ ok: false, complete: false, lastAt: null }); break; }
+    const got = await listEvents(key, m.metricId, from, 10, { withEmail: true, deadline });
+    if (!got.ok) { reads.push({ ok: false, complete: false, lastAt: null }); if (isScopeError(got.error)) break; continue; }
+    reads.push({ ok: true, complete: got.complete, lastAt: lastDatetime(got.events) });
     const emails = optOutEmails(got.events);
     for (let i = 0; i < emails.length; i += 200) {
       const chunk = emails.slice(i, i + 200);
@@ -488,8 +541,9 @@ async function mirrorAllOptOuts(key: string, deadline: number, now: Date): Promi
       changed += r.length;
     }
   }
-  if (complete) {
-    await db.execute(sql`UPDATE nurture_control SET unsubs_synced_until = ${now.toISOString()}::timestamptz, updated_at = now() WHERE id = 1`);
+  const cursor = reads.length === OPT_OUT_METRICS.length ? cursorAfter(reads, now) : null;
+  if (cursor) {
+    await db.execute(sql`UPDATE nurture_control SET unsubs_synced_until = ${cursor}::timestamptz, updated_at = now() WHERE id = 1`);
   }
   return changed;
 }
@@ -549,7 +603,20 @@ async function autoEnroll(now: Date, programs: Map<ProgramKey, ProgramRow>): Pro
 
 /* --------------------------------------------------------------- release */
 
-/** Move queued people to "add to Klaviyo", within the warm-up. */
+/**
+ * Move queued people to "add to Klaviyo", within the warm-up.
+ *
+ * THE DAILY CAP HOLDS UNDER CONCURRENCY. The cron and the background drain a
+ * button starts (after(drainNurtureSoon): Enrol, Resume, emails on) can run at
+ * the same moment, and before 30 Sep 2026 each counted today's releases, saw
+ * room, and released up to the cap — together, past it. Now the plan decides
+ * WHO in what order (programme priority, longest waiting), and one
+ * transaction (db.batch — neon-http has no db.transaction) first locks the
+ * single nurture_control row, then re-counts today's releases and releases at
+ * most the room left, in the plan's order, re-checking each row is still
+ * queued and sending is not paused. A second run waits for the lock, then
+ * sees the first run's releases in its count.
+ */
 async function releaseQueued(now: Date, programs?: Map<ProgramKey, ProgramRow>): Promise<{ released: number; blocked: ReleaseBlock | null }> {
   const progs = programs ?? await readPrograms();
   const live = new Set<string>(PROGRAMS.filter((p) => {
@@ -576,39 +643,101 @@ async function releaseQueued(now: Date, programs?: Map<ProgramKey, ProgramRow>):
     priorReleaseDays: Number(c.prior_release_days ?? 0),
   });
   if (plan.ids.length === 0) return { released: 0, blocked: plan.blocked };
-  const r = rowsOf(await db.execute(sql`
-    UPDATE nurture_enrollments
-    SET sync_state = 'pending_add', released_at = ${now.toISOString()}::timestamptz, next_sync_at = now(), updated_at = now()
-    WHERE id = ANY(${uuidArray(plan.ids)}) AND status = 'active' AND sync_state = 'queued'
-    RETURNING id
-  `));
-  return { released: r.length, blocked: null };
+  const today = nyClock(now).day;
+  const [, released] = await db.batch([
+    db.execute(sql`SELECT id FROM nurture_control WHERE id = 1 FOR UPDATE`),
+    db.execute(sql`
+      WITH pick AS (
+        SELECT q.id
+        FROM unnest(${uuidArray(plan.ids)}) WITH ORDINALITY AS q(id, ord)
+        JOIN nurture_enrollments e ON e.id = q.id
+        WHERE e.status = 'active' AND e.sync_state = 'queued'
+          AND (SELECT nc.paused FROM nurture_control nc WHERE nc.id = 1) = false
+        ORDER BY q.ord
+        LIMIT GREATEST(0, ${plan.cap}::int - (
+          SELECT count(*)::int FROM nurture_enrollments r
+          WHERE r.released_at IS NOT NULL
+            AND (r.released_at AT TIME ZONE 'America/New_York')::date = ${today}::date))
+      )
+      UPDATE nurture_enrollments u
+      SET sync_state = 'pending_add', released_at = ${now.toISOString()}::timestamptz, next_sync_at = now(), updated_at = now()
+      FROM pick
+      WHERE u.id = pick.id
+      RETURNING u.id
+    `),
+  ]);
+  const n = rowsOf(released).length;
+  return { released: n, blocked: n === 0 ? "cap_reached" : null };
 }
 
 /* ------------------------------------------------------------ entry points */
+
+/**
+ * Whether this run should read Klaviyo and/or drain, from one database read
+ * (cockpit.ts syncCadence). If migration 0020 (klaviyo_read_at) has not run,
+ * it falls back to the old every-run behaviour rather than failing.
+ */
+async function readCadence(now: Date): Promise<{ read: boolean; drain: boolean; paused: boolean }> {
+  try {
+    const r = rowsOf(await db.execute(sql`
+      SELECT
+        (SELECT nc.klaviyo_read_at FROM nurture_control nc WHERE nc.id = 1) AS klaviyo_read_at,
+        COALESCE((SELECT nc.paused FROM nurture_control nc WHERE nc.id = 1), true) AS paused,
+        EXISTS (SELECT 1 FROM nurture_enrollments e
+          WHERE e.sync_state IN ('pending_add', 'pending_remove')
+            AND e.next_sync_at <= now()
+            AND e.sync_attempts < ${MAX_SYNC_ATTEMPTS}
+            AND (e.sync_claimed_at IS NULL OR e.sync_claimed_at < now() - interval '5 minutes')) AS sync_due
+    `))[0] ?? {};
+    const c = syncCadence({ now, lastReadAt: isoOf(r.klaviyo_read_at), syncDue: r.sync_due === true || r.sync_due === "t" });
+    return { ...c, paused: r.paused === true || r.paused === "t" };
+  } catch {
+    return { read: true, drain: true, paused: await isPaused() };
+  }
+}
 
 /** The whole cycle. `budgetMs` is how long it may run before it stops starting new work. */
 export async function runNurtureSync(budgetMs: number): Promise<SyncSummary> {
   const deadline = Date.now() + budgetMs;
   const now = new Date();
   const key = klaviyoKey();
-  const stopped = await applyAutoStops();
+  const auto = await applyAutoStops(now);
   const empty = { flowsRead: 0, events: 0, autoEnrolled: 0, released: 0, releaseBlocked: null, added: 0, removed: 0, failed: 0, timedOut: false };
-  if (!key) return { configured: false, stopped, unsubscribedMirrored: 0, paused: await isPaused(), ...empty };
-  const f = await refreshFlows(key, deadline, now);
-  const m = await mirrorKlaviyo(key, deadline);
-  const events = await pullEvents(key, deadline, now);
-  const optedOut = await mirrorAllOptOuts(key, deadline, now);
-  const paused = await applyDeliverabilityGuard(now);
-  const programs = await readPrograms();
-  const autoEnrolled = paused ? 0 : await autoEnroll(now, programs);
-  const rel = await releaseQueued(now, programs);
-  const d = await drain(key, deadline);
+  if (!key) return { configured: false, klaviyoRead: false, stopped: auto.stopped + auto.finished, finished: auto.finished, unsubscribedMirrored: 0, paused: await isPaused(), ...empty };
+
+  // A quiet off-hours run with nothing due stops here: the auto-stop above
+  // plus one read, and not a single Klaviyo call.
+  const cad = await readCadence(now);
+  let paused = cad.paused;
+  let flowsRead = 0, events = 0, optedOut = 0, autoEnrolled = 0;
+  let m = { stopped: 0, unsubscribed: 0 };
+  let rel: { released: number; blocked: ReleaseBlock | null } = { released: 0, blocked: paused ? "paused" : "outside_window" };
+  if (cad.read) {
+    // Stamped when the read BEGINS, so a failing Klaviyo is asked again next interval, not next run.
+    try { await db.execute(sql`UPDATE nurture_control SET klaviyo_read_at = ${now.toISOString()}::timestamptz WHERE id = 1`); } catch { /* 0020 not run yet */ }
+    flowsRead = (await refreshFlows(key, deadline, now)).read;
+    m = await mirrorKlaviyo(key, deadline);
+    events = await pullEvents(key, deadline, now);
+    optedOut = await mirrorAllOptOuts(key, deadline, now);
+    paused = await applyDeliverabilityGuard(now);
+    // Auto-enrol and release only ever happen in the window, and every run in
+    // (and just before) the window is a read run, so flows are never stale here.
+    if (inReleaseWindow(now)) {
+      const programs = await readPrograms();
+      autoEnrolled = paused ? 0 : await autoEnroll(now, programs);
+      rel = await releaseQueued(now, programs);
+    } else {
+      rel = { released: 0, blocked: paused ? "paused" : "outside_window" };
+    }
+  }
+  const d = cad.drain || rel.released > 0 ? await drain(key, deadline) : { added: 0, removed: 0, failed: 0 };
   return {
     configured: true,
-    stopped: stopped + m.stopped,
+    klaviyoRead: cad.read,
+    stopped: auto.stopped + auto.finished + m.stopped,
+    finished: auto.finished,
     unsubscribedMirrored: m.unsubscribed + optedOut,
-    flowsRead: f.read,
+    flowsRead,
     events,
     paused,
     autoEnrolled,

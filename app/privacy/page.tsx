@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/privacy" },
   title: "Privacy Policy",
   description:
     "How Funded Capital collects, uses, and protects your information, including phone numbers used for calls and text messages. Opt out of messaging any time by replying STOP.",

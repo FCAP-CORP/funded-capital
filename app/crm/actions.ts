@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { activities, applications, contacts, crmTasks, participants, stageTransitions } from "@/lib/db/schema";
+import { activities, applications, contacts, crmTasks, participants } from "@/lib/db/schema";
 import { STAGE_LABEL } from "@/lib/crm/view";
 import { assertCrmStaff, signedInUser } from "@/lib/crm/access";
 import { parseLostReason } from "@/lib/crm/board";
@@ -20,6 +20,7 @@ import { isUuid, parseDueDate, parseTaskTitle } from "@/lib/crm/tasks";
 import { stopTermSheetFollowups } from "@/lib/crm/followups.server";
 import { shouldSeed } from "@/lib/crm/docRequests";
 import { seedRequestsSql } from "@/lib/crm/docRequestsSql";
+import { stageMoveSql } from "@/lib/crm/stageMoveSql";
 import { addDocRequest as addDocRequestRow, createDocList as createDocListRows, moveDocRequest as moveDocRequestRow } from "@/lib/crm/docRequests.server";
 import { sendBrokerDocsUpdate, sendBrokerStageUpdate, setBrokerUpdatesOff, type Sender } from "@/lib/crm/brokerUpdates.server";
 import { and, asc, desc, isNull, sql as dsql } from "drizzle-orm";
@@ -77,6 +78,9 @@ function revalidateFrom(from: unknown, fallback: CrmRoute): void {
  */
 type MoveResult = { ok: true; moved?: { from: string; to: string } } | { ok: false; error: string };
 
+/** db.execute results are `{ rows }` over Neon HTTP and a bare array elsewhere. */
+const rowsOfResult = (r: unknown): unknown[] => (r as { rows?: unknown[] })?.rows ?? (Array.isArray(r) ? r : []);
+
 async function moveStage(
   applicationId: string,
   toStage: string,
@@ -106,36 +110,28 @@ async function moveStage(
     return { ok: true };
   }
 
-  const moves = [
-    db.insert(stageTransitions).values({
-      applicationId,
-      fromStage: current.stage,
-      toStage: stage,
-      changedAt: now,
-      changedBy: userId,
-      reason: extra.reason ?? "changed in the CRM",
-    }),
-    db
-      .update(applications)
-      .set({
-        stage,
-        stageEnteredAt: now,
-        updatedAt: now,
-        ...(extra.lostReason !== undefined ? { lostReason: extra.lostReason } : {}),
-      })
-      .where(eq(applications.id, applicationId)),
-  ];
+  // Refused if the deal changed since we read it — see lib/crm/stageMoveSql.ts.
+  const moves = stageMoveSql({
+    applicationId,
+    from: current.stage,
+    to: stage,
+    at: now,
+    by: userId,
+    reason: extra.reason ?? "changed in the CRM",
+    lostReason: extra.lostReason,
+  }).map((q) => db.execute(q));
   // The document list starts itself at term sheet (lib/crm/docRequests.ts),
   // in the same batch: the stage and the list commit together. ON CONFLICT
   // DO NOTHING, so a later move adds only what is missing and never brings
-  // back an item Luis removed.
-  if (shouldSeed(stage)) {
-    await db.batch([
-      ...moves,
-      db.execute(seedRequestsSql(applicationId, current.product, current.loanPurpose, userId, now)),
-    ] as unknown as Parameters<typeof db.batch>[0]);
-  } else {
-    await db.batch(moves as unknown as Parameters<typeof db.batch>[0]);
+  // back an item Luis removed. It only adds anything if this move landed.
+  const results = (await db.batch(
+    (shouldSeed(stage)
+      ? [...moves, db.execute(seedRequestsSql(applicationId, current.product, current.loanPurpose, userId, now, { to: stage, at: now }))]
+      : moves) as unknown as Parameters<typeof db.batch>[0],
+  )) as unknown as unknown[];
+  const updated = rowsOfResult(results[0]);
+  if (updated.length === 0) {
+    return { ok: false, error: "This deal changed while you had it open. Refresh the page and try again." };
   }
   return { ok: true, moved: { from: current.stage, to: stage } };
 }

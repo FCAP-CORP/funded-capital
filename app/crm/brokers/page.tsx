@@ -36,7 +36,7 @@ import { InviteForm, NewFirmForm, RevokeInviteButton, StatusToggle } from "./Con
  */
 
 export const metadata = {
-  title: "Brokers | Funded Capital Lending OS",
+  title: "Brokers",
 };
 
 async function Brokers() {

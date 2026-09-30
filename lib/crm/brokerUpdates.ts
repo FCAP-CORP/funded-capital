@@ -18,6 +18,7 @@
  * WHAT IT NEVER SAYS: a rate, an amount, a guarantee, or why a deal was lost.
  */
 
+import { createHash } from "node:crypto";
 import { brokerStage } from "@/lib/broker/stageView";
 
 export const STAGE_ORDER = [
@@ -163,6 +164,37 @@ export function docsEmail(p: {
     "", "Any questions, just reply here.", "", "Thanks,",
   ].join("\n");
   return { subject: clean(`Documents needed: ${deal}`), body };
+}
+
+/**
+ * ONE EMAIL PER NEWS, EVER (audit 30 Sep 2026). The Gmail executor refuses a
+ * second send with the same idempotency key (it replays the first outcome), so
+ * the key IS the dedupe: the same deal reaching the same stage again — a
+ * double-click, two open tabs, or forward → back → forward — can never email
+ * the broker twice about it. A documents email is keyed on exactly which items
+ * it lists, so "Create the list now" pressed twice sends once, while a new item
+ * added later still gets its own email.
+ *
+ * The executor wants a UUID, so the key is a name-based UUID (SHA-256 of the
+ * name, laid out as a version-5-style UUID): same name, same UUID, on every
+ * server, forever.
+ */
+export function stableUuid(name: string): string {
+  const h = createHash("sha256").update(name).digest();
+  h[6] = (h[6] & 0x0f) | 0x50; // version 5 layout
+  h[8] = (h[8] & 0x3f) | 0x80; // RFC 4122 variant
+  const x = h.subarray(0, 16).toString("hex");
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20, 32)}`;
+}
+
+export function stageUpdateKey(applicationId: string, toStage: string): string {
+  return stableUuid(`broker-update:stage:${applicationId.toLowerCase()}:${toStage}`);
+}
+
+/** Order-insensitive: the same set of items is the same email. */
+export function docsUpdateKey(applicationId: string, requestIds: readonly string[]): string {
+  const ids = [...new Set(requestIds.map((i) => i.toLowerCase()))].sort();
+  return stableUuid(`broker-update:docs:${applicationId.toLowerCase()}:${ids.join(",")}`);
 }
 
 /** The template key recorded on the outbox row, so the timeline and reports can tell these apart. */

@@ -24,7 +24,7 @@ import NurtureContent from "./NurtureContent";
  */
 
 export const metadata = {
-  title: "Nurture | Funded Capital Lending OS",
+  title: "Nurture",
 };
 
 function NurtureSkeleton() {

@@ -11,7 +11,9 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "Why Choose Funded Capital — Speed, Transparency & Competitive Rates",
+  alternates: { canonical: "/why-us" },
+  // absolute: the page names the brand itself, so the layout template must not add it again.
+  title: { absolute: "Why Choose Funded Capital — Speed, Transparency & Competitive Rates" },
   description:
     "See how Funded Capital compares to traditional banks and other hard money lenders. Term sheets in 2 hours, closings in 5–10 business days, transparent fees — every time.",
 };

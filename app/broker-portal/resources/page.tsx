@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 
 export const metadata = {
-  title: "Resource Library | Funded Capital Broker Portal",
+  title: "Resource Library",
 };
 
 type ResourceType = "guide" | "spreadsheet" | "tutorial" | "guideline";

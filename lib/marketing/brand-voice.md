@@ -4,7 +4,7 @@ Last updated: 2026-09-24
 - Added the **audience rule**: real estate investors only (fix & flip, DSCR rental, rental portfolio, bridge, multifamily, ground-up construction). Never homebuyers or homeowners.
 - Added the **credit guidance**: most programs 660+, best tiers 680+, 640–659 case by case. There is no hard "680 floor".
 - Added **starting rates as ranges**: Fix & Flip from 8.75%, DSCR from 6.0%. Ranges only, never a guarantee.
-- **Corrected the ground-up leverage line.** The old flat "85% LTC" was wrong. Standard is 85% of full cost; Tier 5 builders (five or more completed ground-up projects) 90%; on top of either, 5% of cost can finance the interest reserve, so a Tier 5 builder reaches 95% all-in. The reserve band never buys construction dollars, and after-repair LTV is a second cap — the lower of the two governs. (Fixed in the pricing engine 2026-09-23; until then Tier 5 builders were quoted five points too low.)
+- **Corrected the ground-up leverage line.** The old flat "85% LTC" was wrong. Standard is 85% of full cost; Tier 5 builders (20 or more completed ground-up builds) 90%; on top of either, 5% of cost can finance the interest reserve, so a Tier 5 builder reaches 95% all-in. The reserve band never buys construction dollars, and after-repair LTV is a second cap — the lower of the two governs. (Fixed in the pricing engine 2026-09-23; until then Tier 5 builders were quoted five points too low.)
 - Added the **compliance line** — "Terms are subject to underwriting, appraisal, title, and insurance." — once in anything that makes a lending claim, in captions and email bodies, never on a slide or an image.
 - Added the **no-AI-numbers rule**: nothing borrower-facing that prices a deal may use an AI-generated number. Pricing is deterministic code, and every published rate or market claim cites its source and date.
 - Added **contact details**: main line (305) 857-5620, general email info@fundedcapital.com.
@@ -104,7 +104,7 @@ These apply to EVERY piece of content Claude generates for Funded Capital.
 Never write a flat "85% LTC" for ground-up. The structure has three parts:
 
 - **Standard leverage: 85% of full cost** — purchase price + sunk costs + the remaining construction budget.
-- **Tier 5 builders: 90% of full cost.** Tier 5 means **five or more completed ground-up projects.**
+- **Tier 5 builders: 90% of full cost.** Tier 5 means **20 or more completed ground-up builds.**
 - **Interest reserve: 5% of cost on top of either number.** That is how a Tier 5 builder reaches **95% all-in**. The reserve band finances the interest reserve only — **it never buys construction dollars.**
 - **After-repair LTV is a second, separate cap. The lower of the two governs.**
 
@@ -249,9 +249,10 @@ Use these in headers, subject lines, and hero sections:
 - **45 states** — nationwide except VT, UT, OR, SD and ND
 - **5–10 business days** typical close, deal-dependent
 - **Fix & Flip from 8.75%** — a starting rate, stated as a range, never a guarantee
+- **Ground-Up from 8.99%** — the Tier 5 rate (9.99% base − 1.00%); the 8.75% floor never binds on Ground-Up
 - **DSCR from 6.0%** — same rule
 - **Credit:** most programs **660+**, best pricing **680+**, **640–659 case by case**. No hard 680 floor
-- **Ground-up:** 85% of full cost standard · 90% for Tier 5 builders (5+ completed ground-up projects) · +5% of cost for the interest reserve → 95% all-in for Tier 5. After-repair LTV is a second cap; the lower governs
+- **Ground-up:** 85% of full cost standard · 90% for Tier 5 builders (20+ completed ground-up builds) · +5% of cost for the interest reserve → 95% all-in for Tier 5. After-repair LTV is a second cap; the lower governs
 - **$75K–$5M** loan sizes
 - Main line **(305) 857-5620** · **info@fundedcapital.com**
 
@@ -278,7 +279,7 @@ Emotional hook: "Your clients remember who closed. Make it us."
 
 ### For Ground-Up Construction
 Lead message: *Ground-up financing that moves as fast as you build.*
-Supporting: **85% of full cost** standard, **90% for Tier 5 builders** (5+ completed ground-up projects), plus **5% of cost for the interest reserve** — so a Tier 5 builder reaches **95% all-in**. The reserve band never buys construction dollars, and after-repair LTV is a second cap: the lower of the two governs. Rates from 8.75%. Terms 12–24 months. See §4.1 — never write a flat "85% LTC".
+Supporting: **85% of full cost** standard, **90% for Tier 5 builders** (20+ completed ground-up builds), plus **5% of cost for the interest reserve** — so a Tier 5 builder reaches **95% all-in**. The reserve band never buys construction dollars, and after-repair LTV is a second cap: the lower of the two governs. Rates from 8.75%. Terms 12–24 months. See §4.1 — never write a flat "85% LTC".
 Emotional hook: "Build it. We'll fund it."
 
 ---

@@ -52,7 +52,7 @@ const HERE = "/crm/dashboard" as const;
  */
 
 export const metadata = {
-  title: "Dashboard | Funded Capital Lending OS",
+  title: "Dashboard",
 };
 
 /** "Good morning, Luis" and the date — New York time for both. */

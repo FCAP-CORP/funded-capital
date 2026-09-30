@@ -15,8 +15,11 @@ import { runNurtureSync } from "@/lib/nurture/sync.server";
  * CRON_SECRET is checked before anything else, fail-closed and constant-time
  * (guards.regress.ts §14). /api is not behind Clerk, so this line is the door.
  *
- * PERFORMANCE: off every visitor's request path; one query when nobody is
- * enrolled, and a few Klaviyo calls per 100 people when they are.
+ * PERFORMANCE: off every visitor's request path. Every run does the
+ * database-only auto-stop; it talks to Klaviyo only in and just before the
+ * weekday-morning release window, about every 45 minutes otherwise, and when
+ * an add or removal is due (lib/nurture/cockpit.ts syncCadence). A quiet
+ * off-hours run makes no Klaviyo call at all.
  */
 
 export const maxDuration = 300;
@@ -32,7 +35,8 @@ export async function GET(request: Request) {
     const summary = await runNurtureSync(BUDGET_MS);
     // Counts only — never an address or a key.
     console.log(
-      `[cron/nurture] configured=${summary.configured} stopped=${summary.stopped} unsubscribed=${summary.unsubscribedMirrored} ` +
+      `[cron/nurture] configured=${summary.configured} klaviyoRead=${summary.klaviyoRead} stopped=${summary.stopped} ` +
+      `finished=${summary.finished} unsubscribed=${summary.unsubscribedMirrored} released=${summary.released} ` +
       `added=${summary.added} removed=${summary.removed} failed=${summary.failed} timedOut=${summary.timedOut}`,
     );
     return NextResponse.json({ ok: true, ...summary });

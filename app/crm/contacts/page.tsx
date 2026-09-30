@@ -10,7 +10,7 @@ import { PageHeader } from "@/components/ui/page-header";
 // makes this page a static shell with the data streaming into the boundary.
 
 export const metadata = {
-  title: "Contacts | Funded Capital Lending OS",
+  title: "Contacts",
 };
 
 async function Contacts() {

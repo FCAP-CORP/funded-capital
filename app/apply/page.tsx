@@ -3,6 +3,7 @@ import { CheckCircle2, Clock, Shield } from "lucide-react";
 import ApplyForm from "@/components/ApplyForm";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/apply" },
   title: "Apply Now",
   description:
     "Apply for a private real estate loan with Funded Capital. Complete our 5-minute application and receive a preliminary term sheet in as little as 2 hours.",

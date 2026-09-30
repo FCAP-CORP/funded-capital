@@ -263,7 +263,7 @@ function EnrolledTable({ rows }: { rows: EnrolledPerson[] }) {
 
 function StoppedTable({ rows }: { rows: EnrolledPerson[] }) {
   if (rows.length === 0) {
-    return <EmptyState icon={CheckCircle2} title="Nobody has left this programme yet" description="When someone replies, starts a deal or unsubscribes, they move here with the reason." />;
+    return <EmptyState icon={CheckCircle2} title="Nobody has left this programme yet" description="When someone replies, starts a deal, unsubscribes or has had every email, they move here with the reason." />;
   }
   return (
     <div className="relative overflow-x-auto">
@@ -306,6 +306,7 @@ function HowItWorks({ excluded }: { excluded: Record<string, number> }) {
           <li>One programme per person at a time, and never the same one twice.</li>
           <li>Anyone you emailed, texted or called — or who contacted you — in the last 30 days is left alone, and so is anyone with a deal in progress.</li>
           <li>They leave automatically when they reply, a new enquiry arrives, their deal moves forward, you contact them yourself, or they unsubscribe. An unsubscribe in Klaviyo is copied into Lending OS and blocks email from the record card too.</li>
+          <li>Each programme is 3–4 emails over about 6–13 weeks, then it stops. A few days after the last email they&apos;re taken off the list and show under Stopped as &ldquo;{STOP_LABEL.finished}&rdquo;. They can join a different programme later if they qualify, never the same one again.</li>
           <li>Klaviyo adds the unsubscribe link and our address to every email.</li>
         </ul>
         {rows.length > 0 && (

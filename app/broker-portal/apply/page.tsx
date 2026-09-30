@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import ApplyClient from "./ApplyClient";
 
 export const metadata = {
-  title: "New Application | Funded Capital Broker Portal",
+  title: "New Application",
 };
 
 /**

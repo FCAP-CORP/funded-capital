@@ -62,7 +62,7 @@ import { CancelRequest, MarkPublished, RequestForm, RetryRequest } from "./Contr
  */
 
 export const metadata = {
-  title: "Marketing | Funded Capital Lending OS",
+  title: "Marketing",
 };
 
 const LEVEL_STYLE: Record<CadenceLevel, { box: string; value: string; Icon: React.ComponentType<{ size?: number; className?: string }> }> = {

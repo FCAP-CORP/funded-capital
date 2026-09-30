@@ -351,8 +351,8 @@ building it, both worth keeping:
   `/crm` route returns 404 rather than an error, for the owner included. That is the gate
   working, not a bug, and it is why `/crm` had only ever been used live. `fc-fix-local-crm.bat`
   adds the line. Next reads `.env.local` once at startup, so the dev server must be restarted
-  after. Diagnosis tell: the 404 page's TITLE is the route's own metadata ("Brokers | Funded
-  Capital Lending OS") when the route exists and `notFound()` fired, versus a bare
+  after. Diagnosis tell: the 404 page's TITLE is the route's own metadata ("Brokers | Lending
+  OS") when the route exists and `notFound()` fired, versus a bare
   "404: This page could not be found." when the route itself is missing.
 - **A brand-new page or API route that 404s locally is a stale `.next` cache,** not a
   missing file. Next's dev server was serving a route manifest from before the route
@@ -1093,7 +1093,7 @@ chooses how people join, shows what each flow sends, and tracks results. Rules i
   (Luis called that pool a mix).
 - **Events** (sent/open/click/bounce/spam/unsub, metric ids in `EVENT_METRICS`) are pulled every run
   for the five flow ids only, matched by Klaviyo profile + programme, deduped on Klaviyo's event id,
-  2-hour overlap, cursor moves only after a complete read. Bot clicks, unsubscribe/preferences-link
+  2-hour overlap; the cursor is keyset since 30 Sep 2026 (see "Audit fixes"). Bot clicks, unsubscribe/preferences-link
   clicks and Apple machine opens are dropped. **Never written to `activities`**: a marketing email
   counted as contact would reset the 30-day quiet clock and auto-stop the programme that sent it
   (guard §14 checks sync.server never mentions a contact kind).
@@ -1224,9 +1224,8 @@ produced under. Any mismatch was a hard 400.
   conversation stays plain. `modelCall.regress.ts` (18 tests, mutation-tested).
 - `fc-run-daily-blog.bat` waited only 5.5 minutes; Opus runs can take up to 13. Now 14.
 - Blog post titles read "Post | Funded Capital | Funded Capital": the root layout's template adds
-  the suffix and the pages added it again. Fixed on `/blog` and `/blog/[slug]`. **Every public page
-  that hard-codes "| Funded Capital" in its title has the same doubling** (the loan program pages,
-  thank-you) — open item.
+  the suffix and the pages added it again. Fixed on `/blog` and `/blog/[slug]`, then on every other
+  page on 30 Sep 2026 (see "Audit fixes" below); `lib/seo.regress.ts` now fails the build on it.
 - Checking the live blog with a web fetch tool reported "no article body": the body streams in a
   hidden Suspense chunk that some HTML-to-text converters drop. A real browser shows it fine. Check
   in Chrome before believing a fetch summary.
@@ -1289,3 +1288,85 @@ only — not "needs another copy", and no weekly reminder.
 - **The weekly newsletter stays paused.** Its scheduled task (`trig_015JUCTMRP7u42pTFHMzCFom`) no
   longer calls the Excel CRM the system of record, and now excludes the five nurture lists from the
   campaign audience so nobody gets two emails in a week when it is switched back on.
+
+### Audit fixes (30 Sep 2026)
+
+From the systems audit (Claude Doc "Systems Audit — 30 Sep 2026"). One deploy; **migration 0020
+runs in production before the push** (widens `nurture_enrollments_stop_reason_check` with
+`'finished'`, adds `nurture_control.klaviyo_read_at`).
+
+- **Enrolments finish.** One used to stay "active" for ever after its last email, which blocked the
+  person from every later programme and turned a reply months later into a "win". The auto-stop
+  (database only, every cron) now finishes a row 3 days after its flow's last email — counted from
+  when they joined the Klaviyo list, the last email's day from the stored flow snapshot, 120 days
+  if the flow was never read. Finished = stopped with reason `finished` ("Got all the emails", not a
+  win) and `pending_remove`, so the drain takes them off the list. Replies, enquiries and forward
+  moves count only between enrolling and the finish date. The same programme is never offered
+  again (unique contact + programme index, `already_done`); a different one is, if they qualify.
+  Programme copy now says "3–4 emails over about 6–13 weeks, then they stop".
+- **The warm-up cap holds under concurrency.** The cron and the `after()` drain started by Enrol /
+  Resume / emails-on could both release up to the cap. The release is now one `db.batch`: lock the
+  `nurture_control` row `FOR UPDATE`, re-count today's releases, release only the room left, in the
+  plan's order, only while not paused. Harness proves 40 of 40 under a forced race (61 before).
+- **Klaviyo only when useful.** The DB-only auto-stop/finish runs every 15 minutes. Flows, list
+  consent, events, opt-outs and previews are read every run 9:00–12:00 New York on weekdays, and
+  otherwise only when the last read began 40+ minutes ago (`klaviyo_read_at`, stamped at the START
+  so a broken key costs one read per interval). 40 + 15 ≤ 60 keeps flows "confirmed live" for the
+  release rule; a regress test pins it. About 35 of 96 weekday runs now talk to Klaviyo (was 96).
+  `listMembers` / `listEvents` check the run deadline between pages.
+- **No preview re-render storm.** `previews_rendered_at` records the last full pass whether or not
+  every template rendered; a failed template keeps its last good preview, records `renderFailedAt`
+  and is retried alone at most hourly (`previewsToRender`).
+- **Event and opt-out cursors can't freeze.** Klaviyo is asked for `greater-or-equal(datetime,…)`
+  (operator confirmed accepted by the live API, read-only check). A read that hits the 10-page cap
+  stores the earliest last-processed event, so the next read resumes exactly there; events sharing
+  that timestamp are re-read and deduplicated by event id. A failed metric leaves the cursor alone.
+- **Only forward stage moves stop nurture.** `nurture.ts STAGE_ORDER` is a copy of
+  `lib/crm/brokerUpdates.ts STAGE_ORDER` (the regress suite checks they are identical). A reopen out
+  of closed_lost counts; a move into closed_lost or a backward correction does not.
+- **One broker email per news, ever.** The executor replays an idempotency key it has seen, so the
+  key is now deterministic (`stableUuid` in `lib/crm/brokerUpdates.ts`): stage emails key on
+  (deal, stage), documents emails on (deal, exact set of items). A double-click, two tabs, or
+  forward → back → forward cannot email the broker twice about the same thing; "Create the list now"
+  twice sends once; a new item later still gets its own email. Consequence, accepted: a deal that
+  reaches the same stage again months later (lost, then reopened) does not re-announce it.
+  A `failed` Gmail send for a stage is also not retried by a later move.
+- **Stage moves refuse to land on a change made since the page loaded.** `lib/crm/stageMoveSql.ts`
+  (pure SQL, shared with the harness): UPDATE `… WHERE stage = <what was read>` RETURNING first,
+  then the history row only if that update landed (matched on its exact `stage_entered_at`), and the
+  document-list seed carries the same guard (`seedRequestsSql(…, { to, at })`). A refused move tells
+  Luis "This deal changed while you had it open. Refresh the page and try again." Guard §19.
+- **A term-sheet nudge whose send outcome is unknown counts as done** (`followups.server.ts`
+  counts `sent` or `sending`), so an uncertain send is never followed by the same step again.
+- **One blog post a morning.** `decideRun` (`lib/marketing/dailyBlog.ts`) runs before anything is
+  claimed: a blog request claimed under 20 minutes ago and still being written blocks the run, even
+  with `?force=1`; a draft already landed today (New York date) blocks unless forced; a claim older
+  than 20 minutes is a dead run (Vercel kills it at 800 s) and never blocks. The reply is a plain
+  sentence the .bat prints. `dailyBlog.regress.ts` §1b.
+- **Canonical tags + titles.** Every public page declares `alternates: { canonical: "/path" }`;
+  posts use `/blog/<slug>`. They resolve against `metadataBase`, now `https://www.fundedcapital.com`
+  (www). The root layout must never carry a canonical, and no longer sets `openGraph.url` (it made
+  every share link the home page). A public page title must not contain "Funded Capital" — the root
+  template adds it — except the home page (Next does not apply a layout's template to a page in the
+  same folder) and pages using `title: { absolute: … }` (About, Why Us), which name it once.
+  `/crm` pages use the CRM layout template "%s | Lending OS"; broker pages "%s | Funded Capital
+  Broker Portal". The two pages that sit in their layout's own folder (`/crm`, `/broker-portal`)
+  use `absolute` for the same reason. `lib/seo.regress.ts` pins canonicals, titles and that the
+  sitemap URL list matches.
+- **Sitemap dates are real.** Posts carry their frontmatter `updated` (else `date`), `/blog` the
+  newest post's date, static pages no date. `lib/blog.ts` turns an unquoted YAML date into
+  "YYYY-MM-DD".
+- **Two files share the number 0020** (`0020_nurture_complete.sql` from this work,
+  `0020_revenue_share_mirror.sql` from a parallel Revenue Share session). Harmless — the migrator
+  runs every file in name order — but the next migration is 0021.
+- **`FC_MIGRATE_ONLY`** (comma-separated file names) makes `apply-migration-prod.mjs` apply only
+  those files; a name that is not in `drizzle/` refuses the run. `fc-commit-audit-fixes.bat` sets it
+  so it never applies another session's unpublished migration early. (Note for that session: the
+  migration-safety check refuses `0020_revenue_share_mirror.sql` as written, because its header
+  comment contains the word "truncate".)
+- **Parallel sessions edit this repo.** Before committing, compare device mtimes (`expectedMtimeMs`)
+  and merge; a commit .bat may need `git apply --cached` to stage only its own hunks of a shared file
+  (this one does for `lib/db/schema.ts`).
+- Verified: every regress suite passes (guards 431); Postgres harnesses nurture 49, cockpit 48,
+  cockpit2 89, documents 44, broker updates 34, follow-ups 40; scratch `next build` passes; each fix
+  mutation-tested (break it, watch a test fail, restore).

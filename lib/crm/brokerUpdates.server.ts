@@ -23,12 +23,11 @@
  */
 
 import "server-only";
-import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { assertCrmStaff } from "@/lib/crm/access";
 import { executeSendEmail } from "@/lib/comms/emailOutbox.server";
-import { docsEmail, stageEmail, stageWorthEmail, type DocLine, type Email } from "./brokerUpdates";
+import { docsEmail, docsUpdateKey, stageEmail, stageUpdateKey, stageWorthEmail, type DocLine, type Email } from "./brokerUpdates";
 import { isUuid } from "./tasks";
 
 type Row = Record<string, unknown>;
@@ -79,26 +78,31 @@ async function targetFor(applicationId: string): Promise<{ ok: true; t: Target }
   };
 }
 
-async function docLines(applicationId: string, ids: readonly string[] | null): Promise<DocLine[]> {
+type DocRow = DocLine & { id: string };
+
+async function docLines(applicationId: string, ids: readonly string[] | null): Promise<DocRow[]> {
   const only = ids && ids.length ? sql`AND id IN (${sql.join(ids.map((i) => sql`${i}::uuid`), sql`, `)})` : sql``;
   return rowsOf(await db.execute(sql`
-    SELECT label, note FROM document_requests
+    SELECT id, label, note FROM document_requests
     WHERE application_id = ${applicationId}::uuid AND status = 'requested' ${only}
     ORDER BY sort ASC, created_at ASC
-  `)).map((r) => ({ label: String(r.label), note: str(r.note) }));
+  `)).map((r) => ({ id: String(r.id), label: String(r.label), note: str(r.note) }));
 }
 
-async function send(applicationId: string, t: Target, email: Email, by: Sender): Promise<UpdateOutcome> {
+async function send(applicationId: string, t: Target, email: Email, by: Sender, key: string): Promise<UpdateOutcome> {
   const out = await executeSendEmail({
     applicationId,
     subject: email.subject,
     body: email.body,
-    idempotencyKey: randomUUID(),
+    // Deterministic (brokerUpdates.ts): the same news never goes twice.
+    idempotencyKey: key,
     userId: by.userId,
     userEmail: by.userEmail,
     to: { kind: "broker", email: t.brokerEmail },
   });
   if (!out.ok) console.warn(`[broker-updates] not sent (${out.status}) for ${applicationId}`);
+  // "already_sent" comes back ok:true from a replay — it did NOT send again.
+  if (out.status === "already_sent") return { sent: false, why: "already told the broker" };
   return { sent: out.ok, why: out.ok ? "sent" : out.status };
 }
 
@@ -116,7 +120,7 @@ export async function sendBrokerStageUpdate(p: { applicationId: string; from: st
     applicationId: p.applicationId,
     openDocs: await docLines(p.applicationId, null),
   });
-  return email ? send(p.applicationId, target.t, email, p.by) : { sent: false, why: "no copy for this stage" };
+  return email ? send(p.applicationId, target.t, email, p.by, stageUpdateKey(p.applicationId, p.to)) : { sent: false, why: "no copy for this stage" };
 }
 
 /**
@@ -128,14 +132,17 @@ export async function sendBrokerDocsUpdate(p: { applicationId: string; requestId
   if (!isUuid(p.applicationId) || (p.requestIds ?? []).some((i) => !isUuid(i))) return { sent: false, why: "bad id" };
   const target = await targetFor(p.applicationId);
   if (!target.ok) return { sent: false, why: target.why };
+  const docs = await docLines(p.applicationId, p.requestIds);
   const email = docsEmail({
     brokerName: target.t.brokerName,
     deal: target.t.deal,
     applicationId: p.applicationId,
-    docs: await docLines(p.applicationId, p.requestIds),
+    docs,
     added: p.added,
   });
-  return email ? send(p.applicationId, target.t, email, p.by) : { sent: false, why: "nothing still needed" };
+  return email
+    ? send(p.applicationId, target.t, email, p.by, docsUpdateKey(p.applicationId, docs.map((d) => d.id)))
+    : { sent: false, why: "nothing still needed" };
 }
 
 /** Luis's per-deal switch on the record card. */

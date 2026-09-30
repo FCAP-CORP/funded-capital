@@ -10,11 +10,12 @@
  *   §5  the report divides by the wrong people.
  */
 import {
-  BOUNCE_STOP, FLOW_FRESH_MINUTES, STEADY_DAILY_CAP, WARMUP_RAMP,
-  afterLabel, carryPreviews, dailyCap, deliverability, eventsFrom, flowIsLive, flowProblems, inReleaseWindow,
-  nextReleaseLabel, nurtureReport, nyClock, parseFlow, parseMode, planRelease, previewsStale, snapshotOf,
-  toNurtureEvent, warmupStatus,
-  type KlaviyoEventLite, type NurtureReportRow, type QueuedLite,
+  BOUNCE_STOP, CRON_EVERY_MINUTES, EVENT_OVERLAP_MINUTES, FINISH_FALLBACK_DAYS, FINISH_GRACE_DAYS, FLOW_FRESH_MINUTES,
+  KLAVIYO_READ_EVERY_MINUTES, PREVIEW_RETRY_HOURS, STEADY_DAILY_CAP, WARMUP_RAMP,
+  afterLabel, carryPreviews, cursorAfter, dailyCap, deliverability, eventsFrom, finishAt, flowIsLive, flowLengthDays, flowProblems,
+  inReleaseWindow, nearReleaseWindow, nextReleaseLabel, nurtureReport, nyClock, optOutsFrom, parseFlow, parseMode, planRelease,
+  previewsToRender, snapshotOf, syncCadence, toNurtureEvent, warmupStatus,
+  type FlowSnapshot, type KlaviyoEventLite, type NurtureReportRow, type QueuedLite,
 } from "./cockpit";
 import { PROGRAMS, stateAfterStop } from "./nurture";
 import * as cockpitMod from "./cockpit";
@@ -128,6 +129,80 @@ console.log("\n=== 3. Events: ours only, real interest only ===");
   check("later reads overlap the cursor by 2 hours", now.getTime() - eventsFrom(cur, now).getTime() === 135 * 60_000, eventsFrom(cur, now).toISOString());
   check("an ancient cursor is capped at 60 days", Math.round((now.getTime() - eventsFrom("2020-01-01T00:00:00Z", now).getTime()) / 86_400_000) === 60, "60");
   check("a future cursor never skips ahead", eventsFrom("2030-01-01T00:00:00Z", now).getTime() < now.getTime(), "clamped");
+
+  // Keyset cursor (30 Sep 2026): a read cut short by the page cap still moves forward.
+  const OV = EVENT_OVERLAP_MINUTES * 60_000;
+  const at = (minAgo: number) => new Date(now.getTime() - minAgo * 60_000).toISOString();
+  check("every metric read to the end → cursor is now", cursorAfter([{ ok: true, complete: true, lastAt: at(5) }, { ok: true, complete: true, lastAt: null }], now) === now.toISOString(), "");
+  check("one metric failed → the cursor stays put", cursorAfter([{ ok: true, complete: true, lastAt: null }, { ok: false, complete: false, lastAt: null }], now) === null, "");
+  check("nothing read → stays put", cursorAfter([], now) === null, "");
+  check("partial read with nothing processed → stays put", cursorAfter([{ ok: true, complete: false, lastAt: null }], now) === null, "");
+  const lastA = at(3000), lastB = at(2000);
+  const cur2 = cursorAfter([{ ok: true, complete: false, lastAt: lastB }, { ok: true, complete: false, lastAt: lastA }, { ok: true, complete: true, lastAt: null }], now)!;
+  check("partial reads → the EARLIEST last-processed event, never past what one metric has not seen", Date.parse(cur2) === Date.parse(lastA) + OV, cur2);
+  check("...and the next read starts exactly there (Klaviyo is asked for >=, so equal timestamps are re-read, not skipped)", eventsFrom(cur2, now).toISOString() === lastA, eventsFrom(cur2, now).toISOString());
+  const recent = at(30);
+  const cur3 = cursorAfter([{ ok: true, complete: false, lastAt: recent }], now)!;
+  check("a partial read ending in the last 2 hours still resumes from its last event (cursor may sit ahead of now)", eventsFrom(cur3, now).toISOString() === recent && Date.parse(cur3) > now.getTime(), cur3);
+  check("the opt-out read follows the same keyset", optOutsFrom(cur2, now).toISOString() === lastA, optOutsFrom(cur2, now).toISOString());
+  check("an event stamped in the future is treated as now", cursorAfter([{ ok: true, complete: false, lastAt: "2031-01-01T00:00:00Z" }], now) === new Date(now.getTime() + OV).toISOString(), "");
+  check("a complete read still re-reads the 2-hour overlap next time", now.getTime() - eventsFrom(cursorAfter([{ ok: true, complete: true, lastAt: null }], now), now).getTime() === OV, "");
+  // A backlog of 5,000 events, 2,000 per run (10 pages of 200), always moves forward and loses nothing.
+  {
+    const evs = Array.from({ length: 5000 }, (_, i) => ({ id: `E${i}`, t: now.getTime() - 20 * 86_400_000 + Math.floor(i / 3) * 60_000 })); // 3 events share each minute
+    let cursor: string | null = null;
+    const seen = new Set<string>();
+    let runs = 0;
+    while (runs < 20) {
+      runs++;
+      const from: number = eventsFrom(cursor, now).getTime();
+      const page = evs.filter((e) => e.t >= from).slice(0, 2000);
+      page.forEach((e) => seen.add(e.id));
+      const complete: boolean = evs.filter((e) => e.t >= from).length <= 2000;
+      cursor = cursorAfter([{ ok: true, complete, lastAt: page.length ? new Date(page[page.length - 1].t).toISOString() : null }], now) ?? cursor;
+      if (complete) break;
+    }
+    check("a 5,000-event backlog drains in a few runs (the old cursor froze for ever)", runs <= 4 && seen.size === 5000, `${runs} runs, ${seen.size} seen`);
+  }
+}
+
+console.log("\n=== 3b. When the sync talks to Klaviyo ===");
+{
+  const read = (iso: string) => syncCadence({ now: new Date(iso), lastReadAt: null, syncDue: false });
+  const at = (now: Date, minAgo: number) => new Date(now.getTime() - minAgo * 60_000).toISOString();
+  const SAT_3 = new Date("2026-10-03T07:20:00.000Z"); // Saturday 3:20 New York
+  check("quiet off-hours run, read 15 minutes ago, nothing due → no Klaviyo at all", JSON.stringify(syncCadence({ now: SAT_3, lastReadAt: at(SAT_3, 15), syncDue: false })) === JSON.stringify({ read: false, drain: false }), "");
+  check("...a removal waiting → drain only", JSON.stringify(syncCadence({ now: SAT_3, lastReadAt: at(SAT_3, 15), syncDue: true })) === JSON.stringify({ read: false, drain: true }), "");
+  check("...read again once the last read is 40+ minutes old", syncCadence({ now: SAT_3, lastReadAt: at(SAT_3, 45), syncDue: false }).read && !syncCadence({ now: SAT_3, lastReadAt: at(SAT_3, 30), syncDue: false }).read, "");
+  check("never read → read", read("2026-10-03T07:20:00.000Z").read, "");
+  check("a read stamped in the future does not hold reads back", syncCadence({ now: SAT_3, lastReadAt: at(SAT_3, -120), syncDue: false }).read, "");
+  check("every run from 9:00 to 11:59 New York on a weekday reads, however fresh", syncCadence({ now: new Date("2026-09-28T13:00:00.000Z"), lastReadAt: at(new Date("2026-09-28T13:00:00.000Z"), 1), syncDue: false }).read && syncCadence({ now: MON_10, lastReadAt: at(MON_10, 1), syncDue: false }).read, "");
+  check("the pre-window starts at 9:00, not 8:59, and ends at noon", nearReleaseWindow(new Date("2026-09-28T13:00:00.000Z")) && !nearReleaseWindow(new Date("2026-09-28T12:59:00.000Z")) && !nearReleaseWindow(MON_12), "");
+  check("weekends are never 'near the window'", !nearReleaseWindow(SAT_10), "");
+  check("every release-window minute is inside the read-every-run span", [MON_9_30, MON_10, DEC_MON_945].every((d) => inReleaseWindow(d) && nearReleaseWindow(d)), "");
+  check("a read on schedule keeps the flow status confirmed (read gap + one cron gap ≤ the 60-minute freshness)", KLAVIYO_READ_EVERY_MINUTES + CRON_EVERY_MINUTES <= FLOW_FRESH_MINUTES, `${KLAVIYO_READ_EVERY_MINUTES}+${CRON_EVERY_MINUTES} ≤ ${FLOW_FRESH_MINUTES}`);
+  // A day of 96 runs with nothing waiting: how many talk to Klaviyo?
+  let reads = 0, last: string | null = null;
+  for (let i = 0; i < 96; i++) {
+    const now = new Date(Date.parse("2026-09-29T04:00:00.000Z") + i * 15 * 60_000); // Tuesday, from midnight New York
+    const c = syncCadence({ now, lastReadAt: last, syncDue: false });
+    if (c.read) { reads++; last = now.toISOString(); }
+  }
+  check("a weekday reads Klaviyo on about a third of the runs, not all 96", reads >= 30 && reads <= 45, `${reads} of 96`);
+}
+
+console.log("\n=== 3c. Finishing an enrolment ===");
+{
+  const added = "2026-08-01T14:00:00.000Z";
+  const plus = (d: number) => new Date(Date.parse(added) + d * 86_400_000).toISOString();
+  check("finishes the flow's last email + 3 days after joining the list", finishAt(added, 44) === plus(44 + FINISH_GRACE_DAYS), String(finishAt(added, 44)));
+  check("part-days round up", finishAt(added, 13.5) === plus(14 + FINISH_GRACE_DAYS), "");
+  check("never reached Klaviyo → never finishes", finishAt(null, 44) === null && finishAt("junk", 44) === null, "");
+  check("flow never read → still finishes, after the fallback", finishAt(added, null) === plus(FINISH_FALLBACK_DAYS), "");
+  check("the fallback outlasts the longest flow (13 weeks)", FINISH_FALLBACK_DAYS > 13 * 7 + FINISH_GRACE_DAYS, String(FINISH_FALLBACK_DAYS));
+  const snapOf = (days: number[]) => ({ flowId: "F", name: "", status: "live", triggeredByList: true, filtersOnList: true, emails: days.map((d, i) => ({ messageId: `M${i}`, name: "", subject: "", previewText: "", templateId: null, status: "live", afterDays: d })) });
+  check("flow length = the last email's day", flowLengthDays(snapOf([0, 14, 44])) === 44 && flowLengthDays(snapOf([0])) === 0, "");
+  check("no emails → unknown", flowLengthDays(snapOf([])) === null && flowLengthDays(null) === null, "");
 }
 
 console.log("\n=== 4. Flows ===");
@@ -172,9 +247,25 @@ console.log("\n=== 4. Flows ===");
   const changed = carryPreviews(withHtml, { ...snap!, emails: snap!.emails.map((e, i) => (i === 0 ? { ...e, templateId: "T9" } : e)) });
   check("a changed template drops its old preview", changed.emails[0].html === null, "dropped");
   const full = { ...snap!, emails: snap!.emails.map((e) => ({ ...e, html: "<p/>" })) };
-  check("missing previews are stale", previewsStale(carried, new Date().toISOString(), MON_10), "stale");
-  check("fresh complete previews are not stale", !previewsStale(full, new Date(MON_10.getTime() - 3_600_000).toISOString(), MON_10), "fresh");
-  check("day-old previews are stale", previewsStale(full, new Date(MON_10.getTime() - 25 * 3_600_000).toISOString(), MON_10), "old");
+  const hAgo = (h: number) => new Date(MON_10.getTime() - h * 3_600_000).toISOString();
+  const tr = (sn: FlowSnapshot, renderedAt: string | null, force = false) => previewsToRender(sn, renderedAt, MON_10, force);
+  check("a missing preview is rendered on its own (not the whole flow)", JSON.stringify(tr(carried, hAgo(1))) === JSON.stringify({ templateIds: ["T2", "T3"], full: false }), JSON.stringify(tr(carried, hAgo(1))));
+  check("fresh complete previews: nothing to render", tr(full, hAgo(1)).templateIds.length === 0, "fresh");
+  check("day-old previews: a full pass", tr(full, hAgo(25)).full && tr(full, hAgo(25)).templateIds.join() === "T1,T2,T3", JSON.stringify(tr(full, hAgo(25))));
+  check("never rendered: a full pass", tr(snap!, null).full, "");
+  check("Refresh from Klaviyo forces a full pass", tr(full, hAgo(1), true).full && tr(full, hAgo(1), true).templateIds.length === 3, "");
+  // The 29 Sep storm: one template kept failing, so every run re-rendered all of them.
+  const failing = { ...full, emails: full.emails.map((e, i) => (i === 1 ? { ...e, html: null, renderFailedAt: hAgo(0.25) } : e)) };
+  check("a render that failed 15 minutes ago is NOT retried this run", tr(failing, hAgo(0.25)).templateIds.length === 0, JSON.stringify(tr(failing, hAgo(0.25))));
+  const failedOld = { ...failing, emails: failing.emails.map((e, i) => (i === 1 ? { ...e, renderFailedAt: hAgo(PREVIEW_RETRY_HOURS) } : e)) };
+  check("...it is retried alone once an hour has passed", JSON.stringify(tr(failedOld, hAgo(2))) === JSON.stringify({ templateIds: ["T2"], full: false }), JSON.stringify(tr(failedOld, hAgo(2))));
+  check("...and a failure never makes the next full pass sooner than a day", !tr(failing, hAgo(0.25)).full, "");
+  const failedKeptOld = { ...full, emails: full.emails.map((e, i) => (i === 2 ? { ...e, renderFailedAt: hAgo(2) } : e)) };
+  check("a failed render that kept its last good preview is retried hourly too (not left stale till tomorrow)", JSON.stringify(tr(failedKeptOld, hAgo(3))) === JSON.stringify({ templateIds: ["T3"], full: false }), JSON.stringify(tr(failedKeptOld, hAgo(3))));
+  const kept = carryPreviews(failing, snap!);
+  check("a recorded failure and the good previews carry over to the next read", kept.emails[1].renderFailedAt === failing.emails[1].renderFailedAt && kept.emails[0].html === "<p/>", "carried");
+  check("a failure time survives the database round trip", snapshotOf(JSON.stringify(failing))?.emails[1].renderFailedAt === failing.emails[1].renderFailedAt, "");
+  check("no emails, nothing to render", tr({ ...full, emails: [] }, null).templateIds.length === 0, "");
   check("snapshot survives a JSON round trip", JSON.stringify(snapshotOf(JSON.stringify(full))) === JSON.stringify(full), "round trip");
   check("snapshotOf refuses junk", snapshotOf("{nope") === null && snapshotOf({ a: 1 }) === null, "null");
   check("day labels", afterLabel(0) === "Straight away" && afterLabel(14) === "Day 14", `${afterLabel(0)} / ${afterLabel(14)}`);

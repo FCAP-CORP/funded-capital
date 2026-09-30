@@ -15,7 +15,7 @@
 
 import { sql, type SQL } from "drizzle-orm";
 import { CONTACT_KINDS } from "@/lib/db/contactKinds";
-import type { NurtureApp, NurtureContact } from "./nurture";
+import { STAGE_ORDER, type NurtureApp, type NurtureContact } from "./nurture";
 
 type Row = Record<string, unknown>;
 const str = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
@@ -123,16 +123,26 @@ export function toNurtureContact(r: Row): NurtureContact {
   };
 }
 
+/** A list of stage names as a bound text[] (drizzle sql.join, one parameter each). */
+const textArray = (xs: readonly string[]): SQL => sql`ARRAY[${sql.join(xs.map((x) => sql`${x}`), sql`, `)}]::text[]`;
+
 /**
  * What each ACTIVE enrolment needs for the auto-stop check. Inbound, Luis's
- * own outreach, new enquiries and forward stage moves — each the latest one.
- * A move INTO closed_lost is excluded on purpose: marking a quiet lead lost
- * is exactly who nurture is for.
+ * own outreach, new enquiries and forward stage moves — each the latest one —
+ * and when the person joined the Klaviyo list, for "finished".
+ *
+ * FORWARD means nurture.ts isForwardMove, in SQL: into a stage later in
+ * STAGE_ORDER than where it came from, or out of closed_lost (a reopen). A
+ * move INTO closed_lost is excluded on purpose — marking a quiet lead lost is
+ * exactly who nurture is for — and so is a step backwards: before 30 Sep 2026
+ * a correction (underwriting back to lead) stopped the programme and counted
+ * as a win.
  */
 export function activeSignalsSql(): SQL {
+  const order = textArray(STAGE_ORDER);
   return sql`
     SELECT
-      e.id, e.contact_id, e.program, e.enrolled_at, e.sync_state,
+      e.id, e.contact_id, e.program, e.enrolled_at, e.sync_state, e.synced_at, e.released_at,
       c.email, c.email_subscribed,
       (SELECT max(ac.occurred_at) FROM activities ac
         WHERE ac.contact_id = e.contact_id AND ac.kind IN ('email_in', 'sms_in')) AS last_inbound_at,
@@ -141,8 +151,11 @@ export function activeSignalsSql(): SQL {
       (SELECT max(COALESCE(a.submitted_at, a.created_at)) FROM applications a
         WHERE a.id IN (SELECT p.application_id FROM participants p WHERE p.contact_id = e.contact_id)) AS last_arrival_at,
       (SELECT max(st.changed_at) FROM stage_transitions st
-        WHERE st.to_stage <> 'closed_lost'
-          AND st.from_stage IS NOT NULL
+        WHERE st.from_stage IS NOT NULL
+          AND st.to_stage <> 'closed_lost'
+          AND array_position(${order}, st.to_stage::text) IS NOT NULL
+          AND (st.from_stage = 'closed_lost'
+               OR array_position(${order}, st.to_stage::text) > array_position(${order}, st.from_stage::text))
           AND st.application_id IN (SELECT p.application_id FROM participants p WHERE p.contact_id = e.contact_id)) AS last_forward_move_at
     FROM nurture_enrollments e
     JOIN contacts c ON c.id = e.contact_id
@@ -151,6 +164,23 @@ export function activeSignalsSql(): SQL {
 }
 
 export { iso as isoOf, str as strOf };
+
+/**
+ * Each programme's flow length in days — the last email's `afterDays` in the
+ * stored snapshot — for finishing enrolments (cockpit.ts finishAt). Computed
+ * in SQL so the every-run auto-stop does not pull the rendered previews
+ * (up to 200 KB an email) out of the database. Null when no email is stored.
+ */
+export function flowDaysSql(): SQL {
+  return sql`
+    SELECT np.program,
+      (SELECT max((em->>'afterDays')::float8)
+        FROM jsonb_array_elements(CASE WHEN jsonb_typeof(np.flow_snapshot->'emails') = 'array'
+                                       THEN np.flow_snapshot->'emails' ELSE '[]'::jsonb END) em
+        WHERE jsonb_typeof(em->'afterDays') = 'number') AS flow_days
+    FROM nurture_programs np
+  `;
+}
 
 /* ------------------------------------------------ the cockpit (28 Sep 2026) */
 

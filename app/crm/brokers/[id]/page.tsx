@@ -35,7 +35,7 @@ import { AssignControl, ClaimButton, NotesBox, StatusToggle } from "../Controls"
  */
 
 export const metadata = {
-  title: "Broker | Funded Capital Lending OS",
+  title: "Broker",
 };
 
 function Field({ label: name, value }: { label: string; value: React.ReactNode }) {

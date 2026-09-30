@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/" },
   title: "Funded Capital | Private Real Estate Lender — Fast, Flexible Loans",
   description:
     "Funded Capital provides fast private real estate loans for investors and brokers. Fix & Flip, DSCR, New Construction, Multifamily. Apply in minutes. Term sheet in 2 hours.",
@@ -50,7 +51,7 @@ const loanPrograms = [
     icon: Building2,
     title: "New Construction",
     ltv: "85–90% of cost",
-    rate: "From 8.75%",
+    rate: "From 8.99%",
     term: "12–24 months",
     highlight: false,
   },

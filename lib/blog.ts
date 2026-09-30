@@ -31,6 +31,32 @@ export interface Post extends PostMeta {
   faq: FaqItem[];
 }
 
+/**
+ * A frontmatter date as "YYYY-MM-DD". Every post quotes its dates today, but an
+ * unquoted `date: 2026-09-25` makes gray-matter hand back a Date object, which
+ * would slip through as a "string" and break sorting and the sitemap.
+ */
+function dateString(v: unknown): string {
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? "" : v.toISOString().slice(0, 10);
+  return typeof v === "string" ? v.trim() : "";
+}
+
+/**
+ * When a post last really changed, for the sitemap's <lastmod>: `updated` when
+ * the frontmatter has one, else the publish date. Undefined when neither is a
+ * real calendar date, so the sitemap omits the field rather than inventing one.
+ * (Search engines stop trusting a lastmod that changes on every deploy.)
+ */
+export function postLastModified(post: Pick<PostMeta, "date" | "updated">): string | undefined {
+  for (const d of [post.updated, post.date]) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+      const t = new Date(`${d}T00:00:00Z`);
+      if (!Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d) return d;
+    }
+  }
+  return undefined;
+}
+
 function normalizeFaq(raw: unknown): FaqItem[] {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -53,8 +79,8 @@ export function getAllPosts(): PostMeta[] {
       slug,
       title: data.title || "",
       description: data.description || "",
-      date: data.date || "",
-      updated: data.updated || data.date || "",
+      date: dateString(data.date),
+      updated: dateString(data.updated) || dateString(data.date),
       category: data.category || "General",
       readTime: data.readTime || "5 min read",
       keywords: data.keywords || [],
@@ -74,8 +100,8 @@ export function getPostBySlug(slug: string): Post | null {
     slug,
     title: data.title || "",
     description: data.description || "",
-    date: data.date || "",
-    updated: data.updated || data.date || "",
+    date: dateString(data.date),
+    updated: dateString(data.updated) || dateString(data.date),
     category: data.category || "General",
     readTime: data.readTime || "5 min read",
     keywords: data.keywords || [],

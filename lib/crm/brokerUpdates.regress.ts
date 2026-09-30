@@ -7,7 +7,8 @@
  *      or carries an HTML entity or a line break in the subject;
  *   §3 the term-sheet email and the document list arrive as two emails.
  */
-import { NOTIFY_STAGES, STAGE_ORDER, dealName, docsEmail, firstNameOf, stageEmail, stageWorthEmail } from "./brokerUpdates";
+import { NOTIFY_STAGES, STAGE_ORDER, dealName, docsEmail, docsUpdateKey, firstNameOf, stableUuid, stageEmail, stageUpdateKey, stageWorthEmail } from "./brokerUpdates";
+import { isUuid } from "./tasks";
 import { STAGE_LABEL } from "./view";
 
 let pass = 0, fail = 0;
@@ -56,6 +57,16 @@ check("the term-sheet email carries the document list", /we still need 2 documen
 check("...and the upload link to the deal page", /https:\/\/www\.fundedcapital\.com\/broker-portal\/deal\/7f1c2e9a-1b2c-4d5e-8f90-123456789abc/.test(ts.body), "");
 check("docs email: one added item reads 'One more document'", /One more document on/.test(all[all.length - 1].body) && /\(From the association\)/.test(all[all.length - 1].body), "");
 check("docs email: nothing to ask for → no email", docsEmail({ brokerName: null, deal, applicationId: "a", docs: [], added: false }) === null, "");
+
+console.log("\n=== 4. The same news has the same key (so it can only go once) ===");
+const A = "7f1c2e9a-1b2c-4d5e-8f90-123456789abc", B = "0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d";
+check("stableUuid is a valid UUID the executor accepts", isUuid(stableUuid("x")) && isUuid(stageUpdateKey(A, "underwriting")), stableUuid("x"));
+check("...and the same name gives the same UUID", stableUuid("broker") === stableUuid("broker") && stableUuid("broker") !== stableUuid("broker2"), "");
+check("stage key: same deal + stage → same; other stage or deal → different",
+  stageUpdateKey(A, "funded") === stageUpdateKey(A.toUpperCase(), "funded") && stageUpdateKey(A, "funded") !== stageUpdateKey(A, "docs_out") && stageUpdateKey(A, "funded") !== stageUpdateKey(B, "funded"), "");
+check("docs key ignores order and repeats", docsUpdateKey(A, [B, A]) === docsUpdateKey(A, [A, B, B]), "");
+check("docs key: a different item set is a different email", docsUpdateKey(A, [A]) !== docsUpdateKey(A, [A, B]) && docsUpdateKey(A, [A]) !== docsUpdateKey(B, [A]), "");
+check("stage and docs keys never collide", stageUpdateKey(A, "x") !== docsUpdateKey(A, ["x"]), "");
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

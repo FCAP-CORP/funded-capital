@@ -1392,7 +1392,7 @@ console.log("\n=== 17. Document requests: scoped from the session, files to Driv
   if (actSrc) {
     const code = codeOnly(actSrc);
     const ms = fnBody(code, "moveStage") ?? "";
-    check("  moveStage starts the list in the SAME db.batch as the stage move", /if \(shouldSeed\(stage\)\)[\s\S]*?db\.batch\(\[\s*\.\.\.moves,\s*db\.execute\(seedRequestsSql\(/.test(ms), "one batch");
+    check("  moveStage starts the list in the SAME db.batch as the stage move", /db\.batch\(\s*\(shouldSeed\(stage\)\s*\?\s*\[\.\.\.moves,\s*db\.execute\(seedRequestsSql\(/.test(ms), "one batch");
   }
   const seed = readOr("lib/crm/docRequestsSql.ts");
   if (seed) check("  the list INSERT never overwrites (a removed item is never brought back)", /ON CONFLICT \(application_id, item_key\) DO NOTHING/.test(seed) && !/DO UPDATE/.test(seed), "DO NOTHING");
@@ -1434,6 +1434,41 @@ console.log("\n=== 18. Broker update emails: recipient from the database, one ex
     const tb = fnBody(code, "tellBroker") ?? code.slice(code.indexOf("function tellBroker("), code.indexOf("function tellBroker(") + 400);
     check("  ...inside after(), so a slow email never slows or undoes the move", /after\(async/.test(tb), "after()");
     check("  ...with the sender from Clerk (signedInUser), never the browser", /signedInUser\(\)/.test(code) && /primaryEmailAddress/.test(code), "Clerk");
+  }
+}
+
+/* ------------------------------------------- one email per news, one move per click */
+
+/**
+ * Audit fixes (30 Sep 2026). A broker must never get the same news twice, and
+ * a stage move must never land on top of a change made since the page loaded.
+ */
+console.log("\n=== 19. Duplicate broker emails and racing stage moves ===");
+{
+  const BU = "lib/crm/brokerUpdates.server.ts";
+  const SM = "lib/crm/stageMoveSql.ts";
+  const ACTF = "app/crm/actions.ts";
+  const FU = "lib/crm/followups.server.ts";
+  const bu = readOr(BU), sm = readOr(SM), act = readOr(ACTF), fu = readOr(FU);
+  if (bu) {
+    const code = codeOnly(bu);
+    check(`  ${BU}: the send key is deterministic (stageUpdateKey / docsUpdateKey), never random`,
+      !/randomUUID/.test(code) && /stageUpdateKey\(p\.applicationId, p\.to\)/.test(code) && /docsUpdateKey\(/.test(code), "deterministic keys");
+  }
+  if (sm) {
+    const code = codeOnly(sm);
+    check(`  ${SM}: the UPDATE only lands while the deal is still in the stage that was read`, /WHERE id = \$\{m\.applicationId\}::uuid AND stage = \$\{m\.from\}::stage/.test(code) && /RETURNING id/.test(code), "conditional");
+    check("  ...and the history row only follows a move that landed (its exact stage_entered_at)", /a\.stage_entered_at = \$\{at\}::timestamptz/.test(code), "guarded insert");
+  }
+  if (act) {
+    const code = codeOnly(act);
+    const mv = fnBody(code, "moveStage") ?? "";
+    check(`  ${ACTF}: moveStage writes the stage only through stageMoveSql`, /stageMoveSql\(/.test(mv) && !/insert\(stageTransitions\)/.test(mv) && !/\.set\(\{[^}]*\bstage\b[^}]*stageEnteredAt/.test(mv), "stageMoveSql");
+    check("  ...refuses when the update did not land", /updated\.length === 0/.test(mv), "refused");
+    check("  ...and the document list only starts if the move landed", /seedRequestsSql\([^)]*\{ to: stage, at: now \}\)/.test(mv), "guarded seed");
+  }
+  if (fu) {
+    check(`  ${FU}: a term-sheet nudge whose send outcome is unknown counts as done`, /oe\.status IN \('sent', 'sending'\)/.test(fu), "sent or sending");
   }
 }
 

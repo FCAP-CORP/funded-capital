@@ -12,16 +12,17 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/new-construction-loans" },
   title: "New Construction Loans — Up to 90% of Cost, Ground-Up Financing",
   description:
-    "Ground-up construction loans up to 90% of cost for experienced builders, 85% standard, plus a financed interest reserve. Draw schedules, milestone funding. Rates from 8.75%. SFR, townhomes, small multifamily, ADUs.",
+    "Ground-up construction loans up to 90% of cost for experienced builders, 85% standard, plus a financed interest reserve. Draw schedules, milestone funding. Rates from 8.99%. SFR, townhomes, small multifamily, ADUs.",
 };
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
 
 const trustStats = [
   { value: "Up to 90%", label: "Loan-to-Full-Cost" },
-  { value: "From 8.75%", label: "Interest Rate" },
+  { value: "From 8.99%", label: "Interest Rate" },
   { value: "Draw Schedule Included", label: "Disbursement" },
   { value: "12–24 Month Terms", label: "Loan Term" },
 ];
@@ -69,7 +70,7 @@ const assetTypes = [
 
 const rateTableHeaders = ["Project Size", "Max Loan-to-Cost", "Rate", "Draws", "Term"];
 const rateTableRows = [
-  ["Up to $1M", "85–90%", "From 8.75%", "Monthly", "12 mo"],
+  ["Up to $1M", "85–90%", "From 8.99%", "Monthly", "12 mo"],
   ["$1M–$5M", "85–90%", "From 9.50%", "Milestone", "12–24 mo"],
   ["$5M+", "85–90%", "From 10.25%", "Negotiated", "Up to 24 mo"],
 ];
@@ -97,7 +98,7 @@ const faqs = [
   },
   {
     q: "How much of my project cost can you finance?",
-    a: "Most ground-up borrowers finance up to 85% of full cost — purchase price, any sunk costs, and the remaining construction budget. Builders with five or more completed ground-up projects reach 90%. On top of either figure, a further 5% of cost is available to finance the interest reserve, so an experienced builder can reach 95% of cost all-in with the reserve financed. Leverage is also limited by after-repair loan-to-value, and whichever cap is lower governs the deal. Final terms come from a term sheet, not from this page.",
+    a: "Most ground-up borrowers finance up to 85% of full cost — purchase price, any sunk costs, and the remaining construction budget. Builders with 20 or more completed ground-up builds reach 90%. On top of either figure, a further 5% of cost is available to finance the interest reserve, so an experienced builder can reach 95% of cost all-in with the reserve financed. Leverage is also limited by after-repair loan-to-value, and whichever cap is lower governs the deal. Final terms come from a term sheet, not from this page.",
   },
 ];
 
@@ -155,7 +156,7 @@ export default function NewConstructionLoansPage() {
             "name": "How much of my project cost can you finance?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Most ground-up borrowers finance up to 85% of full cost — purchase price, any sunk costs, and the remaining construction budget. Builders with five or more completed ground-up projects reach 90%. On top of either figure, a further 5% of cost is available to finance the interest reserve, so an experienced builder can reach 95% of cost all-in with the reserve financed. Leverage is also limited by after-repair loan-to-value, and whichever cap is lower governs the deal. Final terms come from a term sheet, not from this page.",
+              "text": "Most ground-up borrowers finance up to 85% of full cost — purchase price, any sunk costs, and the remaining construction budget. Builders with 20 or more completed ground-up builds reach 90%. On top of either figure, a further 5% of cost is available to finance the interest reserve, so an experienced builder can reach 95% of cost all-in with the reserve financed. Leverage is also limited by after-repair loan-to-value, and whichever cap is lower governs the deal. Final terms come from a term sheet, not from this page.",
             },
           },
         ],
@@ -213,7 +214,7 @@ export default function NewConstructionLoansPage() {
               </a>
             </div>
             <div className="mt-10 flex flex-wrap gap-x-6 gap-y-2">
-              {["Up to 90% of cost for experienced builders", "Draw schedule included", "660+ credit score", "SFR, townhomes, multifamily"].map((item) => (
+              {["Up to 90% of cost for experienced builders", "Draw schedule included", "680+ credit score", "SFR, townhomes, multifamily"].map((item) => (
                 <span key={item} className="flex items-center gap-1.5 text-slate-400 text-sm">
                   <CheckCircle2 size={14} className="text-gold-500 shrink-0" />
                   {item}

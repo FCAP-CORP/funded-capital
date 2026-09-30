@@ -6,7 +6,14 @@ import SiteChrome from "@/components/SiteChrome";
 import Analytics from "@/components/Analytics";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://fundedcapital.com"),
+  // www is the site's real address (the sitemap, robots.txt and JSON-LD all use
+  // it). Every page's relative canonical resolves against this, so it must be
+  // www, or each canonical would point at a URL that redirects.
+  // No `alternates.canonical` here on purpose: a canonical in the root layout is
+  // inherited by every page that does not set its own, declaring them all
+  // copies of the home page. Each public page sets its own instead
+  // (lib/seo.regress.ts checks).
+  metadataBase: new URL("https://www.fundedcapital.com"),
   title: {
     default: "Funded Capital | Private Real Estate Lender",
     template: "%s | Funded Capital",
@@ -24,7 +31,10 @@ export const metadata: Metadata = {
   ],
   openGraph: {
     type: "website",
-    url: "https://fundedcapital.com",
+    // No `url` here: pages without their own openGraph inherit this object,
+    // so a url here gave every page og:url = the home page (LinkedIn and
+    // Facebook treat og:url as the canonical for a share). Blog posts set
+    // their own; everything else lets the scraper use the page's address.
     title: "Funded Capital | Private Real Estate Lender",
     description:
       "Fast, flexible private real estate loans. Fix & Flip, Bridge, DSCR, New Construction. Apply in minutes.",

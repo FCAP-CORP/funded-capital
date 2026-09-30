@@ -3,7 +3,9 @@ import Link from "next/link";
 import { ArrowRight, Target, Heart, Lightbulb } from "lucide-react";
 
 export const metadata: Metadata = {
-  title: "About Funded Capital — Private Real Estate Lender, Miami FL",
+  alternates: { canonical: "/about" },
+  // absolute: the page names the brand itself, so the layout template must not add it again.
+  title: { absolute: "About Funded Capital — Private Real Estate Lender, Miami FL" },
   description:
     "Founded in Miami in 2018, Funded Capital has funded $500M+ in private real estate loans nationwide. Learn our story and why investors trust us to close.",
 };

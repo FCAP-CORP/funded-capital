@@ -57,9 +57,12 @@ export async function getTermSheetFollowups(now: Date, senderFirstName: string |
         WHERE ac.contact_id = c.contact_id AND ac.kind IN ('email_in', 'sms_in')) AS last_inbound_at,
       (SELECT max(ac.occurred_at) FROM activities ac
         WHERE ac.contact_id = c.contact_id AND ac.kind IN ('email_out', 'sms_out', 'call')) AS last_outbound_at,
-      (SELECT json_agg(json_build_object('k', oe.template_key, 'at', oe.sent_at))
+      -- 'sending' counts as done (audit 30 Sep 2026): Gmail may have accepted
+      -- it even though the row was never marked sent, and nudging a borrower
+      -- twice is worse than skipping one nudge. Its time is when it was tried.
+      (SELECT json_agg(json_build_object('k', oe.template_key, 'at', COALESCE(oe.sent_at, oe.created_at)))
         FROM outbound_emails oe
-        WHERE oe.application_id = a.id AND oe.status = 'sent' AND oe.template_key LIKE 'ts-%') AS sent,
+        WHERE oe.application_id = a.id AND oe.status IN ('sent', 'sending') AND oe.template_key LIKE 'ts-%') AS sent,
       pr.address_line1, pr.city, pr.state AS prop_state
     FROM applications a
     LEFT JOIN LATERAL (
