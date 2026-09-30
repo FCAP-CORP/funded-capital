@@ -1,6 +1,6 @@
 import {
   ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Bot, Building2, CalendarClock, Clock, FileText, FolderOpen,
-  History, Landmark, ListChecks, ListTodo, Mail, MessageSquare, PencilLine, Phone, Quote, StickyNote, TriangleAlert,
+  History, Landmark, ListChecks, ListTodo, Mail, Send, MessageSquare, PencilLine, Phone, Quote, StickyNote, TriangleAlert,
   UserRound, Users,
 } from "lucide-react";
 import { isCrmStaff } from "@/lib/crm/access";
@@ -34,6 +34,8 @@ import { TIMELINE_TEXT_PREVIEW } from "@/lib/crm/record";
 import type { CrmRoute } from "../actions";
 import RecordDrawer from "./RecordDrawer";
 import { DocRequestsPanel } from "./DocRequestsPanel";
+import { BrokerUpdatesToggle } from "./BrokerUpdatesToggle";
+import { NURTURE_EVENT_WORD, nurtureLine } from "@/lib/crm/record";
 import {
   ContactField, DealNotes, FollowUp, QuickActions, RetryTextButton, TaskPanel, type TaskView, type TextGateView,
 } from "./RecordControls";
@@ -324,6 +326,7 @@ function Card({ card, from }: { card: RecordCardData; from: CrmRoute }) {
                       <> · <a href={telHref(card.broker.phone)!} className="hover:text-gold-700 hover:underline">{displayPhone(card.broker.phone)}</a></>
                     )}
                   </span>
+                  <BrokerUpdatesToggle applicationId={app.id} on={card.broker.updatesOn} from={from} />
                 </Field>
               )}
               {(has(contact.claimedDeals) || has(contact.verifiedDeals)) && (
@@ -430,6 +433,33 @@ function Card({ card, from }: { card: RecordCardData; from: CrmRoute }) {
           Saved on the deal. To add a dated entry to the timeline instead, use Note at the top.
         </p>
       </Section>
+
+      {/* ------------------------------------------------ nurture emails */}
+      {card.nurture.length > 0 && (
+        <Section title="Nurture emails" icon={Send} aside={<span className="text-[11px] text-slate-500">Sent by Klaviyo · counts only</span>}>
+          <ul className="divide-y divide-slate-100">
+            {card.nurture.map((n) => {
+              const line = nurtureLine(n);
+              return (
+                <li key={`${n.program}-${n.enrolledAt}`} className="py-2">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-sm font-medium text-navy-900">{line.program}</span>
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset ${line.active ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-slate-100 text-slate-600 ring-slate-200"}`}>
+                      {line.status}
+                    </span>
+                  </div>
+                  <p className="text-[12px] text-slate-600">{line.counts}</p>
+                  {n.lastKind && n.lastAt && (
+                    <p className="text-[11px] text-slate-500">
+                      Latest: {NURTURE_EVENT_WORD[n.lastKind] ?? n.lastKind}{n.lastSubject ? ` “${n.lastSubject}”` : ""} · {shortDate(n.lastAt)}
+                    </p>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </Section>
+      )}
 
       {/* ------------------------------------------------ documents needed */}
       <Section

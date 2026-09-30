@@ -9,6 +9,7 @@
 
 import { activityKindEnum, participantRoleEnum } from "../db/schema";
 import { STALE_DAYS } from "./board";
+import { NURTURE_EVENT_WORD, nurtureLine } from "./record";
 import {
   ACTIVITY_LABEL,
   DOC_STATUS_LABEL,
@@ -165,6 +166,18 @@ check("requested", docStatus({ requestedAt: daysAgo(5), receivedAt: null, expire
 check("expired beats received", docStatus({ requestedAt: null, receivedAt: daysAgo(100), expiresOn: daysAgo(1) }, NOW) === "expired", "expired");
 check("not yet expired is still received", docStatus({ requestedAt: null, receivedAt: daysAgo(1), expiresOn: new Date(NOW.getTime() + 86_400_000).toISOString() }, NOW) === "received", "received");
 check("no dates is simply on file", docStatus({ requestedAt: null, receivedAt: null, expiresOn: null }, NOW) === "listed", "listed");
+
+{
+  console.log("\n=== Nurture on the record card (30 Sep 2026) ===");
+  const a = nurtureLine({ program: "quiet", status: "active", stopReason: null, syncState: "added", sent: 3, opened: 2, clicked: 1 });
+  check("active programme, named and counted", a.program === "Quiet leads" && a.status === "Active" && a.counts === "3 emails · opened 2 · clicked 1" && a.active, JSON.stringify(a));
+  const q = nurtureLine({ program: "contacts", status: "active", stopReason: null, syncState: "queued", sent: 0, opened: 0, clicked: 0 });
+  check("queued reads as waiting to start, no emails yet", q.status === "Waiting to start" && q.counts === "No emails yet.", JSON.stringify(q));
+  const st = nurtureLine({ program: "lost", status: "stopped", stopReason: "replied", syncState: "removed", sent: 1, opened: 1, clicked: 0 });
+  check("stopped shows why, in words", st.status === "Stopped: they wrote back" && !st.active && st.counts === "1 email · opened 1 · clicked 0", JSON.stringify(st));
+  check("an unknown programme key is shown as-is rather than hidden", nurtureLine({ program: "mystery", status: "stopped", stopReason: "weird", syncState: "removed", sent: 0, opened: 0, clicked: 0 }).program === "mystery", "");
+  check("every event kind has a word", ["sent", "open", "click", "bounce", "spam", "unsub"].every((k) => !!NURTURE_EVENT_WORD[k]), "");
+}
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

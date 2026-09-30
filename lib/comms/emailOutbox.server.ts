@@ -51,7 +51,19 @@ export type EmailRequest = {
   /** Clerk user id and primary email of the (already verified) staff member. */
   userId: string;
   userEmail: string | null;
+  /**
+   * Who it goes to. Omitted = the deal's borrower (the record card, the
+   * term-sheet follow-ups), through the consent gate. `broker` = the broker who
+   * submitted the deal, for broker update emails (lib/crm/brokerUpdates.server.ts):
+   * a business email about their own deal, so the marketing-consent mirror does
+   * not apply; the caller has already checked the broker is active and the deal
+   * has not had broker emails switched off. Never an address from a browser.
+   */
+  to?: { kind: "broker"; email: string };
 };
+
+const BROKER_TEMPLATE = "broker-update";
+const EMAIL_SHAPE = /^[^\s@<>(),;:"\[\]]+@[^\s@<>(),;:"\[\]]+\.[a-z]{2,}$/i;
 
 const invalid = (message: string): EmailOutcome => ({ ok: false, status: "invalid", message });
 
@@ -85,7 +97,8 @@ export async function executeSendEmail(req: EmailRequest): Promise<EmailOutcome>
   if (!draft.ok) return invalid(draft.error);
   if (!isUuid(req.idempotencyKey)) return invalid("This email has no id. Close the panel, open it again and resend.");
   if (!isUuid(req.applicationId)) return invalid("That deal could not be found.");
-  const templateKey = req.templateKey && templateByKey(req.templateKey) ? req.templateKey : null;
+  const toBroker = req.to?.kind === "broker";
+  const templateKey = toBroker ? BROKER_TEMPLATE : req.templateKey && templateByKey(req.templateKey) ? req.templateKey : null;
 
   const [seen] = await db
     .select({ status: outboundEmails.status, error: outboundEmails.error })
@@ -110,10 +123,14 @@ export async function executeSendEmail(req: EmailRequest): Promise<EmailOutcome>
     return { ok: false, status: "not_connected", message };
   }
 
-  const contact = await primaryContact(app.id);
+  const contact = toBroker ? null : await primaryContact(app.id);
 
-  // THE GATE. Fresh row, every send. See the file header.
-  const gate = canEmail(contact);
+  // THE GATE. Fresh row, every send. See the file header. A broker update has
+  // its own, narrower gate: a usable address the server looked up itself.
+  const brokerTo = toBroker ? req.to!.email.trim().toLowerCase() : "";
+  const gate: { ok: true; email: string } | { ok: false; reason: string } = toBroker
+    ? (EMAIL_SHAPE.test(brokerTo) ? { ok: true, email: brokerTo } : { ok: false, reason: "The broker has no usable email address." })
+    : canEmail(contact);
   const now = new Date();
 
   if (!gate.ok) {
@@ -124,7 +141,7 @@ export async function executeSendEmail(req: EmailRequest): Promise<EmailOutcome>
         contactId: contact?.id ?? null,
         applicationId: app.id,
         fromEmail,
-        toEmail: contact?.email?.trim() || "(none)",
+        toEmail: toBroker ? brokerTo || "(none)" : contact?.email?.trim() || "(none)",
         subject: draft.subject,
         body: draft.body,
         templateKey,
@@ -142,7 +159,7 @@ export async function executeSendEmail(req: EmailRequest): Promise<EmailOutcome>
     .insert(outboundEmails)
     .values({
       idempotencyKey: req.idempotencyKey,
-      contactId: contact!.id,
+      contactId: contact?.id ?? null,
       applicationId: app.id,
       fromEmail,
       toEmail: gate.email,
@@ -216,12 +233,16 @@ export async function executeSendEmail(req: EmailRequest): Promise<EmailOutcome>
         db
           .insert(activities)
           .values({
-            contactId: contact!.id,
+            contactId: contact?.id ?? null,
             applicationId: app.id,
-            kind: "email_out",
+            // A broker update is NOT contact with the borrower: as email_out it
+            // would reset quiet clocks, count as "first contact" and stop the
+            // borrower's follow-ups. The same dedup key still stops the Gmail
+            // sync writing it a second time when it finds it in Sent.
+            kind: toBroker ? "automation" : "email_out",
             occurredAt: sentAt,
-            source: "crm",
-            subject: draft.subject,
+            source: toBroker ? "broker_update" : "crm",
+            subject: toBroker ? `Emailed the broker: ${draft.subject}` : draft.subject,
             body: draft.body,
             metadata: {
               provider: "gmail",

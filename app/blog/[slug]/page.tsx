@@ -19,7 +19,9 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const post = getPostBySlug(slug);
   if (!post) return {};
   return {
-    title: `${post.title} | Funded Capital`,
+    // The root layout's template adds " | Funded Capital". Adding it here too
+    // doubled it in every post's browser tab and Google result (fixed 30 Sep 2026).
+    title: post.title,
     description: post.description,
     keywords: post.keywords,
     openGraph: {

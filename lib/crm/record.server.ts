@@ -39,6 +39,7 @@ import {
   crmTasks,
   documentRequests,
   documents,
+  nurtureEnrollments,
   entities,
   outboundMessages,
   participants,
@@ -115,6 +116,21 @@ export type RecordDocument = {
   requestId: string | null;
 };
 
+export type RecordNurture = {
+  program: string;
+  status: string;
+  enrolledAt: string | null;
+  stoppedAt: string | null;
+  stopReason: string | null;
+  syncState: string;
+  sent: number;
+  opened: number;
+  clicked: number;
+  lastKind: string | null;
+  lastSubject: string | null;
+  lastAt: string | null;
+};
+
 /** One line of "Documents needed" (lib/crm/docRequests.ts). Removed items are left out. */
 export type RecordDocRequest = {
   id: string;
@@ -163,7 +179,9 @@ export type RecordCardData = {
     nextActionNote: string | null;
   };
   entity: { name: string; entityType: string | null; formationState: string | null } | null;
-  broker: { name: string | null; email: string; phone: string | null; firmName: string | null } | null;
+  broker: { name: string | null; email: string; phone: string | null; firmName: string | null; updatesOn: boolean } | null;
+  /** The primary contact's nurture programmes, newest first (Klaviyo emails, counts only). */
+  nurture: RecordNurture[];
   /** The person the card is named after. Null for an unlinked application. */
   contact: RecordContact | null;
   /** Everyone attached, with their role — one row per role held. */
@@ -226,6 +244,7 @@ export async function getRecordCard(applicationId: string): Promise<RecordCardDa
     outboundRows,
     requestRows,
     requestEver,
+    nurtureRows,
   ] = await db.batch([
     db
       .select({
@@ -368,6 +387,28 @@ export async function getRecordCard(applicationId: string): Promise<RecordCardDa
       .orderBy(asc(documentRequests.sort), asc(documentRequests.createdAt)),
 
     db.select({ n: sql<number>`count(*)::int` }).from(documentRequests).where(eq(documentRequests.applicationId, id)),
+
+    // Nurture emails for the person the card is named after. Counts and the
+    // latest event only — the emails themselves live in Klaviyo.
+    db
+      .select({
+        program: nurtureEnrollments.program,
+        status: nurtureEnrollments.status,
+        enrolledAt: nurtureEnrollments.enrolledAt,
+        stoppedAt: nurtureEnrollments.stoppedAt,
+        stopReason: nurtureEnrollments.stopReason,
+        syncState: nurtureEnrollments.syncState,
+        sent: sql<number>`(SELECT count(*) FROM nurture_events ne WHERE ne.enrollment_id = "nurture_enrollments"."id" AND ne.kind = 'sent')::int`,
+        opened: sql<number>`(SELECT count(*) FROM nurture_events ne WHERE ne.enrollment_id = "nurture_enrollments"."id" AND ne.kind = 'open')::int`,
+        clicked: sql<number>`(SELECT count(*) FROM nurture_events ne WHERE ne.enrollment_id = "nurture_enrollments"."id" AND ne.kind = 'click')::int`,
+        lastKind: sql<string | null>`(SELECT ne.kind FROM nurture_events ne WHERE ne.enrollment_id = "nurture_enrollments"."id" ORDER BY ne.occurred_at DESC LIMIT 1)`,
+        lastSubject: sql<string | null>`(SELECT ne.subject FROM nurture_events ne WHERE ne.enrollment_id = "nurture_enrollments"."id" ORDER BY ne.occurred_at DESC LIMIT 1)`,
+        lastAt: sql<string | null>`(SELECT ne.occurred_at FROM nurture_events ne WHERE ne.enrollment_id = "nurture_enrollments"."id" ORDER BY ne.occurred_at DESC LIMIT 1)`,
+      })
+      .from(nurtureEnrollments)
+      .where(eq(nurtureEnrollments.contactId, primaryContactOf(id)))
+      .orderBy(desc(nurtureEnrollments.enrolledAt))
+      .limit(5),
   ]);
 
   const row = appRows[0];
@@ -447,8 +488,22 @@ export async function getRecordCard(applicationId: string): Promise<RecordCardDa
       ? { name: row.entityName, entityType: row.entityType, formationState: row.entityState }
       : null,
     broker: row.brokerEmail
-      ? { name: row.brokerName, email: row.brokerEmail, phone: row.brokerPhone, firmName: row.firmName }
+      ? { name: row.brokerName, email: row.brokerEmail, phone: row.brokerPhone, firmName: row.firmName, updatesOn: a.brokerUpdatesOff !== true }
       : null,
+    nurture: nurtureRows.map((r) => ({
+      program: r.program,
+      status: r.status,
+      enrolledAt: iso(r.enrolledAt),
+      stoppedAt: iso(r.stoppedAt),
+      stopReason: r.stopReason,
+      syncState: r.syncState,
+      sent: Number(r.sent ?? 0),
+      opened: Number(r.opened ?? 0),
+      clicked: Number(r.clicked ?? 0),
+      lastKind: r.lastKind ?? null,
+      lastSubject: r.lastSubject ?? null,
+      lastAt: iso(r.lastAt),
+    })),
     contact: primary
       ? {
           id: primary.id,

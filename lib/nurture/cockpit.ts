@@ -509,3 +509,34 @@ export function nurtureReport(rows: NurtureReportRow[], w: { start: number | nul
 
 /** A stored Klaviyo error that means the API key lacks a permission (the client's wording, klaviyo.server.ts). */
 export const isPermissionError = (error: string | null | undefined) => typeof error === "string" && /refused the API key/.test(error);
+
+/* --------------------------------------- unsubscribes from anyone (30 Sep) */
+
+/**
+ * Klaviyo unsubscribes and spam complaints, for EVERYONE in Klaviyo — not only
+ * people Lending OS put in a programme. Before this, someone who unsubscribed
+ * from an old newsletter could still be emailed from the record card, because
+ * the mirror only read the five programme lists. Consent still flows one way
+ * only: this can set `email_subscribed = false`, never true.
+ */
+export const OPT_OUT_METRICS: readonly { kind: "unsub" | "spam"; metricId: string }[] = EVENT_METRICS
+  .filter((m): m is { kind: "unsub" | "spam"; metricId: string } => m.kind === "unsub" || m.kind === "spam");
+
+/** The first read goes back far enough to catch the newsletter years. */
+export const OPT_OUT_FIRST_READ_DAYS = 800;
+
+export function optOutsFrom(cursor: string | null, now: Date): Date {
+  const c = cursor ? Date.parse(cursor) : NaN;
+  if (!Number.isFinite(c)) return new Date(now.getTime() - OPT_OUT_FIRST_READ_DAYS * 86_400_000);
+  return new Date(Math.min(c, now.getTime()) - EVENT_OVERLAP_MINUTES * 60_000);
+}
+
+/** Lower-cased, de-duplicated, plausible addresses. Anything odd is skipped, never guessed at. */
+export function optOutEmails(events: readonly { email?: string | null }[]): string[] {
+  const out = new Set<string>();
+  for (const e of events) {
+    const v = (e.email ?? "").trim().toLowerCase();
+    if (v.length <= 254 && /^[^\s@<>(),;:"[\]]+@[^\s@<>(),;:"[\]]+\.[a-z]{2,}$/.test(v)) out.add(v);
+  }
+  return [...out].sort();
+}

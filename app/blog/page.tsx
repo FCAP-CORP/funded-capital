@@ -4,7 +4,8 @@ import { ArrowRight, Clock, Tag } from "lucide-react";
 import { getAllPosts } from "@/lib/blog";
 
 export const metadata: Metadata = {
-  title: "Real Estate Investor Blog — Hard Money, DSCR & Fix & Flip Tips | Funded Capital",
+  // No " | Funded Capital" here: the root layout's template adds it.
+  title: "Real Estate Investor Blog — Hard Money, DSCR & Fix & Flip Tips",
   description:
     "Expert guides on hard money loans, DSCR financing, fix & flip strategies, and real estate investing. Written by Funded Capital — Miami's private real estate lender.",
 };

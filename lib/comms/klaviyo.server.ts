@@ -187,7 +187,14 @@ export async function setFlowStatus(key: string, flowId: string, status: "live" 
   return a.status === 200 ? { ok: true } : fail(a);
 }
 
-export type KlaviyoEvent = { id: string; datetime: string | null; profileId: string | null; properties: Record<string, unknown> };
+export type KlaviyoEvent = {
+  id: string;
+  datetime: string | null;
+  profileId: string | null;
+  properties: Record<string, unknown>;
+  /** Only when asked for (`withEmail`): the profile's address, from Klaviyo's `included` block. */
+  email?: string | null;
+};
 
 /** Klaviyo's filter wants an offset, not "Z". */
 const klaviyoTime = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "+00:00");
@@ -197,13 +204,27 @@ const klaviyoTime = (d: Date) => d.toISOString().replace(/\.\d{3}Z$/, "+00:00");
  * `complete` is false when the page cap stopped the read, so the caller must
  * not move its cursor past what it has not seen.
  */
-export async function listEvents(key: string, metricId: string, since: Date, maxPages = 10): Promise<Result<{ events: KlaviyoEvent[]; complete: boolean }>> {
+export async function listEvents(
+  key: string,
+  metricId: string,
+  since: Date,
+  maxPages = 10,
+  opts: { withEmail?: boolean } = {},
+): Promise<Result<{ events: KlaviyoEvent[]; complete: boolean }>> {
   const filter = `and(equals(metric_id,"${metricId.replace(/[^A-Za-z0-9]/g, "")}"),greater-than(datetime,${klaviyoTime(since)}))`;
-  let path: string | null = `/events?filter=${encodeURIComponent(filter)}&sort=datetime&page%5Bsize%5D=200`;
+  // withEmail: Klaviyo returns each event's profile address in `included`, so an
+  // unsubscribe can be matched to a contact who was never in a programme.
+  const extra = opts.withEmail ? "&include=profile&fields%5Bprofile%5D=email" : "";
+  let path: string | null = `/events?filter=${encodeURIComponent(filter)}&sort=datetime&page%5Bsize%5D=200${extra}`;
   const events: KlaviyoEvent[] = [];
   for (let page = 0; path && page < maxPages; page++) {
     const a = await call(key, path, { method: "GET" });
     if (a.status !== 200) return fail(a);
+    const emails = new Map<string, string>();
+    for (const inc of Array.isArray(a.json?.included) ? (a.json!.included as Record<string, unknown>[]) : []) {
+      const em = (inc.attributes as { email?: unknown } | undefined)?.email;
+      if (inc.type === "profile" && typeof inc.id === "string" && typeof em === "string") emails.set(inc.id, em);
+    }
     for (const d of Array.isArray(a.json?.data) ? (a.json!.data as Record<string, unknown>[]) : []) {
       const attrs = (d.attributes ?? {}) as { datetime?: unknown; event_properties?: unknown };
       const rel = (d.relationships ?? {}) as { profile?: { data?: { id?: unknown } } };
@@ -213,6 +234,7 @@ export async function listEvents(key: string, metricId: string, since: Date, max
         datetime: typeof attrs.datetime === "string" ? attrs.datetime : null,
         profileId: typeof rel.profile?.data?.id === "string" ? rel.profile.data.id : null,
         properties: attrs.event_properties && typeof attrs.event_properties === "object" ? (attrs.event_properties as Record<string, unknown>) : {},
+        ...(opts.withEmail ? { email: typeof rel.profile?.data?.id === "string" ? emails.get(rel.profile.data.id) ?? null : null } : {}),
       });
     }
     const next = (a.json?.links as { next?: unknown } | undefined)?.next;

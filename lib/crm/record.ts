@@ -11,6 +11,7 @@ import { STAGE_LABEL, daysSince } from "./view";
 import { STALE_DAYS, isBoardStage } from "./board";
 import { KIND_LABEL } from "./followup";
 import { canRetry, outboundStatusLabel, type Tone } from "../comms/sms";
+import { STOP_LABEL, programByKey, type StopReason } from "../nurture/nurture";
 
 /* ---------------------------------------------------------------- the stage */
 
@@ -397,3 +398,36 @@ export const DOC_STATUS_LABEL: Record<DocStatus, string> = {
   expired: "Expired",
   listed: "On file",
 };
+
+/* ------------------------------------------------------------ nurture */
+
+export const NURTURE_EVENT_WORD: Record<string, string> = {
+  sent: "Emailed",
+  open: "Opened",
+  click: "Clicked",
+  bounce: "Bounced",
+  spam: "Marked as spam",
+  unsub: "Unsubscribed",
+};
+
+/** One nurture programme on the record card, in words. */
+export function nurtureLine(n: {
+  program: string;
+  status: string;
+  stopReason: string | null;
+  syncState: string;
+  sent: number;
+  opened: number;
+  clicked: number;
+}): { program: string; status: string; counts: string; active: boolean } {
+  const program = programByKey(n.program)?.name ?? n.program;
+  const active = n.status === "active";
+  const status = !active
+    ? `Stopped${n.stopReason && n.stopReason in STOP_LABEL ? `: ${STOP_LABEL[n.stopReason as StopReason].toLowerCase()}` : ""}`
+    : n.syncState === "queued" ? "Waiting to start"
+    : "Active";
+  const counts = n.sent === 0
+    ? (active ? "No emails yet." : "No emails were sent.")
+    : `${n.sent} ${n.sent === 1 ? "email" : "emails"} · opened ${n.opened} · clicked ${n.clicked}`;
+  return { program, status, counts, active };
+}

@@ -3,6 +3,9 @@ import { auth, currentUser } from "@clerk/nextjs/server";
 import { recordBrokerApplication, recordDriveFolder, type BrokerPropertyInput } from "@/lib/broker/record";
 import { CONSENT_VERSION } from "@/lib/consent";
 import { markMyDraftSubmitted } from "@/lib/broker/drafts.server";
+import { MAX_UPLOAD_BASE64 } from "@/lib/crm/docRequests";
+import { MAX_REQUEST_CHARS, applicationFileCount, parsePart } from "@/lib/broker/applicationParts";
+import { forwardMyApplicationPart, type PartForwardInput, type PartForwardResult } from "@/lib/broker/applicationParts.server";
 
 /**
  * Broker application intake.
@@ -30,6 +33,15 @@ import { markMyDraftSubmitted } from "@/lib/broker/drafts.server";
  * Drive remains PRIMARY: its result alone decides what the broker is told. A
  * database failure is logged under a greppable marker and never surfaces as an
  * error to someone who has just spent ten minutes filling in a form.
+ *
+ * FILES IN PARTS (30 Sep 2026). Vercel refuses any request body over 4.5 MB
+ * before this code runs, so the browser packs the files (lib/broker/
+ * applicationParts.ts). Request 1 is the application plus the first batch and
+ * is handled exactly as before — it now also returns `applicationId` so the
+ * rest can follow. Each further batch is a FOLLOW-UP (`part` in the body):
+ * signed in → parsed → lib/broker/applicationParts.server.ts checks the
+ * application is this user's own and under two hours old (else a 404, and Drive
+ * is never called) → Drive → one activity line. No file is ever stored here.
  */
 
 /** Never let a slow database hold the response open. */
@@ -47,7 +59,28 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "intake_not_configured" }, { status: 500 });
   }
 
-  let body: {
+  // Read as text first so the size is checked before anything is parsed.
+  const bodyText = await request.text();
+  if (bodyText.length > MAX_REQUEST_CHARS) {
+    return NextResponse.json({ ok: false, error: "files_too_large" }, { status: 413 });
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(bodyText);
+  } catch {
+    return NextResponse.json({ ok: false, error: "bad_request" }, { status: 400 });
+  }
+
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return NextResponse.json({ ok: false, error: "bad_request" }, { status: 400 });
+  }
+
+  /* ------------------------------------ a follow-up batch of more files */
+  if ("part" in raw) {
+    return handlePart(raw, userId, url, secret);
+  }
+
+  const body = raw as {
     submissionName?: string;
     summary?: string;
     application?: Record<string, string>;
@@ -59,12 +92,9 @@ export async function POST(request: Request) {
     isPortfolio?: boolean;
     /** The saved draft this came from, if any — closed and wiped once Drive accepts. */
     draftId?: string;
+    /** How many files the WHOLE application is sending; this request carries the first batch. */
+    totalFiles?: number;
   };
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "bad_request" }, { status: 400 });
-  }
 
   // The broker's identity comes from the authenticated session, never the client.
   let brokerEmail = "";
@@ -80,12 +110,15 @@ export async function POST(request: Request) {
     console.error("[submit-application] currentUser() failed:", e);
   }
 
-  const files = (body.files ?? []).slice(0, 25);
-  // Guard payload size (base64 inflates ~33%); Apps Script caps around ~50 MB/run.
-  const totalBytes = files.reduce((n, f) => n + (f.data?.length ?? 0), 0);
-  if (totalBytes > 40_000_000) {
+  const files = (Array.isArray(body.files) ? body.files : []).slice(0, 25);
+  // One packed batch at most (base64 characters). Vercel stops anything much
+  // bigger before it gets here; this makes the refusal a clear one.
+  const totalBytes = files.reduce((n, f) => n + (typeof f?.data === "string" ? f.data.length : 0), 0);
+  if (totalBytes > MAX_UPLOAD_BASE64) {
     return NextResponse.json({ ok: false, error: "files_too_large" }, { status: 413 });
   }
+  // The whole application's file count, not just this first batch's.
+  const fileCount = applicationFileCount(body.totalFiles, files.length);
 
   const submissionName = body.submissionName ?? `Submission ${new Date().toISOString()}`;
   const submittedAt = new Date();
@@ -118,7 +151,7 @@ export async function POST(request: Request) {
       summary: body.summary ?? "",
       application: body.application ?? {},
       submittedAt,
-      fileCount: files.length,
+      fileCount,
       // The version is taken from the server constant, never from the client —
       // so the version stored is always the wording the server would have
       // served, whatever a stale page might claim.
@@ -154,7 +187,7 @@ export async function POST(request: Request) {
     // borrower's details are NOT logged — only what identifies the submission.
     console.error(
       "[submit-application] CRM WRITE FAILED:", reason,
-      JSON.stringify({ submissionName, brokerEmail, submittedBy: userId, fileCount: files.length }),
+      JSON.stringify({ submissionName, brokerEmail, submittedBy: userId, fileCount }),
     );
   }
 
@@ -210,7 +243,75 @@ export async function POST(request: Request) {
     await markMyDraftSubmitted(body.draftId).catch((e) => console.error("[submit-application] draft close failed:", e instanceof Error ? e.message : e));
   }
 
-  // The response shape the portal already expects is unchanged. The CRM is an
-  // internal concern and a broker has no reason to hear about it either way.
-  return NextResponse.json(data, { status: data.ok ? 200 : 502 });
+  // The response shape the portal already expects, plus the CRM application id
+  // when there is one: the browser needs it to send the rest of the files. A
+  // broker is never told whether the CRM write worked — without an id the page
+  // simply lists any remaining files for them to email.
+  const reply = data.ok && crmApplicationId ? { ...data, applicationId: crmApplicationId } : data;
+  return NextResponse.json(reply, { status: data.ok ? 200 : 502 });
+}
+
+/**
+ * A follow-up batch of files for the application this broker just submitted.
+ *
+ * Who may send one is decided in lib/broker/applicationParts.server.ts from the
+ * SESSION — the application must be this user's own and under two hours old —
+ * never from anything in this body. Anything else is a plain 404 and Drive is
+ * never called.
+ */
+async function handlePart(raw: unknown, userId: string, url: string, secret: string) {
+  const parsed = parsePart(raw);
+  if (!parsed.ok) {
+    const status = parsed.error === "not_found" ? 404 : parsed.error === "files_too_large" ? 413 : 400;
+    return NextResponse.json({ ok: false, error: parsed.error }, { status });
+  }
+
+  const forward = async (input: PartForwardInput): Promise<PartForwardResult> => {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          secret,
+          // KNOWN LIMIT OF THE INTAKE SCRIPT: today's script ignores `action`
+          // and `folderUrl` and files every post as a new submission — its own
+          // Drive folder ("… - files 2 of 3"), a Submissions sheet row, and an
+          // email "New broker application: … - files 2 of 3". The folder name,
+          // summary and notes all say it is more files for the application just
+          // submitted. A future script can append to `folderUrl` instead,
+          // without a change here.
+          action: "append",
+          folderUrl: input.folderUrl,
+          submissionName: input.submissionName,
+          summary: input.summary,
+          submittedBy: userId,
+          brokerEmail: input.brokerEmail,
+          application: input.application,
+          files: input.files,
+        }),
+        // Apps Script answers with a redirect to googleusercontent.com; follow it.
+        redirect: "follow",
+      });
+      const body = await res.text();
+      let data: { ok?: boolean; folder?: string; error?: string };
+      try {
+        data = JSON.parse(body);
+      } catch {
+        console.error("[submit-application] part: non-JSON from Apps Script. HTTP", res.status);
+        return { ok: false, error: "bad_response" };
+      }
+      if (!data.ok) {
+        console.error("[submit-application] part: Apps Script returned error:", data.error);
+        return { ok: false, error: "intake_error" };
+      }
+      return { ok: true, folder: typeof data.folder === "string" ? data.folder : null };
+    } catch (e) {
+      console.error("[submit-application] part: fetch to Apps Script failed:", e instanceof Error ? e.message : e);
+      return { ok: false, error: "intake_unreachable" };
+    }
+  };
+
+  const result = await forwardMyApplicationPart(parsed.value, forward);
+  if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
+  return NextResponse.json({ ok: true, folder: result.folder });
 }

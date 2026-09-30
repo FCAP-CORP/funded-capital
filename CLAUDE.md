@@ -1202,9 +1202,90 @@ still needed.
   deal. Filing these differently needs an Apps Script change and a redeploy — Luis's call.
 - **Vercel caps a function request body at 4.5 MB.** Uploads are packed in the browser into
   requests of at most ~3 MB of files (`packUploads`); a single bigger file is held back with a way
-  round it (split, compress, or email). **`/api/submit-application` has no such packing** and
-  allows 40 MB, so a new application with large files is refused by Vercel before our code runs —
-  an open item, not fixed here.
+  round it (split, compress, or email). `/api/submit-application` got the same packing on
+  30 Sep 2026 (see "Large applications" below).
 - Verified on Postgres 16 (44 checks: seeding, idempotence, removed-not-revived, every scope case
   including null-firm and suspended, Drive failure records nothing, names only in the database,
   ask-again round trip, stale accept, closed items, cross-deal item ids).
+
+### The daily blog stopped on Opus's thinking blocks (fixed 30 Sep 2026)
+
+After the switch to Opus 5.5 (25 Sep), runs failed with *"Invalid `signature` in `thinking` block.
+The block is bound to a different conversation"* — shown on `/crm/marketing` as a failed row. The
+model returns thinking blocks; when a long web search pauses the turn (`pause_turn`) the route sends
+the assistant content back, and the API checks each thinking block against the exact prefix it was
+produced under. Any mismatch was a hard 400.
+
+- **`lib/marketing/modelCall.ts`** makes every call with `thinking: { type: "adaptive",
+  block_binding: { prefix_mismatch_behavior: "drop_block" } }` and the beta header
+  `thinking-binding-controls-2026-08-01` (Anthropic's documented fix: a stale block is dropped
+  instead of failing the request). If the API still refuses anything about thinking, the call is
+  retried ONCE with every thinking block removed and no thinking settings, and the rest of that
+  conversation stays plain. `modelCall.regress.ts` (18 tests, mutation-tested).
+- `fc-run-daily-blog.bat` waited only 5.5 minutes; Opus runs can take up to 13. Now 14.
+- Blog post titles read "Post | Funded Capital | Funded Capital": the root layout's template adds
+  the suffix and the pages added it again. Fixed on `/blog` and `/blog/[slug]`. **Every public page
+  that hard-codes "| Funded Capital" in its title has the same doubling** (the loan program pages,
+  thank-you) — open item.
+- Checking the live blog with a web fetch tool reported "no article body": the body streams in a
+  hidden Suspense chunk that some HTML-to-text converters drop. A real browser shows it fine. Check
+  in Chrome before believing a fetch summary.
+- The Vercel MCP still sees no projects; the dashboard's Logs page (search "daily-blog") shows the
+  runs.
+
+### Large applications (30 Sep 2026)
+
+Vercel refuses any function request over 4.5 MB before our code runs, so a new application with a
+few scanned PDFs failed. `ApplyClient.tsx` now packs the files (`packUploads`, ~3 MB a request): the
+first request carries the application and batch 1 exactly as before; the rest follow one at a time
+as `{ part: { applicationId, index, total, firstFolder }, files }`. A file too big for any request
+is held back before submitting, with a way round it.
+
+- **Follow-ups are owner-guarded** (`lib/broker/applicationParts.server.ts`, census-exempt):
+  `auth()` → the application's `submitted_by_user_id` is this user AND it was submitted in the last
+  2 hours → Drive → one `automation` activity (dedup key per part). Anything else is a 404 and Drive
+  is never called. Rules and client plan: `lib/broker/applicationParts.ts` (67 tests).
+- Today's intake script ignores `action: "append"` and `folderUrl`, so each part is its own Drive
+  folder, sheet row and email ("… - files 2 of 3"). A script change + redeploy would put them in one
+  folder — Luis's call.
+- If the CRM write fails on request 1 there is no `applicationId`, so the remaining files are listed
+  on the success screen for the broker to email.
+
+### Broker update emails (30 Sep 2026)
+
+When Luis moves a broker's deal, or asks for documents, the broker hears about it from Luis's own
+Gmail straight away (Luis chose automatic over approve-each). Stage moves and "documents requested"
+only — not "needs another copy", and no weekly reminder.
+
+- **Rules** `lib/crm/brokerUpdates.ts` (pure, 31 tests): a move emails only when the stage the
+  BROKER sees changes, forward into term sheet, underwriting, conditionally approved, clearing
+  conditions, clear to close, docs out, funded — or into closed lost ("we've closed the file", never
+  the reason). Backward moves are silent. The term-sheet email carries the document list that just
+  started itself, so one click is one email. No rates, amounts, guarantees or HTML entities.
+- **Sender** `lib/crm/brokerUpdates.server.ts` (staff-only): the recipient is the broker the
+  database names (`submitted_by_user_id` → `broker_users`), only if ACTIVE and the deal's
+  `broker_updates_off` (migration 0019) is false; a house lead emails nobody. It sends through the
+  one Gmail executor with `to: { kind: "broker" }` — same outbox, signature and mailbox rules — and
+  the timeline records it as `automation` "Emailed the broker: …", **never `email_out`**, so it
+  cannot reset a quiet clock, count as first contact, or stop the borrower's follow-ups.
+- Called from `setStage` / `markLost` / `createDocList` / `addDocRequest` inside **`after()`**,
+  after the change is saved, with the sender from Clerk. A failed email never undoes a move.
+- **Per-deal switch** on the record card's broker line ("Email the broker when this deal moves"),
+  on by default. There is no per-move checkbox: untick it before a move the broker should not hear
+  about. Guard §18 pins recipient, executor, `after()` and the automation kind (mutation-tested).
+- Verified on Postgres 16 (house lead, suspended broker, switch off, invisible move, lost, docs
+  added vs whole list, nothing left to ask, non-staff refused).
+
+### Nurture housekeeping (30 Sep 2026)
+
+- **The record card shows the person's nurture programmes** ("Nurture emails": programme, status or
+  why it stopped, emails / opened / clicked, the latest event). Counts only; the emails live in
+  Klaviyo. `nurtureLine` in `lib/crm/record.ts`.
+- **Unsubscribes from anyone in Klaviyo now reach Lending OS**, not only people in a programme: the
+  sync reads Klaviyo's unsubscribe and spam-complaint events for every profile (with the address,
+  `include=profile`) and sets `email_subscribed = false` on matching contacts, case-insensitive.
+  First run reads ~800 days back; after that a cursor (`nurture_control.unsubs_synced_until`,
+  migration 0019) with the usual 2-hour overlap. Never sets `true` (guard §14).
+- **The weekly newsletter stays paused.** Its scheduled task (`trig_015JUCTMRP7u42pTFHMzCFom`) no
+  longer calls the Excel CRM the system of record, and now excludes the five nurture lists from the
+  campaign audience so nobody gets two emails in a week when it is switched back on.

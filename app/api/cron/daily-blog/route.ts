@@ -16,6 +16,7 @@ import {
   type ModelOutput,
   type QueueItem,
 } from "@/lib/marketing/dailyBlog";
+import { callModel, withoutThinking, type Message as ModelMessage } from "@/lib/marketing/modelCall";
 
 /**
  * The 7am daily blog, run by Vercel Cron (vercel.json).
@@ -89,22 +90,17 @@ async function queue(token: string, init?: { body: Json }): Promise<{ status: nu
   return { status: res.status, json };
 }
 
-interface ContentBlock {
-  type: string;
-  text?: string;
-}
-interface MessagesReply {
-  content?: ContentBlock[];
-  stop_reason?: string;
-  error?: { message?: string };
-}
-type Message = { role: "user" | "assistant"; content: string | ContentBlock[] };
+type Message = ModelMessage;
 
 /**
  * One conversation turn with the model, following `pause_turn` (a long web
  * search pausing mid-turn) until it finishes or the deadline arrives.
  * Returns the final text and the full message list, so a repair round can
  * continue the same conversation.
+ *
+ * The API call itself is lib/marketing/modelCall.ts, which handles the thinking
+ * block binding that stopped every post from 26 Sep 2026. `plain` carries its
+ * fallback through the rest of the conversation once it has been needed.
  */
 async function converse(opts: {
   key: string;
@@ -113,39 +109,38 @@ async function converse(opts: {
   messages: Message[];
   search: boolean;
   deadline: number;
-}): Promise<{ text: string; messages: Message[] }> {
+  plain?: boolean;
+}): Promise<{ text: string; messages: Message[]; plain: boolean }> {
   const messages = [...opts.messages];
+  let plain = opts.plain === true;
   for (let hop = 0; hop < 6; hop++) {
     const left = opts.deadline - Date.now();
     if (left < 15_000) throw new Stop("Ran out of time while the post was being written. Retry it from the Marketing page.");
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": opts.key,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: opts.model,
-        max_tokens: 16_000,
-        system: opts.system,
-        messages,
-        ...(opts.search ? { tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 8 }] } : {}),
-      }),
-      signal: AbortSignal.timeout(left),
+    const r = await callModel({
+      key: opts.key,
+      model: opts.model,
+      system: opts.system,
+      messages,
+      search: opts.search,
+      maxTokens: 16_000,
+      timeoutMs: left,
+      plain,
     });
-    const reply = (await res.json().catch(() => ({}))) as MessagesReply;
-    if (!res.ok) {
-      const why = reply.error?.message ?? `HTTP ${res.status}`;
-      if (res.status === 401) throw new Stop("The Anthropic API key in Vercel was rejected. Replace ANTHROPIC_API_KEY.");
-      throw new Stop(`The writing model refused the request: ${why.slice(0, 300)}`);
+    if (!r.ok) {
+      if (r.status === 401) throw new Stop("The Anthropic API key in Vercel was rejected. Replace ANTHROPIC_API_KEY.");
+      throw new Stop(`The writing model refused the request: ${r.message.slice(0, 300)}`);
     }
-    const content = reply.content ?? [];
+    if (r.retriedWithoutThinking && !plain) {
+      plain = true;
+      // The history the model saw no longer has thinking blocks; keep it that way.
+      messages.splice(0, messages.length, ...withoutThinking(messages));
+    }
+    const content = r.reply.content ?? [];
     messages.push({ role: "assistant", content });
-    if (reply.stop_reason === "pause_turn") continue;
-    if (reply.stop_reason === "max_tokens") throw new Stop("The post ran past the length limit before it was finished.");
+    if (r.reply.stop_reason === "pause_turn") continue;
+    if (r.reply.stop_reason === "max_tokens") throw new Stop("The post ran past the length limit before it was finished.");
     const text = content.filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
-    return { text, messages };
+    return { text, messages, plain };
   }
   throw new Stop("The research step did not finish.");
 }
@@ -268,6 +263,7 @@ export async function GET(request: Request) {
         messages: [...convo.messages, { role: "user", content: repairRequest(problems) }],
         search: false,
         deadline,
+        plain: convo.plain,
       });
     }
     if (!checked || !out) {
@@ -306,6 +302,7 @@ export async function GET(request: Request) {
           ],
           search: false,
           deadline,
+          plain: convo.plain,
         });
         const reparsed = parseModelOutput(
           `<slug>${out.slug}</slug><summary>x</summary><mdx>${out.mdx}</mdx>${fix.text}<linkedin>${out.linkedin}</linkedin>`,

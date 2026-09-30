@@ -375,6 +375,8 @@ export const applications = pgTable("applications", {
    * term sheet starts its follow-ups again. Rules: lib/crm/termSheetFollowups.ts.
    */
   followupStoppedAt: timestamp("followup_stopped_at", { withTimezone: true }),
+  /** Luis switched off broker update emails for this deal (migration 0019). */
+  brokerUpdatesOff: boolean("broker_updates_off").notNull().default(false),
 
   legacySource: text("legacy_source"),
   submittedAt: timestamp("submitted_at", { withTimezone: true }),
@@ -1082,6 +1084,8 @@ export const nurtureControl = pgTable("nurture_control", {
   /** Set on resume: the guard judges only what was sent since, so old bounces cannot re-pause at once. */
   healthSince: timestamp("health_since", { withTimezone: true }),
   eventsSyncedUntil: timestamp("events_synced_until", { withTimezone: true }),
+  /** Klaviyo unsubscribes mirrored for EVERYONE, not only people in a programme (migration 0019). */
+  unsubsSyncedUntil: timestamp("unsubs_synced_until", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => ({
   singleRow: check("nurture_control_single_row_check", sql`${t.id} = 1`),

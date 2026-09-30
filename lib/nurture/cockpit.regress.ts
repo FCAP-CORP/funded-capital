@@ -17,6 +17,7 @@ import {
   type KlaviyoEventLite, type NurtureReportRow, type QueuedLite,
 } from "./cockpit";
 import { PROGRAMS, stateAfterStop } from "./nurture";
+import * as cockpitMod from "./cockpit";
 
 let pass = 0, fail = 0;
 const check = (name: string, cond: boolean, detail: string) => {
@@ -205,6 +206,18 @@ console.log("\n=== 5. Report ===");
   check("no cohort → no total", nurtureReport([], w).total === null, "null");
   check("all five programmes always listed", r.lines.length === 5, String(r.lines.length));
   check("rates never exceed 100%", r.lines.every((l) => (l.openPct ?? 0) <= 100 && (l.clickPct ?? 0) <= 100), "bounded");
+}
+
+{
+  console.log("\n=== Opt-outs from anyone in Klaviyo (30 Sep 2026) ===");
+  const oc = cockpitMod;
+  check("reads unsubscribes and spam complaints, nothing else", oc.OPT_OUT_METRICS.map((m) => m.kind).sort().join(",") === "spam,unsub", oc.OPT_OUT_METRICS.map((m) => m.kind).join(","));
+  const now = new Date("2026-09-30T12:00:00Z");
+  check("first read goes back far enough for the newsletter years", oc.optOutsFrom(null, now).getTime() <= now.getTime() - 700 * 86_400_000, oc.optOutsFrom(null, now).toISOString());
+  check("later reads start just before the cursor", oc.optOutsFrom("2026-09-30T10:00:00Z", now).toISOString() === "2026-09-30T08:00:00.000Z", oc.optOutsFrom("2026-09-30T10:00:00Z", now).toISOString());
+  check("a future cursor is clamped to now", oc.optOutsFrom("2027-01-01T00:00:00Z", now).getTime() < now.getTime(), "");
+  const em = oc.optOutEmails([{ email: " Tony@Example.com " }, { email: "tony@example.com" }, { email: null }, {}, { email: "not an email" }, { email: "a@b.co" }, { email: "x@y" }]);
+  check("addresses are lower-cased, de-duplicated, odd ones skipped", JSON.stringify(em) === JSON.stringify(["a@b.co", "tony@example.com"]), JSON.stringify(em));
 }
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);

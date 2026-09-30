@@ -40,7 +40,7 @@ export async function createDocList(applicationId: string, by: string): Promise<
 }
 
 /** An item that is not on the standard list: "HOA estoppel letter", "entity good standing". */
-export async function addDocRequest(applicationId: string, label: unknown, note: unknown, by: string): Promise<DocResult> {
+export async function addDocRequest(applicationId: string, label: unknown, note: unknown, by: string): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   await assertCrmStaff();
   if (!isUuid(applicationId)) return { ok: false, error: "Deal not found." };
   const parsed = parseCustomItem(label, note);
@@ -52,7 +52,7 @@ export async function addDocRequest(applicationId: string, label: unknown, note:
     FROM applications a WHERE a.id = ${applicationId}::uuid
     RETURNING id
   `));
-  return r.length ? { ok: true } : { ok: false, error: "Deal not found." };
+  return r.length ? { ok: true, id: String(r[0].id) } : { ok: false, error: "Deal not found." };
 }
 
 /**

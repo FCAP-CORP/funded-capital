@@ -10,7 +10,8 @@ REM  failed and you retried the topic on the Marketing page.
 REM
 REM  It writes the NEXT topic in the queue even if a post was
 REM  already drafted today (that is the "force" part). It never
-REM  publishes anything. Takes 2 to 4 minutes.
+REM  publishes anything. Takes 3 to 12 minutes (Opus researches
+REM  and writes slowly; the site allows it up to 13).
 REM ==========================================================
 
 if not exist ".cron-secret" (
@@ -19,9 +20,10 @@ if not exist ".cron-secret" (
 )
 
 echo.
-echo   Asking the website to write today's post. Wait 2-4 minutes...
+echo   Asking the website to write today's post. Wait 3-12 minutes...
+echo   Leave this window open until it prints a result.
 echo.
-node -e "const s=require('fs').readFileSync('.cron-secret','utf8').trim();fetch('https://www.fundedcapital.com/api/cron/daily-blog?force=1',{headers:{Authorization:'Bearer '+s},signal:AbortSignal.timeout(330000)}).then(async r=>{const j=await r.json().catch(()=>({}));console.log('  HTTP '+r.status);for(const[k,v]of Object.entries(j))console.log('  '+k+': '+(typeof v==='object'?JSON.stringify(v):v));process.exitCode=r.ok?0:1}).catch(e=>{console.log('  Could not reach the site: '+e.message);process.exitCode=1})"
+node -e "const s=require('fs').readFileSync('.cron-secret','utf8').trim();fetch('https://www.fundedcapital.com/api/cron/daily-blog?force=1',{headers:{Authorization:'Bearer '+s},signal:AbortSignal.timeout(840000)}).then(async r=>{const j=await r.json().catch(()=>({}));console.log('  HTTP '+r.status);for(const[k,v]of Object.entries(j))console.log('  '+k+': '+(typeof v==='object'?JSON.stringify(v):v));process.exitCode=r.ok?0:1}).catch(e=>{console.log('  Could not reach the site: '+e.message);process.exitCode=1})"
 
 echo.
 echo   If it says drafted: true, open /crm/marketing to read it,

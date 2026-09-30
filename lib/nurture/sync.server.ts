@@ -54,7 +54,7 @@ import {
   retryDelayMinutes, stopReason, type ProgramKey, type StopReason,
 } from "./nurture";
 import {
-  EVENT_METRICS, HEALTH_DAYS, PREVIEW_CONTEXT, carryPreviews, deliverability, eventsFrom, flowIsLive, flowProblems,
+  EVENT_METRICS, HEALTH_DAYS, OPT_OUT_METRICS, PREVIEW_CONTEXT, optOutEmails, optOutsFrom, carryPreviews, deliverability, eventsFrom, flowIsLive, flowProblems,
   inReleaseWindow, nyClock, parseFlow, parseMode, planRelease, previewsStale, snapshotOf, toNurtureEvent,
   type FlowSnapshot, type ReleaseBlock,
 } from "./cockpit";
@@ -457,6 +457,43 @@ async function pullEvents(key: string, deadline: number, now: Date): Promise<num
   return kept;
 }
 
+/* ------------------------------------------- unsubscribes from anyone */
+
+/**
+ * Mirror every Klaviyo unsubscribe and spam complaint into Lending OS, for
+ * people who were never in a programme too (lib/nurture/cockpit.ts,
+ * OPT_OUT_METRICS). Matched on the email address; `email_subscribed` only ever
+ * goes to FALSE (guard §14). The cursor moves only after a complete read.
+ */
+async function mirrorAllOptOuts(key: string, deadline: number, now: Date): Promise<number> {
+  const c = rowsOf(await db.execute(sql`SELECT unsubs_synced_until FROM nurture_control WHERE id = 1`));
+  if (c.length === 0) return 0;
+  const from = optOutsFrom(isoOf(c[0].unsubs_synced_until), now);
+  let complete = true;
+  let changed = 0;
+  for (const m of OPT_OUT_METRICS) {
+    if (Date.now() > deadline) { complete = false; break; }
+    const got = await listEvents(key, m.metricId, from, 10, { withEmail: true });
+    if (!got.ok) { complete = false; if (isScopeError(got.error)) break; continue; }
+    if (!got.complete) complete = false;
+    const emails = optOutEmails(got.events);
+    for (let i = 0; i < emails.length; i += 200) {
+      const chunk = emails.slice(i, i + 200);
+      const r = rowsOf(await db.execute(sql`
+        UPDATE contacts SET email_subscribed = false, updated_at = now()
+        WHERE lower(email) IN (${sql.join(chunk.map((e) => sql`${e}`), sql`, `)})
+          AND email_subscribed IS DISTINCT FROM false
+        RETURNING id
+      `));
+      changed += r.length;
+    }
+  }
+  if (complete) {
+    await db.execute(sql`UPDATE nurture_control SET unsubs_synced_until = ${now.toISOString()}::timestamptz, updated_at = now() WHERE id = 1`);
+  }
+  return changed;
+}
+
 /* ----------------------------------------------------------------- guard */
 
 /** Pause every release when bounces or complaints cross the line. Never un-pauses: that is Luis's call. */
@@ -561,6 +598,7 @@ export async function runNurtureSync(budgetMs: number): Promise<SyncSummary> {
   const f = await refreshFlows(key, deadline, now);
   const m = await mirrorKlaviyo(key, deadline);
   const events = await pullEvents(key, deadline, now);
+  const optedOut = await mirrorAllOptOuts(key, deadline, now);
   const paused = await applyDeliverabilityGuard(now);
   const programs = await readPrograms();
   const autoEnrolled = paused ? 0 : await autoEnroll(now, programs);
@@ -569,7 +607,7 @@ export async function runNurtureSync(budgetMs: number): Promise<SyncSummary> {
   return {
     configured: true,
     stopped: stopped + m.stopped,
-    unsubscribedMirrored: m.unsubscribed,
+    unsubscribedMirrored: m.unsubscribed + optedOut,
     flowsRead: f.read,
     events,
     paused,

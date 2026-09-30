@@ -150,6 +150,8 @@ const STAFF_ONLY_MODULES = [
   "lib/crm/followups.server.ts",
   // Document requests, Luis's side: create, add, accept / ask again / waive / remove on any deal.
   "lib/crm/docRequests.server.ts",
+  // Broker update emails: sends from Luis's Gmail to the broker on any deal (section 18).
+  "lib/crm/brokerUpdates.server.ts",
 ];
 
 for (const relPath of STAFF_ONLY_MODULES) {
@@ -361,6 +363,14 @@ const NON_STAFF_SERVER_MODULES: Record<string, string> = {
    * canViewApplication / canActOnApplication — and section 17 pins the order.
    */
   "lib/broker/docRequests.server.ts": "scope-guarded: a broker's own or firm deals via scope.ts, viewer from the session (section 17)",
+
+  /**
+   * LARGE APPLICATIONS (30 Sep 2026). A broker's application arrives in ~3 MB
+   * parts (Vercel refuses bodies over 4.5 MB). The follow-up parts go through
+   * this module, which checks OWNERSHIP from auth(): the session user's own
+   * application, submitted in the last 2 hours; Drive first, then one row.
+   */
+  "lib/broker/applicationParts.server.ts": "owner-guarded: follow-up file batches for the session user's own application submitted in the last 2 hours; owner from auth(), Drive first, then one automation activity",
 };
 
 const exemptPaths = Object.keys(NON_STAFF_SERVER_MODULES);
@@ -737,7 +747,7 @@ if (crmActions) {
 console.log("\n=== 8b. The record card refreshes the page it is open on ===");
 
 const CARD_ACTIONS =
-  /\b(setStage|markLost|logContact|setSnooze|clearSnooze|setApplicationNotes|setContactField|addTask|toggleTask|deleteTask|sendText|retryText|createDocList|addDocRequest|moveDocRequest)\(([^()]|\([^()]*\))*\)/g;
+  /\b(setStage|markLost|logContact|setSnooze|clearSnooze|setApplicationNotes|setContactField|addTask|toggleTask|deleteTask|sendText|retryText|createDocList|addDocRequest|moveDocRequest|setBrokerUpdates)\(([^()]|\([^()]*\))*\)/g;
 const RECORD_DIR = join(ROOT, "app", "crm", "_record");
 const recordFiles = walk(RECORD_DIR).filter((f) => f.endsWith(".tsx"));
 check("found the record card's files", recordFiles.length >= 3, `${recordFiles.length} files`);
@@ -1164,7 +1174,10 @@ console.log("\n=== 13. Email: gate before Gmail, own mailbox only, token encrypt
     check("  ...and refuses a mailbox that is not the signed-in address before storing anything", matchAt > 0 && saveAt > matchAt, `${matchAt} < ${saveAt}`);
   }
   const execImporters = importersOf(/(^|\/)emailOutbox\.server$/);
-  check("the email executor is imported by app/crm/emailActions.ts and nothing else", execImporters.length === 1 && execImporters[0] === ACT, execImporters.join(", ") || "**NOT IMPORTED**");
+  // Two callers since 30 Sep 2026: the record card's actions, and the staff-only
+  // broker update module (section 18). Anything else is a second way to send.
+  const EXEC_CALLERS = [ACT, "lib/crm/brokerUpdates.server.ts"].sort();
+  check("the email executor is imported by app/crm/emailActions.ts and the broker updates only", JSON.stringify(execImporters) === JSON.stringify(EXEC_CALLERS), execImporters.join(", ") || "**NOT IMPORTED**");
   const gcImporters = importersOf(/(^|\/)gmail\.server$/).sort();
   check("the Google client is imported by the executor and the callback only", JSON.stringify(gcImporters) === JSON.stringify([CALLBACK, EX].sort()), gcImporters.join(", "));
   const mbImporters = importersOf(/(^|\/)mailbox\.server$/).sort();
@@ -1383,6 +1396,45 @@ console.log("\n=== 17. Document requests: scoped from the session, files to Driv
   }
   const seed = readOr("lib/crm/docRequestsSql.ts");
   if (seed) check("  the list INSERT never overwrites (a removed item is never brought back)", /ON CONFLICT \(application_id, item_key\) DO NOTHING/.test(seed) && !/DO UPDATE/.test(seed), "DO NOTHING");
+}
+
+
+/* ------------------------------------------------- broker update emails */
+
+/**
+ * Broker update emails (30 Sep 2026): automatic, from Luis's own Gmail, when he
+ * moves a broker's deal or asks for documents. What must never happen: an
+ * address from the browser, a send that skips the executor, an email that
+ * holds up (or undoes) the stage move, or a broker email counted as contact
+ * with the borrower.
+ */
+console.log("\n=== 18. Broker update emails: recipient from the database, one executor, after the move ===");
+{
+  const BU = "lib/crm/brokerUpdates.server.ts";
+  const EX = "lib/comms/emailOutbox.server.ts";
+  const ACTF = "app/crm/actions.ts";
+  const bu = readOr(BU), ex = readOr(EX), act = readOr(ACTF);
+  if (bu) {
+    const code = codeOnly(bu);
+    check(`  ${BU} sends only through executeSendEmail`, (code.match(/executeSendEmail\(/g) ?? []).length === 1 && !/sendMessage\(|gmail\.server/.test(code), "one executor call");
+    check("  ...to the broker the database names (broker_users via submitted_by_user_id), never a parameter", /to:\s*\{\s*kind:\s*"broker",\s*email:\s*t\.brokerEmail\s*\}/.test(code) && /bu\.clerk_user_id = a\.submitted_by_user_id/.test(code) && !/export async function \w+\([^)]*\b(email|toEmail|recipient|brokerEmail)\b/.test(code), "from the database");
+    check("  ...only an ACTIVE broker, and not when Luis switched the deal off", /broker_updates_off === true/.test(code) && /!== "active"/.test(code), "active + switch");
+    check("  ...and only for a stage the broker is told about", /stageWorthEmail\(p\.from, p\.to\)/.test(fnBody(code, "sendBrokerStageUpdate") ?? ""), "stageWorthEmail");
+  }
+  if (ex) {
+    const code = codeOnly(ex);
+    check(`  ${EX}: a broker update is recorded as automation, never email_out`, /kind:\s*toBroker \? "automation" : "email_out"/.test(code), "automation");
+    check("  ...and the borrower's consent gate still runs for every other send", /:\s*canEmail\(contact\)/.test(code), "canEmail");
+  }
+  if (act) {
+    const code = codeOnly(act);
+    const sBody = fnBody(code, "setStage") ?? "";
+    const saveAt = sBody.search(/await moveStage\(/), tellAt = sBody.search(/tellBroker\(/);
+    check(`  ${ACTF}: setStage tells the broker only after the move is saved`, saveAt >= 0 && tellAt > saveAt, `${saveAt} < ${tellAt}`);
+    const tb = fnBody(code, "tellBroker") ?? code.slice(code.indexOf("function tellBroker("), code.indexOf("function tellBroker(") + 400);
+    check("  ...inside after(), so a slow email never slows or undoes the move", /after\(async/.test(tb), "after()");
+    check("  ...with the sender from Clerk (signedInUser), never the browser", /signedInUser\(\)/.test(code) && /primaryEmailAddress/.test(code), "Clerk");
+  }
 }
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);

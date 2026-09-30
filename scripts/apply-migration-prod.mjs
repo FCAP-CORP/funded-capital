@@ -166,6 +166,7 @@ log("SET NOT NULL (a CHECK rule replaced in the same file is allowed: it cannot"
 log("remove data). Safe to apply to a live database.");
 
 /* ---- row counts, before -------------------------------------------------- */
+const sqlState = (e) => e?.code ?? e?.cause?.code ?? e?.sourceError?.code ?? null;
 const db = drizzle(neon(prodUrl));
 
 const COUNTED = [
@@ -173,19 +174,50 @@ const COUNTED = [
   "properties", "stage_transitions", "documents", "entities",
 ];
 
+/**
+ * A dropped connection ("fetch failed", a reset, a timeout) is not an answer
+ * from the database — it is the internet between this PC and Neon blinking.
+ * Try again a couple of times before believing it. Safe for every statement
+ * here: the migrations are re-runnable by design (IF NOT EXISTS, ON CONFLICT
+ * DO NOTHING), and each statement is all-or-nothing on its own.
+ */
+const TRANSIENT = /fetch failed|ECONNRESET|ETIMEDOUT|ECONNREFUSED|EAI_AGAIN|ENOTFOUND|socket hang up|network|terminated|UND_ERR/i;
+const isTransient = (e) =>
+  TRANSIENT.test(String(e?.message ?? e)) || TRANSIENT.test(String(e?.cause?.message ?? e?.cause?.code ?? ""));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function withRetry(fn, waits = [1500, 4000, 8000]) {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (i >= waits.length || !isTransient(err)) throw err;
+      console.log(`  (connection blinked - retrying in ${Math.round(waits[i] / 1000)}s)`);
+      await sleep(waits[i]);
+    }
+  }
+}
+
+/** A count we could not read because the connection failed — NOT a missing table. */
+const UNREAD = "unread";
+const MISSING_TABLE = "42P01";
+
 async function counts() {
   const out = {};
   for (const t of COUNTED) {
     try {
-      const r = await db.execute(raw.raw(`SELECT count(*)::int AS n FROM "${t}"`));
+      const r = await withRetry(() => db.execute(raw.raw(`SELECT count(*)::int AS n FROM "${t}"`)));
       const rows = r.rows ?? r;
       out[t] = Number(rows[0]?.n ?? rows[0]?.count ?? 0);
-    } catch {
-      out[t] = null; // table does not exist yet
+    } catch (err) {
+      // Only "relation does not exist" means the table is not there yet.
+      // Anything else means we simply could not look.
+      out[t] = sqlState(err) === MISSING_TABLE || /does not exist/i.test(String(err?.message ?? err)) ? null : UNREAD;
     }
   }
   return out;
 }
+const shown = (v) => (v === UNREAD ? "could not read" : v ?? "—");
 
 /**
  * Prove we can actually talk to production BEFORE counting.
@@ -198,7 +230,7 @@ async function counts() {
 console.log(DRY ? "\n  DRY RUN — not connecting." : "\n  Connecting to production...");
 try {
   if (DRY) throw { __dry: true };
-  await db.execute(raw.raw("SELECT 1"));
+  await withRetry(() => db.execute(raw.raw("SELECT 1")));
 } catch (err) {
   if (!err?.__dry) {
   log();
@@ -230,7 +262,15 @@ log("## Rows before");
 log();
 log("| Table | Rows |");
 log("|---|---:|");
-for (const t of COUNTED) log(`| \`${t}\` | ${before[t] ?? "—"} |`);
+for (const t of COUNTED) log(`| \`${t}\` | ${shown(before[t])} |`);
+const unreadBefore = COUNTED.filter((t) => before[t] === UNREAD);
+if (unreadBefore.length) {
+  log();
+  log(`**STOPPED before changing anything** — the connection kept dropping while reading`);
+  log(`row counts (${unreadBefore.join(", ")}). Nothing was applied. Check the internet`);
+  log("connection and run it again.");
+  finish(1);
+}
 
 /* ---- 4: typed confirmation ----------------------------------------------- */
 console.log(`
@@ -239,7 +279,7 @@ console.log(`
   ============================================
 
    Host:       ${hostOf(prodUrl)}
-   Contacts:   ${before.contacts ?? "—"}
+   Contacts:   ${shown(before.contacts)}
    Statements: ${total} (all additive)
 
    Type  APPLY TO PRODUCTION  exactly, then Enter.
@@ -269,9 +309,8 @@ if (DRY) {
 
 /* ---- apply --------------------------------------------------------------- */
 const ALREADY = new Set(["42P07", "42710", "42701"]);
-const sqlState = (e) => e?.code ?? e?.cause?.code ?? e?.sourceError?.code ?? null;
 
-let applied = 0, skipped = 0, failed = 0;
+let applied = 0, skipped = 0, failed = 0, lostConnection = false;
 log();
 log("## Applied");
 
@@ -279,12 +318,13 @@ for (const [file, stmts] of statementsByFile) {
   let a = 0, s = 0, f = 0;
   for (const stmt of stmts) {
     try {
-      await db.execute(raw.raw(stmt));
+      await withRetry(() => db.execute(raw.raw(stmt)));
       a++;
     } catch (err) {
       if (ALREADY.has(sqlState(err))) { s++; }
       else {
         f++;
+        if (isTransient(err)) lostConnection = true;
         log();
         log(`**FAILED** in \`${file}\`:`);
         log("```");
@@ -311,23 +351,42 @@ log("## Rows after");
 log();
 log("| Table | Before | After | |");
 log("|---|---:|---:|---|");
-let drift = 0;
+let drift = 0, unread = 0;
 for (const t of COUNTED) {
   const b = before[t], a2 = after[t];
+  if (a2 === UNREAD) {
+    // We could not look. That is not evidence of a change — say so plainly.
+    unread++;
+    log(`| \`${t}\` | ${shown(b)} | could not re-read | connection dropped - not a change |`);
+    continue;
+  }
   // A table that did not exist before and is empty now was just created — that
   // is the migration working, not drift.
   const created = b === null && a2 === 0;
   const same = b === a2 || created;
   if (!same) drift++;
-  log(`| \`${t}\` | ${b ?? "—"} | ${a2 ?? "—"} | ${same ? "unchanged" : "**CHANGED**"} |`);
+  log(`| \`${t}\` | ${shown(b)} | ${shown(a2)} | ${same ? "unchanged" : "**CHANGED**"} |`);
 }
 
 log();
+if (lostConnection) {
+  log("**The connection to the database dropped** (after retrying). This is the");
+  log("internet between this PC and the database, not a problem with the data.");
+  log("Every statement is all-or-nothing and safe to repeat, so just run it again.");
+  log();
+}
+if (unread > 0) {
+  log(`**${unread} table(s) could not be re-read** because the connection dropped.`);
+  log("That is NOT a change to any rows. Run it again to check them.");
+  log();
+}
 if (drift > 0) {
   log(`**${drift} table(s) changed row count.** That should be impossible for an`);
   log("additive migration. Investigate before deploying.");
-} else {
+} else if (unread === 0) {
   log("**No row counts changed.** Every existing record is exactly as it was.");
+} else {
+  log("**Every table that could be re-read is unchanged.**");
 }
 
-finish(failed > 0 || drift > 0 ? 1 : 0);
+finish(failed > 0 || drift > 0 || unread > 0 ? 1 : 0);

@@ -25,6 +25,9 @@ import {
 import { docChecklistFor } from "@/lib/portalData";
 import { AUTOSAVE_MS, draftHasContent } from "@/lib/broker/drafts";
 import { loadDraftAction, saveDraftAction } from "./draftActions";
+import {
+  FILES_EMAIL, documentsSummaryLines, heldBackNotice, isTooLarge, missingFiles, overflowNotice, perFileLimit, planUploads, submitLabel,
+} from "@/lib/broker/applicationParts";
 
 const steps = [
   { id: 1, label: "Program", icon: Building2 },
@@ -57,7 +60,14 @@ interface UploadFile {
   size: number;
 }
 
+/**
+ * A file too big for the portal is never read into memory: it will be held
+ * back (see applicationParts.ts), so only its name and size are kept.
+ */
 function readFileAsBase64(file: File): Promise<UploadFile> {
+  if (isTooLarge(file.size)) {
+    return Promise.resolve({ name: file.name, mimeType: file.type || "application/octet-stream", data: "", size: file.size });
+  }
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
@@ -82,6 +92,10 @@ export default function ApplyClient() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [files, setFiles] = useState<UploadFile[]>([]);
+  /** What the submit button says while the application and its files travel. */
+  const [progress, setProgress] = useState<string | null>(null);
+  /** After submitting: how many files arrived, and the names of any that did not. */
+  const [outcome, setOutcome] = useState<{ received: number; missing: string[] }>({ received: 0, missing: [] });
 
   const [form, setForm] = useState({
     product: "dscr" as ProductKey,
@@ -260,6 +274,17 @@ export default function ApplyClient() {
 
   const removeFile = (i: number) => setFiles((prev) => prev.filter((_, idx) => idx !== i));
 
+  /**
+   * FILES IN PARTS. Vercel refuses a request over 4.5 MB, so the files are
+   * packed into requests of about 3 MB (lib/broker/applicationParts.ts). The
+   * first rides with the application exactly as before; the rest follow one at
+   * a time. A file too big to send on its own is held back, and said so here,
+   * before the broker submits.
+   */
+  const plan = planUploads(files);
+  const heldBackNames = plan.heldBack.map((f) => f.name);
+  const overflowNames = plan.overflow.map((f) => f.name);
+
   const handleSubmit = async () => {
     setSubmitting(true);
     setError(null);
@@ -282,9 +307,13 @@ export default function ApplyClient() {
       `Requested loan: ${form.loanAmount ? fmtUsd(+form.loanAmount) : "—"}`,
       `${isPortfolio ? "Total " + valueLabel.toLowerCase() : valueLabel}: ${scheduleTotal ? fmtUsd(scheduleTotal) : "—"}`,
       ...(isPortfolio ? filled.map((r, i) => `  ${i + 1}. ${r.address || "(no address)"} — ${r.value ? fmtUsd(+r.value) : "—"}`) : []),
-      `Documents attached: ${files.length}`,
+      ...documentsSummaryLines(plan),
       form.notes ? `\nNotes:\n${form.notes}` : "",
     ].join("\n");
+
+    const total = plan.batches.length;
+    setProgress(submitLabel(1, total));
+    const wire = (batch: UploadFile[]) => batch.map((f) => ({ name: f.name, mimeType: f.mimeType, data: f.data }));
 
     try {
       const res = await fetch("/api/submit-application", {
@@ -313,29 +342,63 @@ export default function ApplyClient() {
           // flat summary because that is what Drive receives.
           properties: filled,
           isPortfolio,
-          files: files.map((f) => ({ name: f.name, mimeType: f.mimeType, data: f.data })),
+          // Only the first batch rides with the application; the rest follow.
+          files: wire(plan.batches[0] ?? []),
+          totalFiles: plan.sending,
           // The saved draft, closed and wiped by the server once Drive accepts.
           draftId: draftRef.current ?? undefined,
         }),
       });
-      let data: { ok?: boolean; error?: string };
+      let data: { ok?: boolean; error?: string; folder?: string; applicationId?: string };
       try {
         data = await res.json();
       } catch {
         data = { ok: false, error: `non-JSON response (HTTP ${res.status})` };
       }
       if (data.ok) {
-        setSubmitted(true);
+        // The application is in, and the server has closed the saved draft.
         draftRef.current = null;
         setResumed(false);
         setSave({ state: "idle" });
         window.history.replaceState(null, "", "/broker-portal/apply");
+
+        // The rest of the files, one request at a time. A part that fails does
+        // not undo the application: its files are listed for the broker to
+        // email instead. Without an application id there is nothing to attach
+        // them to, so they are listed the same way.
+        const delivered = plan.batches.map((_, i) => i === 0);
+        let stop = !data.applicationId;
+        for (let i = 1; i < total && !stop; i++) {
+          setProgress(submitLabel(i + 1, total));
+          try {
+            const r = await fetch("/api/submit-application", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                part: { applicationId: data.applicationId, index: i + 1, total, firstFolder: data.folder ?? null },
+                files: wire(plan.batches[i]),
+              }),
+            });
+            const d = (await r.json().catch(() => ({}))) as { ok?: boolean };
+            delivered[i] = d.ok === true;
+            // Signed out, or the application is no longer ours to add to: the
+            // remaining parts would be refused the same way.
+            if (r.status === 401 || r.status === 404) stop = true;
+          } catch {
+            delivered[i] = false;
+          }
+        }
+        setOutcome({
+          received: plan.batches.reduce((n, b, i) => n + (delivered[i] ? b.length : 0), 0),
+          missing: missingFiles(plan, delivered).map((f) => f.name),
+        });
+        setSubmitted(true);
       } else {
         const friendly =
           data.error === "intake_not_configured"
             ? "Submissions aren't connected yet — please contact your account manager."
             : data.error === "files_too_large"
-            ? "Those files are too large to send at once. Try fewer or smaller files."
+            ? "That is too much to send in one go. Try fewer or smaller files, or shorten the notes."
             : null;
         setError(friendly ?? `Couldn't submit (HTTP ${res.status}): ${data.error ?? "unknown error"}`);
       }
@@ -343,6 +406,7 @@ export default function ApplyClient() {
       setError("Network error while submitting: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setSubmitting(false);
+      setProgress(null);
     }
   };
 
@@ -356,9 +420,25 @@ export default function ApplyClient() {
           <h1 className="text-2xl font-bold text-slate-900 mb-2">Application submitted</h1>
           <p className="text-slate-500 mb-6">
             We&apos;ve received the deal for <strong>{form.borrower || "your borrower"}</strong>
-            {files.length > 0 ? ` with ${files.length} document${files.length === 1 ? "" : "s"}` : ""}. Our team has
+            {outcome.received > 0 ? ` with ${outcome.received} document${outcome.received === 1 ? "" : "s"}` : ""}. Our team has
             been notified and will follow up with a preliminary term sheet within 24–48 hours.
           </p>
+          {outcome.missing.length > 0 && (
+            <div role="alert" className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-left text-sm text-amber-900">
+              <p className="flex items-start gap-2 font-medium">
+                <AlertTriangle size={16} className="shrink-0 mt-0.5" aria-hidden="true" />
+                {outcome.missing.length === 1 ? "This file did not reach us:" : `These ${outcome.missing.length} files did not reach us:`}
+              </p>
+              <ul className="mt-2 ml-6 list-disc space-y-0.5 break-words">
+                {outcome.missing.map((n, i) => <li key={i}>{n}</li>)}
+              </ul>
+              <p className="mt-2">
+                The application itself is in. Please email {outcome.missing.length === 1 ? "it" : "them"} to{" "}
+                <a href={`mailto:${FILES_EMAIL}`} className="font-medium underline">{FILES_EMAIL}</a> with the
+                borrower&apos;s name in the subject.
+              </p>
+            </div>
+          )}
           <div className="flex justify-center gap-3">
             <Link href="/broker-portal" className="btn-secondary text-sm px-4 py-2.5">
               Back to Dashboard
@@ -369,6 +449,7 @@ export default function ApplyClient() {
                 setSubmitted(false);
                 setStep(1);
                 setFiles([]);
+                setOutcome({ received: 0, missing: [] });
                 setForm({ ...form, purpose: "purchase", borrower: "", entity: "", email: "", phone: "", fico: "", loanAmount: "", notes: "" });
                 setSchedule([blankRow()]);
                 setIsPortfolio(false);
@@ -626,7 +707,7 @@ export default function ApplyClient() {
               <input type="file" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} />
               <Upload size={22} className="mx-auto text-slate-400 mb-2" />
               <span className="text-sm font-medium text-slate-700">Click to upload documents</span>
-              <span className="block text-xs text-slate-400 mt-1">PDF, images, or Office files — up to 25 files</span>
+              <span className="block text-xs text-slate-400 mt-1">PDF, images, or Office files — up to 25 files, {perFileLimit} each</span>
             </label>
 
             {files.length > 0 && (
@@ -637,6 +718,7 @@ export default function ApplyClient() {
                       <FileText size={15} className="text-slate-400 shrink-0" />
                       <span className="text-sm text-slate-700 truncate">{f.name}</span>
                       <span className="text-xs text-slate-400 shrink-0">{fmtSize(f.size)}</span>
+                      {isTooLarge(f.size) && <span className="text-xs font-medium text-amber-700 shrink-0">Too large to upload here</span>}
                     </div>
                     <button onClick={() => removeFile(i)} className="text-slate-400 hover:text-red-600 shrink-0" aria-label="Remove">
                       <Trash2 size={15} />
@@ -645,6 +727,7 @@ export default function ApplyClient() {
                 ))}
               </ul>
             )}
+            <FileNotices heldBack={heldBackNames} overflow={overflowNames} />
             <TextField label="Notes for underwriting (optional)" value={form.notes} onChange={(v) => set("notes", v)} />
           </div>
         )}
@@ -664,8 +747,11 @@ export default function ApplyClient() {
               <Row k="Property" v={schedule[0]?.address || "—"} />
               <Row k="Loan amount" v={form.loanAmount ? fmtUsd(+form.loanAmount) : "—"} />
               <Row k={isPortfolio ? `Total ${valueLabel.toLowerCase()}` : valueLabel} v={scheduleTotal ? fmtUsd(scheduleTotal) : "—"} />
-              <Row k="Documents" v={`${files.length} attached`} />
+              <Row k="Documents" v={`${plan.sending} to upload${files.length > plan.sending ? ` (${files.length - plan.sending} to email)` : ""}`} />
             </dl>
+            <div className="mt-4">
+              <FileNotices heldBack={heldBackNames} overflow={overflowNames} />
+            </div>
             {error && (
               <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                 <AlertTriangle size={16} className="shrink-0 mt-0.5" />
@@ -696,7 +782,7 @@ export default function ApplyClient() {
             <button onClick={handleSubmit} disabled={submitting} className="btn-primary text-sm px-5 py-2.5 disabled:opacity-60">
               {submitting ? (
                 <>
-                  <Loader2 size={16} className="animate-spin" /> Submitting…
+                  <Loader2 size={16} className="animate-spin" /> {progress ?? "Submitting…"}
                 </>
               ) : (
                 <>
@@ -738,6 +824,21 @@ function TextField({
           }`}
         />
       </div>
+    </div>
+  );
+}
+
+/** The files that will not go through the portal, and what to do about them. */
+function FileNotices({ heldBack, overflow }: { heldBack: string[]; overflow: string[] }) {
+  if (heldBack.length === 0 && overflow.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      {[heldBackNotice(heldBack), overflowNotice(overflow)].filter(Boolean).map((t, i) => (
+        <p key={i} className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <AlertTriangle size={14} className="shrink-0 mt-0.5" aria-hidden="true" />
+          {t}
+        </p>
+      ))}
     </div>
   );
 }

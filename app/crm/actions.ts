@@ -2,11 +2,12 @@
 
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { activities, applications, contacts, crmTasks, participants, stageTransitions } from "@/lib/db/schema";
 import { STAGE_LABEL } from "@/lib/crm/view";
-import { assertCrmStaff } from "@/lib/crm/access";
+import { assertCrmStaff, signedInUser } from "@/lib/crm/access";
 import { parseLostReason } from "@/lib/crm/board";
 import {
   KIND_LABEL,
@@ -20,6 +21,7 @@ import { stopTermSheetFollowups } from "@/lib/crm/followups.server";
 import { shouldSeed } from "@/lib/crm/docRequests";
 import { seedRequestsSql } from "@/lib/crm/docRequestsSql";
 import { addDocRequest as addDocRequestRow, createDocList as createDocListRows, moveDocRequest as moveDocRequestRow } from "@/lib/crm/docRequests.server";
+import { sendBrokerDocsUpdate, sendBrokerStageUpdate, setBrokerUpdatesOff, type Sender } from "@/lib/crm/brokerUpdates.server";
 import { and, asc, desc, isNull, sql as dsql } from "drizzle-orm";
 
 /**
@@ -73,12 +75,14 @@ function revalidateFrom(from: unknown, fallback: CrmRoute): void {
  * statements in one request wrapped in a real Postgres transaction: the history
  * row and the cached column commit together or neither does.
  */
+type MoveResult = { ok: true; moved?: { from: string; to: string } } | { ok: false; error: string };
+
 async function moveStage(
   applicationId: string,
   toStage: string,
   userId: string,
   extra: { reason?: string; lostReason?: string } = {},
-): Promise<ActionResult> {
+): Promise<MoveResult> {
   if (!(toStage in STAGE_LABEL)) return { ok: false, error: `unknown stage "${toStage}"` };
 
   const [current] = await db
@@ -133,7 +137,43 @@ async function moveStage(
   } else {
     await db.batch(moves as unknown as Parameters<typeof db.batch>[0]);
   }
-  return { ok: true };
+  return { ok: true, moved: { from: current.stage, to: stage } };
+}
+
+/* ------------------------------------------------------ broker updates */
+
+/**
+ * The broker hears about a change from Luis's own Gmail, AFTER the change is
+ * saved and the response has gone (`after()`), so a slow or failed email never
+ * slows or undoes the move. Whether they hear at all — broker on the deal,
+ * active, not switched off, a stage worth telling — is decided in
+ * lib/crm/brokerUpdates.server.ts, never here.
+ */
+async function senderOf(userId: string): Promise<Sender> {
+  // The sender is the signed-in person's own address from Clerk, exactly as
+  // app/crm/emailActions.ts takes it — never anything from the browser.
+  const me = await signedInUser().catch(() => null);
+  return { userId, userEmail: me?.primaryEmailAddress?.emailAddress?.toLowerCase() ?? null };
+}
+
+function tellBroker(applicationId: string, moved: { from: string; to: string }, by: Sender): void {
+  after(async () => {
+    try {
+      await sendBrokerStageUpdate({ applicationId, from: moved.from, to: moved.to, by });
+    } catch (e) {
+      console.error("[broker-updates] stage email failed:", e instanceof Error ? e.message : e);
+    }
+  });
+}
+
+function tellBrokerDocs(applicationId: string, requestIds: string[] | null, added: boolean, by: Sender): void {
+  after(async () => {
+    try {
+      await sendBrokerDocsUpdate({ applicationId, requestIds, added, by });
+    } catch (e) {
+      console.error("[broker-updates] documents email failed:", e instanceof Error ? e.message : e);
+    }
+  });
 }
 
 /**
@@ -154,6 +194,7 @@ export async function setStage(
     const userId = await requireUser();
     const res = await moveStage(applicationId, toStage, userId);
     if (!res.ok) return res;
+    if (res.moved) tellBroker(applicationId, res.moved, await senderOf(userId));
     revalidateFrom(from, "/crm");
     return { ok: true };
   } catch (err) {
@@ -185,6 +226,7 @@ export async function markLost(
       lostReason: reason.value,
     });
     if (!res.ok) return res;
+    if (res.moved) tellBroker(applicationId, res.moved, await senderOf(userId));
     revalidateFrom(from, "/crm/board");
     return { ok: true };
   } catch (err) {
@@ -557,15 +599,20 @@ export async function deleteTask(
 export async function createDocList(applicationId: string, from: CrmRoute): Promise<ActionResult> {
   const userId = await requireUser();
   const r = await createDocListRows(applicationId, userId);
-  if (r.ok) revalidateFrom(from, "/crm");
+  if (r.ok) {
+    tellBrokerDocs(applicationId, null, false, await senderOf(userId));
+    revalidateFrom(from, "/crm");
+  }
   return r;
 }
 
 export async function addDocRequest(applicationId: string, label: string, note: string, from: CrmRoute): Promise<ActionResult> {
   const userId = await requireUser();
   const r = await addDocRequestRow(applicationId, label, note, userId);
-  if (r.ok) revalidateFrom(from, "/crm");
-  return r;
+  if (!r.ok) return r;
+  tellBrokerDocs(applicationId, [r.id], true, await senderOf(userId));
+  revalidateFrom(from, "/crm");
+  return { ok: true };
 }
 
 export async function moveDocRequest(requestId: string, move: string, note: string, from: CrmRoute): Promise<ActionResult> {
@@ -573,4 +620,13 @@ export async function moveDocRequest(requestId: string, move: string, note: stri
   const r = await moveDocRequestRow(requestId, move, note, userId);
   if (r.ok) revalidateFrom(from, "/crm");
   return r;
+}
+
+/** The record card's "Email the broker about this deal" switch. */
+export async function setBrokerUpdates(applicationId: string, on: boolean, from: CrmRoute): Promise<ActionResult> {
+  await requireUser();
+  const ok = await setBrokerUpdatesOff(applicationId, !on);
+  if (!ok) return { ok: false, error: "Deal not found." };
+  revalidateFrom(from, "/crm");
+  return { ok: true };
 }
