@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/loan-programs" },
   title: "Loan Programs",
   description:
     "Explore Funded Capital's private real estate loan programs — Fix & Flip, DSCR, New Construction, and Multifamily. Competitive rates, term sheets in 2 hours.",
@@ -53,7 +54,7 @@ const programs = [
       "Up to 80% LTV (purchase and refi)",
       "Rates from 6.0%",
       "30-year fixed or 30-year partial interest only",
-      "DSCR minimum: 1.0x",
+      "DSCR minimum: 1.05x",
       "No personal income verification",
       "SFR, 2–4 units, condos",
       "Unlimited property count",
@@ -62,8 +63,8 @@ const programs = [
     table: {
       headers: ["Property Type", "Max LTV", "Rate", "DSCR Min", "Term"],
       rows: [
-        ["SFR / Condo", "80% LTV", "From 6.0%", "1.0x", "30-yr fixed"],
-        ["SFR / Condo", "80% LTV", "From 6.5%", "1.0x", "30-yr partial I/O"],
+        ["SFR / Condo", "80% LTV", "From 6.0%", "1.05x", "30-yr fixed"],
+        ["SFR / Condo", "80% LTV", "From 6.5%", "1.05x", "30-yr partial I/O"],
         ["2–4 Units", "80% LTV", "From 6.25%", "1.05x", "30-yr fixed"],
         ["2–4 Units", "80% LTV", "From 6.75%", "1.05x", "30-yr partial I/O"],
       ],

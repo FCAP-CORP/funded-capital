@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 export const metadata: Metadata = {
+  alternates: { canonical: "/dscr-loans" },
   title: "DSCR Loans — Qualify on Rental Income, Not Your W-2",
   description:
     "DSCR rental loans up to 80% LTV. No income docs. Rates from 6.0%. 30-year fixed. Scale your rental portfolio without W-2 restrictions. Apply in minutes.",
@@ -46,8 +47,8 @@ const personas = [
 
 const rateTableHeaders = ["Property Type", "Max LTV", "Rate", "DSCR Min", "Term"];
 const rateTableRows = [
-  ["SFR / Condo", "80% LTV", "From 6.0%", "1.0x", "30-yr fixed"],
-  ["SFR / Condo", "80% LTV", "From 6.5%", "1.0x", "30-yr partial I/O"],
+  ["SFR / Condo", "80% LTV", "From 6.0%", "1.05x", "30-yr fixed"],
+  ["SFR / Condo", "80% LTV", "From 6.5%", "1.05x", "30-yr partial I/O"],
   ["2–4 Units", "80% LTV", "From 6.25%", "1.05x", "30-yr fixed"],
   ["2–4 Units", "80% LTV", "From 6.75%", "1.05x", "30-yr partial I/O"],
 ];
@@ -59,7 +60,7 @@ const faqs = [
   },
   {
     q: "What is the minimum DSCR to qualify?",
-    a: "Our minimum DSCR is 1.0x for SFR and condo properties, and 1.05x for 2–4 unit properties. A DSCR of 1.0x means the property's rent exactly covers the debt payment. Higher ratios may unlock better rates.",
+    a: "Our minimum DSCR is 1.05x on every property type — SFR, condo and 2–4 units. That means the property's rent covers the full payment (PITIA) with at least a 5% cushion. Higher ratios may unlock better rates.",
   },
   {
     q: "Can I use projected rent to qualify?",
@@ -97,7 +98,7 @@ export default function DSCRLoansPage() {
             "name": "What is the minimum DSCR to qualify?",
             "acceptedAnswer": {
               "@type": "Answer",
-              "text": "Our minimum DSCR is 1.0x for SFR and condo properties, and 1.05x for 2–4 unit properties. A DSCR of 1.0x means the property's rent exactly covers the debt payment. Higher ratios may unlock better rates.",
+              "text": "Our minimum DSCR is 1.05x on every property type — SFR, condo and 2–4 units. That means the property's rent covers the full payment (PITIA) with at least a 5% cushion. Higher ratios may unlock better rates.",
             },
           },
           {
@@ -311,8 +312,8 @@ export default function DSCRLoansPage() {
               <p className="text-slate-600 leading-relaxed">
                 A DSCR of <strong className="text-navy-900">1.0x</strong> means the rent exactly
                 covers the mortgage payment. A ratio above 1.0x means positive cash flow.
-                Below 1.0x means the rent doesn&apos;t cover the loan — and the property typically
-                won&apos;t qualify.
+                Our minimum is <strong className="text-navy-900">1.05x</strong> — below that, the
+                property won&apos;t qualify.
               </p>
               <p className="text-slate-600 mt-4 leading-relaxed">
                 Not sure where your property stands?
@@ -324,8 +325,8 @@ export default function DSCRLoansPage() {
             </div>
             <div className="flex flex-col gap-4">
               {[
-                { label: "DSCR &lt; 1.0x", desc: "Rent does not cover the payment. Does not qualify.", color: "border-red-200 bg-red-50" },
-                { label: "DSCR = 1.0x", desc: "Rent exactly covers the payment. Minimum qualifying threshold.", color: "border-slate-200 bg-white" },
+                { label: "DSCR &lt; 1.05x", desc: "Rent does not cover the payment with enough cushion. Does not qualify.", color: "border-red-200 bg-red-50" },
+                { label: "DSCR = 1.05x", desc: "Rent covers the payment with a 5% cushion. Minimum qualifying threshold.", color: "border-slate-200 bg-white" },
                 { label: "DSCR &gt; 1.25x", desc: "Strong cash flow. May qualify for better rates and terms.", color: "border-gold-500 bg-gold-50" },
               ].map((item) => (
                 <div key={item.label} className={`rounded-2xl border p-5 ${item.color}`}>

@@ -202,7 +202,7 @@ function DSCRCalculator() {
     const noi = (rent - taxes - ins - h) * 12;
     const annualDebtService = monthlyPI * 12;
     const dscr = annualDebtService > 0 ? noi / annualDebtService : 0;
-    const qualifies = dscr >= 1.0;
+    const qualifies = dscr >= 1.05; // Funded Capital DSCR minimum (Luis 2026-09-30)
 
     setResult({ monthlyPITI, monthlyCashFlow, dscr, qualifies, noi, annualDebtService });
   }
@@ -316,7 +316,7 @@ function DSCRCalculator() {
                   <dt className="font-bold text-navy-900 text-lg">DSCR Ratio</dt>
                   <dd
                     className={`font-bold text-2xl ${
-                      result.dscr >= 1 ? "text-gold-600" : "text-red-500"
+                      result.dscr >= 1.05 ? "text-gold-600" : "text-red-500"
                     }`}
                   >
                     {result.dscr.toFixed(2)}x
@@ -330,8 +330,8 @@ function DSCRCalculator() {
                   }`}
                 >
                   {result.qualifies
-                    ? "Qualifies ✓ — DSCR meets our minimum 1.0x requirement"
-                    : "Does Not Qualify — DSCR is below the 1.0x minimum"}
+                    ? "Qualifies ✓ — DSCR meets our minimum 1.05x requirement"
+                    : "Does Not Qualify — DSCR is below the 1.05x minimum"}
                 </div>
               </dl>
             </div>
