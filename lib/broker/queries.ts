@@ -34,6 +34,8 @@ export interface BrokerDeal {
   driveFolder: string | null;
   /** True when this deal was filed by someone else at the same firm. */
   submittedByOther: boolean;
+  /** Document requests still waiting on the broker (lib/crm/docRequests.ts). */
+  openRequests: number;
 }
 
 type Row = Record<string, unknown>;
@@ -88,7 +90,11 @@ export async function getBrokerPipeline(viewer: BrokerViewer | null): Promise<Br
             AND act.metadata->>'driveFolder' IS NOT NULL
           ORDER BY act.occurred_at DESC
           LIMIT 1
-        ) AS drive_folder
+        ) AS drive_folder,
+        (
+          SELECT count(*)::int FROM document_requests dr
+          WHERE dr.application_id = a.id AND dr.status = 'requested'
+        ) AS open_requests
       FROM applications a
       LEFT JOIN properties p ON p.id = a.property_id
       LEFT JOIN participants pt ON pt.application_id = a.id AND pt.role = 'borrower'
@@ -119,6 +125,7 @@ export async function getBrokerPipeline(viewer: BrokerViewer | null): Promise<Br
         driveFolder: str(r.drive_folder),
         // Only meaningful for owners and leads, who can see colleagues' work.
         submittedByOther: Boolean(viewerId && str(r.submitted_by_user_id) && str(r.submitted_by_user_id) !== viewerId),
+        openRequests: Number(r.open_requests ?? 0),
       };
     });
   } catch (err) {

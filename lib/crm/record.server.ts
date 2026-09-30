@@ -37,6 +37,7 @@ import {
   brokerUsers,
   contacts,
   crmTasks,
+  documentRequests,
   documents,
   entities,
   outboundMessages,
@@ -110,6 +111,22 @@ export type RecordDocument = {
   requestedAt: string | null;
   receivedAt: string | null;
   expiresOn: string | null;
+  /** The document request it answered, when it came through the broker portal's list. */
+  requestId: string | null;
+};
+
+/** One line of "Documents needed" (lib/crm/docRequests.ts). Removed items are left out. */
+export type RecordDocRequest = {
+  id: string;
+  label: string;
+  hint: string | null;
+  note: string | null;
+  status: string;
+  reviewNote: string | null;
+  custom: boolean;
+  requestedAt: string | null;
+  receivedAt: string | null;
+  receivedFileCount: number;
 };
 
 export type RecordCardData = {
@@ -160,6 +177,9 @@ export type RecordCardData = {
   totalTransitions: number;
   tasks: RecordTask[];
   documents: RecordDocument[];
+  docRequests: RecordDocRequest[];
+  /** Items ever created for this deal, removed ones included — 0 means "no list yet". */
+  docRequestsEver: number;
 };
 
 /** The primary contact, chosen exactly as getPipeline and the dashboard choose it. */
@@ -204,6 +224,8 @@ export async function getRecordCard(applicationId: string): Promise<RecordCardDa
     taskRows,
     docRows,
     outboundRows,
+    requestRows,
+    requestEver,
   ] = await db.batch([
     db
       .select({
@@ -306,6 +328,7 @@ export async function getRecordCard(applicationId: string): Promise<RecordCardDa
         requestedAt: documents.requestedAt,
         receivedAt: documents.receivedAt,
         expiresOn: documents.expiresOn,
+        requestId: documents.requestId,
       })
       .from(documents)
       .where(eq(documents.applicationId, id))
@@ -326,6 +349,25 @@ export async function getRecordCard(applicationId: string): Promise<RecordCardDa
       .where(outboundScope)
       .orderBy(desc(outboundMessages.createdAt), desc(outboundMessages.id))
       .limit(TIMELINE_LIMIT),
+
+    db
+      .select({
+        id: documentRequests.id,
+        itemKey: documentRequests.itemKey,
+        label: documentRequests.label,
+        hint: documentRequests.hint,
+        note: documentRequests.note,
+        status: documentRequests.status,
+        reviewNote: documentRequests.reviewNote,
+        requestedAt: documentRequests.requestedAt,
+        receivedAt: documentRequests.receivedAt,
+        receivedFileCount: documentRequests.receivedFileCount,
+      })
+      .from(documentRequests)
+      .where(and(eq(documentRequests.applicationId, id), sql`${documentRequests.status} <> 'removed'`))
+      .orderBy(asc(documentRequests.sort), asc(documentRequests.createdAt)),
+
+    db.select({ n: sql<number>`count(*)::int` }).from(documentRequests).where(eq(documentRequests.applicationId, id)),
   ]);
 
   const row = appRows[0];
@@ -471,6 +513,20 @@ export async function getRecordCard(applicationId: string): Promise<RecordCardDa
       requestedAt: iso(r.requestedAt),
       receivedAt: iso(r.receivedAt),
       expiresOn: iso(r.expiresOn),
+      requestId: r.requestId ?? null,
     })),
+    docRequests: requestRows.map((r) => ({
+      id: r.id,
+      label: r.label,
+      hint: r.hint,
+      note: r.note,
+      status: r.status,
+      reviewNote: r.reviewNote,
+      custom: r.itemKey.startsWith("custom:"),
+      requestedAt: iso(r.requestedAt),
+      receivedAt: iso(r.receivedAt),
+      receivedFileCount: Number(r.receivedFileCount ?? 0),
+    })),
+    docRequestsEver: Number(requestEver[0]?.n ?? 0),
   };
 }

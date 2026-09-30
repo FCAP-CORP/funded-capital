@@ -53,7 +53,9 @@ export async function GET() {
       loanAmount: d.loanAmount,
       status: s.label,
       tone: s.tone,
-      waitingOnYou: s.waitingOnBroker,
+      // Waiting on them when the stage says so OR a document is still needed.
+      waitingOnYou: s.waitingOnBroker || d.openRequests > 0,
+      openRequests: d.openRequests,
       submittedAt: d.submittedAt,
       driveFolder: d.driveFolder,
       submittedByOther: d.submittedByOther,
@@ -66,7 +68,7 @@ export async function GET() {
     // The number that makes this better than the Sheet: how many are stuck
     // waiting on THEM. A term sheet sitting unsigned is the most expensive
     // thing on a broker's screen and nothing used to say so.
-    waitingOnYou: deals.filter((d) => brokerStage(d.stage).waitingOnBroker).length,
+    waitingOnYou: deals.filter((d) => brokerStage(d.stage).waitingOnBroker || d.openRequests > 0).length,
     pipelineValue: open
       .filter((d) => !isFundedForBroker(d.stage))
       .reduce((n, d) => n + (d.loanAmount ?? 0), 0),

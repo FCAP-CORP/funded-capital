@@ -458,8 +458,11 @@ export const documents = pgTable("documents", {
   requestedAt: timestamp("requested_at", { withTimezone: true }),
   receivedAt: timestamp("received_at", { withTimezone: true }),
   expiresOn: timestamp("expires_on", { withTimezone: true }),
+  /** The document request this file answered (migration 0018). Null for older rows. */
+  requestId: uuid("request_id"),
 }, (t) => ({
   appIdx: index("documents_application_idx").on(t.applicationId),
+  requestIdx: index("documents_request_idx").on(t.requestId),
 }));
 
 /* -------------------------------------------------------------- crm_tasks */
@@ -1148,4 +1151,45 @@ export const applicationDrafts = pgTable("application_drafts", {
   sizeCheck: check("application_drafts_size_check", sql`octet_length(${t.data}::text) <= 60000`),
   ownerOpenIdx: index("application_drafts_owner_open_idx").on(t.clerkUserId, t.updatedAt).where(sql`${t.status} = 'open'`),
   openIdx: index("application_drafts_open_idx").on(t.updatedAt).where(sql`${t.status} = 'open'`),
+}));
+
+/* ------------------------------------------------------ document_requests */
+
+/**
+ * What Funded Capital needs on a deal, item by item (migration 0018). Rules:
+ * lib/crm/docRequests.ts.
+ *
+ * - STARTS ITSELF: the standard list for the loan type is inserted when a deal
+ *   first moves to term sheet or later (moveStage, same db.batch), or from
+ *   "Create the list" on the record card. `item_key` is unique per deal, so a
+ *   second seed adds nothing, and a REMOVED item is kept (status 'removed') so
+ *   the automatic list never puts it back.
+ * - NEVER FILES: an upload goes to Drive intake; `documents` rows hold the
+ *   file NAMES with `request_id` pointing here.
+ */
+export const DOC_REQUEST_STATUSES = ["requested", "received", "accepted", "waived", "removed"] as const;
+
+export const documentRequests = pgTable("document_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  applicationId: uuid("application_id").notNull().references(() => applications.id, { onDelete: "cascade" }),
+  itemKey: text("item_key").notNull(),
+  label: text("label").notNull(),
+  hint: text("hint"),
+  note: text("note"),
+  status: text("status").$type<(typeof DOC_REQUEST_STATUSES)[number]>().notNull().default("requested"),
+  reviewNote: text("review_note"),
+  sort: integer("sort").notNull().default(0),
+  requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+  requestedBy: text("requested_by"),
+  receivedAt: timestamp("received_at", { withTimezone: true }),
+  receivedFileCount: integer("received_file_count").notNull().default(0),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  statusCheck: check("document_requests_status_check", sql`${t.status} IN ('requested', 'received', 'accepted', 'waived', 'removed')`),
+  labelCheck: check("document_requests_label_check", sql`char_length(${t.label}) BETWEEN 2 AND 120`),
+  appItemUq: uniqueIndex("document_requests_app_item_uq").on(t.applicationId, t.itemKey),
+  openIdx: index("document_requests_open_idx").on(t.applicationId).where(sql`${t.status} = 'requested'`),
 }));

@@ -17,6 +17,9 @@ import {
 } from "@/lib/crm/followup";
 import { isUuid, parseDueDate, parseTaskTitle } from "@/lib/crm/tasks";
 import { stopTermSheetFollowups } from "@/lib/crm/followups.server";
+import { shouldSeed } from "@/lib/crm/docRequests";
+import { seedRequestsSql } from "@/lib/crm/docRequestsSql";
+import { addDocRequest as addDocRequestRow, createDocList as createDocListRows, moveDocRequest as moveDocRequestRow } from "@/lib/crm/docRequests.server";
 import { and, asc, desc, isNull, sql as dsql } from "drizzle-orm";
 
 /**
@@ -79,7 +82,7 @@ async function moveStage(
   if (!(toStage in STAGE_LABEL)) return { ok: false, error: `unknown stage "${toStage}"` };
 
   const [current] = await db
-    .select({ stage: applications.stage })
+    .select({ stage: applications.stage, product: applications.product, loanPurpose: applications.loanPurpose })
     .from(applications)
     .where(eq(applications.id, applicationId))
     .limit(1);
@@ -99,7 +102,7 @@ async function moveStage(
     return { ok: true };
   }
 
-  await db.batch([
+  const moves = [
     db.insert(stageTransitions).values({
       applicationId,
       fromStage: current.stage,
@@ -117,7 +120,19 @@ async function moveStage(
         ...(extra.lostReason !== undefined ? { lostReason: extra.lostReason } : {}),
       })
       .where(eq(applications.id, applicationId)),
-  ]);
+  ];
+  // The document list starts itself at term sheet (lib/crm/docRequests.ts),
+  // in the same batch: the stage and the list commit together. ON CONFLICT
+  // DO NOTHING, so a later move adds only what is missing and never brings
+  // back an item Luis removed.
+  if (shouldSeed(stage)) {
+    await db.batch([
+      ...moves,
+      db.execute(seedRequestsSql(applicationId, current.product, current.loanPurpose, userId, now)),
+    ] as unknown as Parameters<typeof db.batch>[0]);
+  } else {
+    await db.batch(moves as unknown as Parameters<typeof db.batch>[0]);
+  }
   return { ok: true };
 }
 
@@ -530,4 +545,32 @@ export async function deleteTask(
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "could not remove that task" };
   }
+}
+
+/* ------------------------------------------------------ document requests */
+
+/**
+ * The record card's "Documents needed" controls. Each re-checks staff here
+ * AND in lib/crm/docRequests.server.ts, and refreshes only the page the card
+ * is open on (`from`, guard §8b).
+ */
+export async function createDocList(applicationId: string, from: CrmRoute): Promise<ActionResult> {
+  const userId = await requireUser();
+  const r = await createDocListRows(applicationId, userId);
+  if (r.ok) revalidateFrom(from, "/crm");
+  return r;
+}
+
+export async function addDocRequest(applicationId: string, label: string, note: string, from: CrmRoute): Promise<ActionResult> {
+  const userId = await requireUser();
+  const r = await addDocRequestRow(applicationId, label, note, userId);
+  if (r.ok) revalidateFrom(from, "/crm");
+  return r;
+}
+
+export async function moveDocRequest(requestId: string, move: string, note: string, from: CrmRoute): Promise<ActionResult> {
+  const userId = await requireUser();
+  const r = await moveDocRequestRow(requestId, move, note, userId);
+  if (r.ok) revalidateFrom(from, "/crm");
+  return r;
 }

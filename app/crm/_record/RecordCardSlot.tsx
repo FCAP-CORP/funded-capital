@@ -1,6 +1,6 @@
 import {
   ArrowDownLeft, ArrowRightLeft, ArrowUpRight, Bot, Building2, CalendarClock, Clock, FileText, FolderOpen,
-  History, Landmark, ListTodo, Mail, MessageSquare, PencilLine, Phone, Quote, StickyNote, TriangleAlert,
+  History, Landmark, ListChecks, ListTodo, Mail, MessageSquare, PencilLine, Phone, Quote, StickyNote, TriangleAlert,
   UserRound, Users,
 } from "lucide-react";
 import { isCrmStaff } from "@/lib/crm/access";
@@ -33,6 +33,7 @@ import type { EmailComposeView } from "./EmailComposer";
 import { TIMELINE_TEXT_PREVIEW } from "@/lib/crm/record";
 import type { CrmRoute } from "../actions";
 import RecordDrawer from "./RecordDrawer";
+import { DocRequestsPanel } from "./DocRequestsPanel";
 import {
   ContactField, DealNotes, FollowUp, QuickActions, RetryTextButton, TaskPanel, type TaskView, type TextGateView,
 } from "./RecordControls";
@@ -138,6 +139,8 @@ const badge = "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11p
 
 function Card({ card, from }: { card: RecordCardData; from: CrmRoute }) {
   const now = new Date();
+  // Files that answered a request are listed under it; anything else keeps its own section.
+  const looseDocs = card.documents.filter((d) => !d.requestId || !card.docRequests.some((r) => r.id === d.requestId));
   const { app, contact } = card;
   const name = contact?.name ?? "(unlinked application)";
   const age = stageAge(app.stage, app.stageEnteredAt, now);
@@ -428,11 +431,34 @@ function Card({ card, from }: { card: RecordCardData; from: CrmRoute }) {
         </p>
       </Section>
 
-      {/* ------------------------------------------------ documents */}
-      {card.documents.length > 0 && (
-        <Section title="Documents" icon={FolderOpen} aside={<span className="text-[11px] text-slate-500">Files stay in Drive</span>}>
+      {/* ------------------------------------------------ documents needed */}
+      <Section
+        title="Documents needed"
+        icon={ListChecks}
+        aside={<span className="text-[11px] text-slate-500">The broker sees this list · files stay in Drive</span>}
+      >
+        <DocRequestsPanel
+          applicationId={app.id}
+          hasList={card.docRequestsEver > 0}
+          items={card.docRequests.map((r) => ({
+            id: r.id,
+            label: r.label,
+            hint: r.hint,
+            note: r.note,
+            status: r.status,
+            reviewNote: r.reviewNote,
+            received: r.receivedAt ? shortDate(r.receivedAt) : null,
+            files: card.documents.filter((d) => d.requestId === r.id).map((d) => d.name),
+          }))}
+          from={from}
+        />
+      </Section>
+
+      {/* ------------------------------------------------ other documents */}
+      {looseDocs.length > 0 && (
+        <Section title="Other documents" icon={FolderOpen} aside={<span className="text-[11px] text-slate-500">Files stay in Drive</span>}>
           <ul className="divide-y divide-slate-100">
-            {card.documents.map((d) => {
+            {looseDocs.map((d) => {
               const s = docStatus(d, now);
               return (
                 <li key={d.id} className="flex items-center justify-between gap-3 py-2">

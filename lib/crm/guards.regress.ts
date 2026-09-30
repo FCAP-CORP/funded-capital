@@ -148,6 +148,8 @@ const STAFF_ONLY_MODULES = [
   "lib/nurture/nurture.server.ts",
   // Term-sheet follow-ups on the dashboard: every deal at term sheet, with names and addresses.
   "lib/crm/followups.server.ts",
+  // Document requests, Luis's side: create, add, accept / ask again / waive / remove on any deal.
+  "lib/crm/docRequests.server.ts",
 ];
 
 for (const relPath of STAFF_ONLY_MODULES) {
@@ -351,6 +353,14 @@ const NON_STAFF_SERVER_MODULES: Record<string, string> = {
    * session first and every statement filters on that owner.
    */
   "lib/broker/drafts.server.ts": "owner-guarded: a broker's own drafts only, owner from the session (section 15)",
+
+  /**
+   * DOCUMENT REQUESTS, the broker's side (29 Sep 2026). Every broker opens
+   * their deal page and uploads through it, so it cannot assert staff. It
+   * asserts SCOPE instead — the viewer from the session, then scope.ts's
+   * canViewApplication / canActOnApplication — and section 17 pins the order.
+   */
+  "lib/broker/docRequests.server.ts": "scope-guarded: a broker's own or firm deals via scope.ts, viewer from the session (section 17)",
 };
 
 const exemptPaths = Object.keys(NON_STAFF_SERVER_MODULES);
@@ -727,7 +737,7 @@ if (crmActions) {
 console.log("\n=== 8b. The record card refreshes the page it is open on ===");
 
 const CARD_ACTIONS =
-  /\b(setStage|markLost|logContact|setSnooze|clearSnooze|setApplicationNotes|setContactField|addTask|toggleTask|deleteTask|sendText|retryText)\(([^()]|\([^()]*\))*\)/g;
+  /\b(setStage|markLost|logContact|setSnooze|clearSnooze|setApplicationNotes|setContactField|addTask|toggleTask|deleteTask|sendText|retryText|createDocList|addDocRequest|moveDocRequest)\(([^()]|\([^()]*\))*\)/g;
 const RECORD_DIR = join(ROOT, "app", "crm", "_record");
 const recordFiles = walk(RECORD_DIR).filter((f) => f.endsWith(".tsx"));
 check("found the record card's files", recordFiles.length >= 3, `${recordFiles.length} files`);
@@ -1312,6 +1322,67 @@ console.log("\n=== 16. Term-sheet follow-ups: Luis sends each one, through the G
     check("  ...with the series step as the template key, so the step counts as done", /templateKey: f\.step\.templateKey/.test(code), "templateKey");
     check("  ...and never sends on load", !/useEffect\(/.test(code), "no effects");
   }
+}
+
+
+/* ------------------------------------------------ document requests */
+
+/**
+ * Document requests (29 Sep 2026). The broker side is multi-tenant: a deal id
+ * from the browser must open nothing unless scope.ts says this person may see
+ * (or act on) that deal. And the portal is a pipe: files go to Drive first,
+ * and only their names are recorded, only after Drive accepted them.
+ */
+console.log("\n=== 17. Document requests: scoped from the session, files to Drive first, names only ===");
+{
+  const BS = "lib/broker/docRequests.server.ts";
+  const RT = "app/api/broker/documents/route.ts";
+  const CS = "lib/crm/docRequests.server.ts";
+  const ACT = "app/crm/actions.ts";
+  const bsSrc = readOr(BS), rtSrc = readOr(RT), csSrc = readOr(CS), actSrc = readOr(ACT);
+  if (bsSrc) {
+    const code = codeOnly(bsSrc);
+    check(`  ${BS} takes no viewer, user or firm id from its caller`, !/export async function \w+\([^)]*\b(viewer|userId|clerkUserId|firmId)\b/.test(code), "session only");
+    check("  ...cannot reach Luis's side of the list", !importsOf(bsSrc).some((i) => i.includes("crm/docRequests.server")), importsOf(bsSrc).join(", "));
+    const view = fnBody(code, "getBrokerDeal") ?? "";
+    const vViewer = view.search(/await resolveBrokerViewer\(\)/), vScope = view.search(/canViewApplication\(viewer, own\)/), vReqs = view.search(/FROM document_requests/);
+    check("  getBrokerDeal: viewer from the session → scope check → only then the list", vViewer >= 0 && vScope > vViewer && vReqs > vScope, `${vViewer} < ${vScope} < ${vReqs}`);
+    check("  ...and staff may look but never upload", /canUpload: !staff && canActOnApplication\(viewer, own\)/.test(view), "canUpload");
+    const up = fnBody(code, "uploadToRequest") ?? "";
+    const order = [
+      up.search(/await resolveBrokerViewer\(\)/),
+      up.search(/canActOnApplication\(viewer, ownership\(r\)\)/),
+      up.search(/application_id = \$\{applicationId\}::uuid/),
+      up.search(/canUploadTo\(/),
+      up.search(/await forward\(/),
+      up.search(/if \(!sent\.ok\) return/),
+      up.search(/INSERT INTO documents/),
+    ];
+    check("  uploadToRequest: viewer → scope → item belongs to the deal → still open → Drive → Drive ok → names", order.every((n, i) => n >= 0 && (i === 0 || n > order[i - 1])), order.join(" < "));
+    check("  ...stores names, never file contents", !/data:\s*f\.data|\bf\.data\b|base64/.test(up.slice(up.search(/await db\.batch/))), "names only");
+    const writes = [...new Set((code.match(/(?:INSERT INTO|(?<!FOR |DO )UPDATE)\s+(\w+)/g) ?? []).map((m) => m.split(/\s+/).pop()))].sort().join(",");
+    check("  ...writes only documents, document_requests and one activity", writes === "activities,document_requests,documents", writes);
+    check("  ...and the activity is not a contact kind (it must not reset quiet clocks)", /'automation', \$\{at\}::timestamptz, 'broker_portal'/.test(code), "automation");
+  }
+  if (rtSrc) {
+    const code = codeOnly(rtSrc);
+    const a = code.search(/await auth\(\)/), p = code.search(/parseUpload\(raw\)/), u = code.search(/uploadToRequest\(/);
+    check(`  ${RT}: signed in → body validated → the scoped module`, a >= 0 && p > a && u > p, `${a} < ${p} < ${u}`);
+    check("  ...reads no table itself", !/\bdb\b|sql`/.test(code), "no db");
+    check("  ...and refuses a body Vercel would refuse anyway, with a clear error", /MAX_BODY_CHARS/.test(code) && /files_too_large/.test(code), "413");
+  }
+  if (csSrc) {
+    const code = codeOnly(csSrc);
+    check(`  ${CS} never touches documents (files are the broker path's business)`, !/INSERT INTO documents|UPDATE documents/.test(code), "requests only");
+    check("  ...moves an item only from the status it read (two clicks cannot both win)", /WHERE id = \$\{requestId\}::uuid AND status = \$\{from\}/.test(code), "optimistic");
+  }
+  if (actSrc) {
+    const code = codeOnly(actSrc);
+    const ms = fnBody(code, "moveStage") ?? "";
+    check("  moveStage starts the list in the SAME db.batch as the stage move", /if \(shouldSeed\(stage\)\)[\s\S]*?db\.batch\(\[\s*\.\.\.moves,\s*db\.execute\(seedRequestsSql\(/.test(ms), "one batch");
+  }
+  const seed = readOr("lib/crm/docRequestsSql.ts");
+  if (seed) check("  the list INSERT never overwrites (a removed item is never brought back)", /ON CONFLICT \(application_id, item_key\) DO NOTHING/.test(seed) && !/DO UPDATE/.test(seed), "DO NOTHING");
 }
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);

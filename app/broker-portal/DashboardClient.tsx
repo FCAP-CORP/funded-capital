@@ -42,6 +42,8 @@ interface Deal {
   submittedAt: string | null;
   driveFolder: string | null;
   submittedByOther: boolean;
+  /** Documents still needed from them on this deal. */
+  openRequests?: number;
 }
 
 interface Stats {
@@ -240,7 +242,9 @@ export default function DashboardClient() {
                   {deals.map((d) => (
                     <tr key={d.applicationId} className="border-b border-slate-50 hover:bg-slate-50/60">
                       <td className="px-5 py-4">
-                        <p className="font-semibold text-slate-900">{d.borrower || "—"}</p>
+                        <Link href={`/broker-portal/deal/${d.applicationId}`} className="font-semibold text-slate-900 underline decoration-gold-500/50 underline-offset-2 hover:decoration-gold-600">
+                          {d.borrower || "View deal"}
+                        </Link>
                         <p className="text-xs text-slate-400">
                           {d.submittedAt ? new Date(d.submittedAt).toLocaleDateString() : ""}
                           {/* Only an owner or lead ever sees a colleague's deal. */}
@@ -263,7 +267,9 @@ export default function DashboardClient() {
                         </span>
                         {/* The ball is in their court — say so where they will see it. */}
                         {d.waitingOnYou && (
-                          <span className="block text-xs font-semibold text-amber-700 mt-1">Waiting on you</span>
+                          <Link href={`/broker-portal/deal/${d.applicationId}`} className="block text-xs font-semibold text-amber-700 mt-1 hover:underline">
+                            {d.openRequests ? `${d.openRequests} ${d.openRequests === 1 ? "document" : "documents"} needed` : "Waiting on you"}
+                          </Link>
                         )}
                       </td>
                       <td className="px-5 py-4 text-right">
@@ -284,7 +290,9 @@ export default function DashboardClient() {
               {deals.map((d) => (
                 <div key={d.applicationId} className="px-5 py-4">
                   <div className="flex items-center justify-between">
-                    <p className="font-semibold text-slate-900">{d.borrower || "—"}</p>
+                    <Link href={`/broker-portal/deal/${d.applicationId}`} className="font-semibold text-slate-900 underline decoration-gold-500/50 underline-offset-2">
+                      {d.borrower || "View deal"}
+                    </Link>
                     <span className={`shrink-0 ml-3 px-2.5 py-1 rounded-full text-xs font-semibold ${toneClass(d.tone)}`}>
                       {d.status}
                     </span>
@@ -294,7 +302,9 @@ export default function DashboardClient() {
                     {d.isPortfolio && ` · ${d.propertyCount ?? 0} properties`}
                   </p>
                   {d.waitingOnYou && (
-                    <p className="text-xs font-semibold text-amber-700 mt-1">Waiting on you</p>
+                    <Link href={`/broker-portal/deal/${d.applicationId}`} className="block text-xs font-semibold text-amber-700 mt-1">
+                      {d.openRequests ? `${d.openRequests} ${d.openRequests === 1 ? "document" : "documents"} needed` : "Waiting on you"}
+                    </Link>
                   )}
                 </div>
               ))}

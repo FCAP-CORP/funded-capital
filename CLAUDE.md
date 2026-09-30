@@ -1166,3 +1166,45 @@ off"; `/crm/brokers` lists "Applications started, not submitted" with an "Offer 
 - Rules `lib/broker/drafts.ts` (26 tests). Verified on Postgres 16 (39 checks incl. cross-broker
   load/save/discard/submit refused, suspended and signed-out refused, wipe on submit, late autosave
   cannot reopen, 20-draft cap, 90-day expiry).
+
+### Document requests — the conditions list (29 Sep 2026)
+
+When a deal moves to term sheet (or any later working stage up to docs out), its **standard document
+list starts itself** from the loan type and purpose. Luis reviews on the record card ("Documents
+needed"); the broker sees the same list on `/broker-portal/deal/[id]` with an upload per item. The
+broker dashboard links every deal there, and "Waiting on you" now also counts deals with documents
+still needed.
+
+- **Rules** `lib/crm/docRequests.ts` (pure, `docRequests.regress.ts`, 40 tests): the list per CRM
+  product (flip, ground-up, DSCR, bridge/multifamily; refinance swaps the purchase contract for a
+  payoff + settlement statement), statuses requested → received → accepted, or waived / removed,
+  the allowed moves, upload validation and packing. No item quotes a rate, amount or approval.
+- **Table** `document_requests` (migration 0018), unique on (deal, item_key); `documents.request_id`
+  links each file NAME to its item. **A removed item is kept with status `removed`**, so the
+  automatic list (`INSERT … ON CONFLICT DO NOTHING`, `lib/crm/docRequestsSql.ts`) never brings it
+  back. The seed runs inside `moveStage`'s own `db.batch`, so the stage and the list commit together.
+  "Create the list now" on the card does the same for deals that were already past term sheet.
+- **Luis's side** `lib/crm/docRequests.server.ts` (staff-only, §3): add an item, Accept, Needs
+  another copy (a reason is required and the broker sees it), Not needed, Remove, Put back. Every
+  move UPDATEs `WHERE status = <the status it read>`, so a stale page changes nothing and says so.
+  Card actions pass `from` (§8b).
+- **Broker's side** `lib/broker/docRequests.server.ts` (census-exempt, scope-guarded): viewer from
+  the session → `canViewApplication` / `canActOnApplication` → the item belongs to that deal and
+  still takes uploads → **Drive first** → only after Drive says ok, record the names, mark the item
+  received, and write one `automation` activity (not a contact kind, so it never resets a quiet
+  clock). Staff can open the broker's view but cannot upload. Another firm's deal, or my deal with
+  another deal's item id, is a 404 and Drive is never called. Guard §17 pins the order.
+- **Upload route** `POST /api/broker/documents`: signed in → `parseUpload` → the scoped module.
+  It forwards to the same Apps Script web app as a new application with `action: "documents"`.
+  **Today's script ignores that action** and treats the post as a submission, so each upload also
+  makes a Submissions sheet row and an email titled "New broker application: Documents for …". The
+  folder name, the row's notes and the email body all say it is more documents for an existing
+  deal. Filing these differently needs an Apps Script change and a redeploy — Luis's call.
+- **Vercel caps a function request body at 4.5 MB.** Uploads are packed in the browser into
+  requests of at most ~3 MB of files (`packUploads`); a single bigger file is held back with a way
+  round it (split, compress, or email). **`/api/submit-application` has no such packing** and
+  allows 40 MB, so a new application with large files is refused by Vercel before our code runs —
+  an open item, not fixed here.
+- Verified on Postgres 16 (44 checks: seeding, idempotence, removed-not-revived, every scope case
+  including null-firm and suspended, Drive failure records nothing, names only in the database,
+  ask-again round trip, stale accept, closed items, cross-deal item ids).
