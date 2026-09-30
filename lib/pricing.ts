@@ -294,7 +294,7 @@ export const PRODUCTS: Record<ProductKey, ProductMeta> = {
     label: "DSCR / Rental",
     family: "dscr",
     minLoan: 75_000,
-    maxLoan: 2_000_000,
+    maxLoan: 3_500_000, // DSCR max confirmed by Luis 2026-09-30
     minFico: 660,
     termLabel: "30-yr FRM / ARM (±IO)",
     interestOnlyByDefault: false,

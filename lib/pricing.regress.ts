@@ -1,4 +1,4 @@
-import { priceDeal, pricePortfolio, type QuoteInput, type PortfolioInput } from "./pricing";
+import { priceDeal, pricePortfolio, PRODUCTS, type QuoteInput, type PortfolioInput } from "./pricing";
 const usd=(n:number|null)=>n===null?"—":"$"+Math.round(n).toLocaleString();
 let pass=0, fail=0;
 const check=(name:string, cond:boolean, detail:string)=>{ (cond?pass++:fail++); console.log(`  ${cond?"PASS":"**FAIL**"}  ${name}  ${detail}`); };
@@ -176,6 +176,9 @@ const pf5 = pricePortfolio({ ...pf(), experienceBucket: 4 } as PortfolioInput);
 check("portfolio reports the tier", pf4.tier === 4 && pf5.tier === 5, `${pf4.tier} / ${pf5.tier}`);
 check("Tier 4 portfolio caps at 85% LTFC", pf4.ltfcCapPct === 0.85, String(pf4.ltfcCapPct));
 check("Tier 5 portfolio caps at 90% LTFC", pf5.ltfcCapPct === 0.9, String(pf5.ltfcCapPct));
+
+console.log("\n=== DSCR loan envelope ===");
+check("DSCR max loan is $3.5M (Luis 2026-09-30)", PRODUCTS.dscr.maxLoan === 3_500_000, usd(PRODUCTS.dscr.maxLoan));
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail>0?1:0);
