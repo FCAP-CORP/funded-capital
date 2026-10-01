@@ -274,6 +274,8 @@ console.log("\n=== §8 one person's status, in words (dashboard 'No movement', 1
   check("…and readyOn is 30 days after the enquiry", refiled.kind === "out" && refiled.readyOn === new Date(Date.parse(ago(7)) + QUIET_DAYS * 86_400_000).toISOString(), "");
   const unsub = nurtureStatus(person({ emailSubscribed: false }), NOW);
   check("unsubscribed: the plain reason, no date", unsub.kind === "out" && unsub.text === "Not for nurture: Unsubscribed" && unsub.readyOn === null, unsub.text);
+  const nop = nurtureStatus(person({ apps: [app({ product: "not_our_product" })] }), NOW);
+  check("Not our product: says so plainly", nop.kind === "out" && nop.exclusion === "not_a_fit" && nop.text === "Not for nurture: deal marked Not our product", nop.text);
   const noMail = nurtureStatus(person({ email: "not an email" }), NOW);
   check("no usable email: says so", noMail.kind === "out" && noMail.text === "Not for nurture: No usable email address", noMail.text);
   // Every classification maps to a status of the same verdict.

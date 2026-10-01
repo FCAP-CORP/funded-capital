@@ -7,6 +7,7 @@
 
 import {
   BOARD_STAGES,
+  closableAsNotOurProduct,
   LOST_REASONS,
   MAX_LOST_NOTE,
   OUTCOME_STAGES,
@@ -115,6 +116,13 @@ check("Other with no note is refused", !parseLostReason("Other", "  ").ok, "refu
 check("Other with a note is accepted", parseLostReason("Other", "Borrower passed away").ok, "accepted");
 check("an overlong note is refused", !parseLostReason("Rate or terms", "x".repeat(MAX_LOST_NOTE + 1)).ok, "refused");
 check("every listed reason is accepted", LOST_REASONS.filter((r) => r !== "Other").every((r) => parseLostReason(r, "").ok), "all");
+
+console.log("\n=== Close 'Not our product' in bulk (1 Oct 2026) ===");
+check("lead marked Not our product: closable", closableAsNotOurProduct({ stage: "lead", product: "not_our_product" }), "");
+check("qualified marked Not our product: closable", closableAsNotOurProduct({ stage: "qualified", product: "not_our_product" }), "");
+check("a real product is never closed by this button", !closableAsNotOurProduct({ stage: "lead", product: "fix_and_flip" }) && !closableAsNotOurProduct({ stage: "lead", product: null }), "");
+check("from term sheet on, a label alone never closes a deal", STAGE_ORDER.slice(STAGE_ORDER.indexOf("term_sheet_issued")).every((st) => !closableAsNotOurProduct({ stage: st, product: "not_our_product" })), "");
+check("'Not our product' is a real lost reason (the button's reason parses)", parseLostReason("Not our product", "").ok, "");
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

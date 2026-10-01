@@ -8,7 +8,7 @@ import { db } from "@/lib/db";
 import { activities, applications, contacts, crmTasks, participants } from "@/lib/db/schema";
 import { STAGE_LABEL } from "@/lib/crm/view";
 import { assertCrmStaff, signedInUser } from "@/lib/crm/access";
-import { parseLostReason } from "@/lib/crm/board";
+import { CLOSE_BULK_MAX, closableAsNotOurProduct, parseLostReason } from "@/lib/crm/board";
 import {
   KIND_LABEL,
   isLoggableKind,
@@ -23,7 +23,7 @@ import { seedRequestsSql } from "@/lib/crm/docRequestsSql";
 import { stageMoveSql } from "@/lib/crm/stageMoveSql";
 import { addDocRequest as addDocRequestRow, createDocList as createDocListRows, moveDocRequest as moveDocRequestRow } from "@/lib/crm/docRequests.server";
 import { sendBrokerDocsUpdate, sendBrokerStageUpdate, setBrokerUpdatesOff, type Sender } from "@/lib/crm/brokerUpdates.server";
-import { and, asc, desc, isNull, sql as dsql } from "drizzle-orm";
+import { and, asc, desc, inArray, isNull, sql as dsql } from "drizzle-orm";
 import { parseContactIds } from "@/lib/nurture/nurture";
 import { enrollBestFit } from "@/lib/nurture/nurture.server";
 import { drainNurtureSoon } from "@/lib/nurture/sync.server";
@@ -681,6 +681,59 @@ export async function addToNurture(contactIds: unknown, from: CrmRoute): Promise
     return { ok: true, added: total, message: `Added ${parts}.${skipped}` };
   } catch (err) {
     console.error("[crm] addToNurture failed", err);
+    return { ok: false, error: SAVE_FAILED };
+  }
+}
+
+/* ---------------------------------------- close "Not our product" in bulk */
+
+export type BulkCloseResult = { ok: true; message: string; closed: number } | { ok: false; error: string };
+
+/**
+ * The dashboard's "Close as lost" for deals marked Not our product (1 Oct 2026).
+ *
+ * Ids only from the browser. Each deal is re-read here and moved ONLY if it is
+ * still marked Not our product and still before term sheet
+ * (closableAsNotOurProduct). Every move goes through the same moveStage as
+ * markLost, one deal at a time — a history row each, the lost reason "Not our
+ * product", the stale-page guard, and the usual "file closed" email to a
+ * broker on the deal. One refresh of the caller's route at the end.
+ */
+export async function closeNotOurProduct(applicationIds: unknown, from: CrmRoute): Promise<BulkCloseResult> {
+  try {
+    const userId = await requireUser();
+    if (!Array.isArray(applicationIds)) return { ok: false, error: "Nothing was selected." };
+    const ids = [...new Set(applicationIds.filter((v): v is string => typeof v === "string" && isUuid(v)))];
+    if (ids.length === 0) return { ok: false, error: "Nothing was selected." };
+    if (ids.length > CLOSE_BULK_MAX) return { ok: false, error: `Close at most ${CLOSE_BULK_MAX} at a time.` };
+
+    const reason = parseLostReason("Not our product", "");
+    if (!reason.ok) return { ok: false, error: reason.error };
+    const rows = await db
+      .select({ id: applications.id, stage: applications.stage, product: applications.product })
+      .from(applications)
+      .where(inArray(applications.id, ids));
+    const eligible = rows.filter((r) => closableAsNotOurProduct({ stage: String(r.stage), product: r.product ? String(r.product) : null }));
+
+    const sender = await senderOf(userId);
+    let closed = 0;
+    for (const r of eligible) {
+      const res = await moveStage(r.id, "closed_lost", userId, { reason: `lost: ${reason.value}`, lostReason: reason.value });
+      if (res.ok && res.moved) {
+        closed++;
+        tellBroker(r.id, res.moved, sender);
+      }
+    }
+    if (closed === 0) return { ok: false, error: "Nothing was closed. They are no longer marked Not our product, or have moved on since this page loaded." };
+    revalidateFrom(from, "/crm/dashboard");
+    const skipped = ids.length - closed;
+    return {
+      ok: true,
+      closed,
+      message: `Closed ${closed} as lost (Not our product).${skipped > 0 ? ` ${skipped} left as they were: they changed since this page loaded.` : ""}`,
+    };
+  } catch (err) {
+    console.error("[crm] closeNotOurProduct failed", err);
     return { ok: false, error: SAVE_FAILED };
   }
 }

@@ -203,6 +203,19 @@ export const LOST_REASONS = [
 
 export const MAX_LOST_NOTE = 280;
 
+/**
+ * "Close as lost" in bulk from the dashboard (1 Oct 2026): only a deal whose
+ * Program says "Not our product" AND that never reached a term sheet. Anything
+ * further along is a real deal someone is working, whatever its label says,
+ * and is left alone. The server re-checks this on a fresh read before moving.
+ */
+export const NOT_OUR_PRODUCT_CLOSABLE_STAGES = ["lead", "qualified"] as const;
+export function closableAsNotOurProduct(a: { stage: string; product: string | null }): boolean {
+  return a.product === "not_our_product" && (NOT_OUR_PRODUCT_CLOSABLE_STAGES as readonly string[]).includes(a.stage);
+}
+/** At most this many in one click. */
+export const CLOSE_BULK_MAX = 100;
+
 export type ParsedReason = { ok: true; value: string } | { ok: false; error: string };
 
 /**

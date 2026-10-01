@@ -1451,3 +1451,17 @@ but were held out for a reason the list could not show. Now the list says it, an
 - Verified: nurture regress §8 (mutation-tested), dashboard + dashboardView regress (mutation-
   tested), guards 440, Postgres harness 21 (statuses, the dashboard flag, non-staff refused, two
   simultaneous clicks enrol each person once, a third click adds nobody), scratch `next build`.
+- **"Close N as lost" for deals marked Not our product (1 Oct 2026).** 20 of the 38 left on "No
+  movement" were BiggerPockets leads whose Program says "Not our product": nurture skips them and
+  nobody works them. The bar now offers `CloseNotOurProductButton` (asks first, lists the names,
+  Cancel has focus). `closeNotOurProduct` (app/crm/actions.ts) re-reads each deal and moves ONLY
+  those still marked Not our product AND before term sheet (`closableAsNotOurProduct` in
+  `lib/crm/board.ts`), one by one through the same `moveStage` as markLost: history row, lost reason
+  "Not our product", stale-page guard, broker "file closed" email. At most 100 per click.
+  The row line now reads "Not for nurture: deal marked Not our product". Postgres harness 31
+  (stubbed copy of actions.ts: a tampered list of four closes only the two eligible; one refresh;
+  second click closes nothing; junk and >100 refused).
+- **Guard §8 had a blind spot, now closed:** its call pattern cannot see a call whose arguments
+  contain nested brackets (`act(xs.map((x) => x.id), "/crm")`), so a wrong route there passed.
+  Every action a dashboard file IMPORTS must now appear among the calls the scan saw, or the build
+  fails ("rewrite the call so its arguments are simple"). Negative-tested both ways. Guards 452.

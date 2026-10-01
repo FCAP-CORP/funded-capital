@@ -762,5 +762,8 @@ export function nurtureStatus(c: NurtureContact, now: Date): NurtureStatus {
       readyOn: readyOn.toISOString(),
     };
   }
+  if (k.exclusion === "not_a_fit" && c.apps.some((a) => a.product === "not_our_product")) {
+    return { kind: "out", exclusion: k.exclusion, text: "Not for nurture: deal marked Not our product", readyOn: null };
+  }
   return { kind: "out", exclusion: k.exclusion, text: `Not for nurture: ${EXCLUSION_LABEL[k.exclusion]}`, readyOn: null };
 }

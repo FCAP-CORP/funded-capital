@@ -692,6 +692,18 @@ let dashCalls = 0;
 for (const f of walk(DASH_DIR).filter((x) => x.endsWith(".tsx"))) {
   const code = codeOnly(readFileSync(f, "utf8"));
   const calls = code.match(DASH_ACTIONS) ?? [];
+  // Every action this file IMPORTS must show up as a call the pattern saw. A
+  // call with nested brackets in its arguments, e.g. `act(xs.map((x) => x.id),
+  // "/crm")`, slips past the pattern; this turns that blind spot into a failure.
+  const imported = [...code.matchAll(/import\s*\{([^}]*)\}\s*from\s*"\.\.\/actions"/g)]
+    .flatMap((m) => m[1].split(",").map((x) => x.trim().split(/\s+as\s+/)[0]).filter(Boolean))
+    .filter((n) => DASH_ACTION_NAMES.includes(n));
+  const unseen = imported.filter((n) => !calls.some((c) => c.startsWith(`${n}(`)));
+  check(
+    `${rel(f)}: every imported action call was found by the scan`,
+    unseen.length === 0,
+    unseen.length ? `**NOT SEEN (rewrite the call so its arguments are simple): ${unseen.join(", ")}**` : `${imported.length} imported, all seen`,
+  );
   if (calls.length === 0) continue;
   dashCalls += calls.length;
   const without = calls.filter((c) => !/HERE\)$/.test(c));

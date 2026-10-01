@@ -29,6 +29,7 @@ import {
 } from "./cockpit";
 import { enrolQueuedSql, healthCountsSql, isoOf, nurtureContactsSql, releaseCountsSql, strOf, toNurtureContact } from "./rows";
 import { nurtureSyncConfigured } from "./sync.server";
+import { closableAsNotOurProduct } from "@/lib/crm/board";
 
 type Row = Record<string, unknown>;
 const rowsOf = (r: unknown): Row[] => (r as { rows?: Row[] }).rows ?? (r as Row[]);
@@ -347,6 +348,8 @@ export type QueueNurture = {
   byContact: Record<string, NurtureStatus>;
   /** Per programme: its emails are on in Klaviyo, and how people join. */
   programs: Record<ProgramKey, { name: string; emailsOn: boolean; mode: Mode }>;
+  /** Deals of these people that "Close as lost" may take: marked Not our product, before term sheet. */
+  closableNotOurProduct: string[];
 };
 
 /**
@@ -364,13 +367,17 @@ export async function nurtureStatusForContacts(contactIds: string[], now: Date):
     db.execute(sql`SELECT program, mode, flow_status FROM nurture_programs`),
   ]);
   const byContact: Record<string, NurtureStatus> = {};
-  for (const c of rowsOf(people).map(toNurtureContact)) byContact[c.id] = nurtureStatus(c, now);
+  const closableNotOurProduct: string[] = [];
+  for (const c of rowsOf(people).map(toNurtureContact)) {
+    byContact[c.id] = nurtureStatus(c, now);
+    for (const a of c.apps) if (closableAsNotOurProduct(a)) closableNotOurProduct.push(a.id);
+  }
   const byKey = new Map(rowsOf(programRows).map((r) => [String(r.program), r]));
   const programs = Object.fromEntries(PROGRAMS.map((p) => {
     const r = byKey.get(p.key);
     return [p.key, { name: p.name, emailsOn: strOf(r?.flow_status) === "live", mode: parseMode(r?.mode) ?? "review" }];
   })) as QueueNurture["programs"];
-  return { byContact, programs };
+  return { byContact, programs, closableNotOurProduct };
 }
 
 /**

@@ -18,6 +18,7 @@ import type { SnoozedItem } from "@/lib/crm/dashboard";
 import type { NurtureStatus } from "@/lib/nurture/nurture";
 import type { QueueNurture } from "@/lib/nurture/nurture.server";
 import { NurtureBulkButton, type NurtureGroup } from "./NurtureBulkButton";
+import { CloseNotOurProductButton } from "./CloseNotOurProductButton";
 import { RecordLink } from "../_record/RecordCardProvider";
 import { BringBackButton, QueueRowActions } from "./QueueRowActions";
 import { QueueTabs } from "./QueueTabs";
@@ -217,15 +218,28 @@ function NurtureBar({ tab, nurture, inNurture }: { tab: QueueTab; nurture: Queue
     const p = nurture.programs[program as keyof QueueNurture["programs"]];
     return { program, name: p?.name ?? program, count, emailsOn: p?.emailsOn ?? false };
   });
+  const closable = new Set(nurture.closableNotOurProduct);
+  const toClose = tab.rows.filter((r) => closable.has(r.applicationId)).map((r) => ({ applicationId: r.applicationId, name: r.name }));
   return (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/60 px-4 py-2.5 sm:px-5">
-      <p className="text-[13px] text-slate-600">
-        {ready.size > 0
-          ? <><span className="font-semibold text-navy-900">{ready.size} of {people}</span> {people === 1 ? "person" : "people"} can go into nurture now. Each row says why or why not.</>
-          : "Nobody here can go into nurture today. Each row says why."}
-        {inNurture > 0 && <> {inNurture} more {inNurture === 1 ? "is" : "are"} already in nurture and left off this list.</>}
-      </p>
-      <NurtureBulkButton contactIds={[...ready.keys()]} groups={groups} />
+    <div className="flex flex-col gap-2 border-b border-slate-100 bg-slate-50/60 px-4 py-2.5 sm:px-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-[13px] text-slate-600">
+          {ready.size > 0
+            ? <><span className="font-semibold text-navy-900">{ready.size} of {people}</span> {people === 1 ? "person" : "people"} can go into nurture now. Each row says why or why not.</>
+            : "Nobody here can go into nurture today. Each row says why."}
+          {inNurture > 0 && <> {inNurture} more {inNurture === 1 ? "is" : "are"} already in nurture and left off this list.</>}
+        </p>
+        <NurtureBulkButton contactIds={[...ready.keys()]} groups={groups} />
+      </div>
+      {toClose.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200/70 pt-2">
+          <p className="text-[13px] text-slate-600">
+            <span className="font-semibold text-navy-900">{toClose.length}</span> {toClose.length === 1 ? "is" : "are"} marked
+            {" "}Not our product and never reached a term sheet. Closing them takes them off this list.
+          </p>
+          <CloseNotOurProductButton deals={toClose} />
+        </div>
+      )}
     </div>
   );
 }
