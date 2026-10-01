@@ -26,7 +26,22 @@ import { useRecordCard } from "./RecordCardProvider";
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export default function RecordDrawer({
+/**
+ * The card closes on the click (RecordCardProvider `hidden`): a closed card
+ * renders nothing, which UNMOUNTS the panel below so its clean-up runs —
+ * page scroll unlocked, Escape listener gone, focus back where it came from.
+ */
+export default function RecordDrawer(props: Parameters<typeof DrawerPanel>[0] & { id?: string }) {
+  const ctx = useRecordCard();
+  const unhide = ctx?.unhide;
+  // When this card leaves the page for real (the address no longer opens it),
+  // forget that it was closed, so opening it again shows it.
+  useEffect(() => () => { if (props.id) unhide?.(props.id); }, [props.id, unhide]);
+  if (props.id && ctx?.hidden === props.id) return null;
+  return <DrawerPanel {...props} />;
+}
+
+function DrawerPanel({
   title, badges, contactLine, children,
 }: {
   title: string;

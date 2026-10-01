@@ -11,6 +11,8 @@ import { LOST_REASONS, MAX_LOST_NOTE } from "@/lib/crm/board";
 import { MAX_TASK_TITLE, type TaskState } from "@/lib/crm/tasks";
 import { MAX_SMS_BODY, countSegments } from "@/lib/comms/sms";
 import { InlineText } from "../Editable";
+import { toast } from "@/components/ui/toast";
+import { safeCall } from "@/lib/crm/safeCall";
 import { retryText, sendText } from "../commsActions";
 import { EmailComposer, takeGmailNotice, type EmailComposeView } from "./EmailComposer";
 import {
@@ -72,16 +74,21 @@ function useRun() {
     return () => clearTimeout(t);
   }, [done]);
 
+  // Every result is ALSO a toast (1 Oct 2026): the inline line sits wherever
+  // the control is, and Luis missed it. The toast is in the same place every
+  // time, and it survives the row or panel that triggered it closing.
   function run(call: () => Promise<Result>, ok: string, after?: () => void, onFail?: () => void) {
     setError(null);
     setDone(null);
     start(async () => {
-      const res = await call();
+      const res = await safeCall(call);
       if (res.ok) {
         setDone(ok);
+        toast.success(ok);
         after?.();
       } else {
         setError(res.error);
+        toast.error("Not saved", res.error);
         onFail?.();
       }
     });
@@ -110,13 +117,19 @@ function Status({ pending, done, error }: { pending: boolean; done: string | nul
   );
 }
 
-/** Escape inside a sub-form closes the sub-form, not the whole card. */
+/**
+ * Escape inside a sub-form closes the sub-form, not the whole card — unless
+ * the cursor is in a box with something typed in it, where a stray Escape
+ * would throw the draft away. There, Escape is swallowed (so the card stays
+ * open too); Close or Cancel discards on purpose.
+ */
 function escapeCloses(onClose: () => void) {
   return (e: React.KeyboardEvent) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      onClose();
-    }
+    if (e.key !== "Escape") return;
+    e.preventDefault();
+    const t = e.target as HTMLInputElement | HTMLTextAreaElement | null;
+    const typing = !!t && (t.tagName === "TEXTAREA" || t.tagName === "INPUT") && typeof t.value === "string" && t.value.trim() !== "";
+    if (!typing) onClose();
   };
 }
 
@@ -263,7 +276,7 @@ export function QuickActions({
                 disabled={pending}
                 title={a.hint}
                 aria-label={`${a.label} with ${name}. ${a.hint}`}
-                onClick={() => run(() => logContact(applicationId, a.kind, "", from), a.done)}
+                onClick={() => run(() => logContact(applicationId, a.kind, "", from), a.done, () => setLogOpen(false))}
               >
                 <Icon size={13} aria-hidden="true" />
                 {a.label}
@@ -343,7 +356,7 @@ export function QuickActions({
           onSubmit={(e) => {
             e.preventDefault();
             if (!note.trim()) return;
-            run(() => logContact(applicationId, "note", note, from), "Note saved", () => { setNote(""); setPanel(null); });
+            run(() => logContact(applicationId, "note", note, from), "Note saved", () => { setNote(""); setPanel(null); setLogOpen(false); });
           }}
         >
           <label htmlFor={`${ids}-note-text`} className="sr-only">Note on {name}</label>
@@ -485,15 +498,19 @@ function TextComposer({
     if (!canSend) return;
     setResult(null);
     start(async () => {
-      const res = await sendText({ applicationId }, trimmed, key, from);
+      const res = await safeCall(() => sendText({ applicationId }, trimmed, key, from));
       if (res.ok) {
         setText("");
         setKey(newSendKey());
-        setResult({ ok: true, message: res.status === "already_sent" ? "Already sent." : "Sent — it is on the timeline below." });
+        // Done means done: confirm where Luis is looking, and close the panel.
+        toast.success(res.status === "already_sent" ? "Already sent" : `Text sent to ${name}`, "It's on the timeline below.");
+        onClose();
         return;
       }
-      if (res.status === "failed" || res.status === "blocked") setKey(newSendKey());
-      setResult({ ok: false, message: res.error });
+      const st = (res as { status?: string }).status;
+      if (st === "failed" || st === "blocked") setKey(newSendKey());
+      // No status = the request never came back: it may or may not have arrived.
+      setResult({ ok: false, message: st ? res.error : "The connection dropped while sending. Check the timeline below before sending again — pressing Send again cannot text them twice." });
     });
   }
 
@@ -582,8 +599,9 @@ export function RetryTextButton({ outboundId, from }: { outboundId: string; from
         title="Try sending this text again. Consent is checked again first."
         onClick={() =>
           start(async () => {
-            const res = await retryText(outboundId, from);
+            const res = await safeCall(() => retryText(outboundId, from));
             setMsg(res.ok ? { ok: true, text: res.message } : { ok: false, text: res.error });
+            if (res.ok) toast.success("Text sent", res.message); else toast.error("Not sent", res.error);
           })
         }
       >
@@ -740,8 +758,9 @@ export function TaskPanel({
     setError(null);
     startTick(async () => {
       setTick({ id: task.id, on });
-      const res = await toggleTask(task.id, on, from);
-      if (!res.ok) setError(`"${task.title}" was not updated: ${res.error}`);
+      const res = await safeCall(() => toggleTask(task.id, on, from));
+      if (res.ok) toast.success(on ? "Task done" : "Task reopened", task.title);
+      else { setError(`"${task.title}" was not updated: ${res.error}`); toast.error("Task not updated", res.error); }
     });
   }
 

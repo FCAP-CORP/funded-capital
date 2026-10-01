@@ -4,6 +4,7 @@
  */
 import { EMAIL_TEMPLATES, fillTemplate, greetingName, templateByKey } from "./emailTemplates";
 import { parseEmailDraft } from "../comms/email";
+import { programWords } from "./view";
 
 let pass = 0, fail = 0;
 const check = (name: string, cond: boolean, detail: string) => {
@@ -50,6 +51,15 @@ check("…'Hi there,'", bare.body.startsWith("Hi there,"), "");
 check("…'your project'", bare.body.includes("about your project."), "");
 const docs = fillTemplate(templateByKey("documents")!, full);
 check("documents: short subject uses the street", docs.subject === "Next step on 358 Cozart Ave SW: a few documents", docs.subject);
+
+console.log("\n=== 4. A missing or non-product programme never reads 'your — project' ===");
+for (const junk of ["—", "Multiple", "Not our product", " ", "unknown"]) {
+  const f = fillTemplate(templateByKey("first-reply")!, { ...empty, program: junk });
+  const all = `${f.subject}\n${f.body}`;
+  check(`program "${junk}": subject is 'Your loan request'`, f.subject === "Your loan request", f.subject);
+  check(`program "${junk}": body says 'your project'`, f.body.includes("about your project.") && !all.includes("—") && !/your (multiple|not our product)/i.test(all), "");
+}
+check("programWords: real products only", programWords("dscr") === "DSCR" && programWords("fix_and_flip") === "Fix & Flip" && programWords("unknown") === null && programWords("multiple") === null && programWords("not_our_product") === null && programWords(null) === null, "");
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

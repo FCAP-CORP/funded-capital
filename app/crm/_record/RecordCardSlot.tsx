@@ -25,7 +25,7 @@ import {
 import { arrangeTasks, dueLabel, nyToday, taskState } from "@/lib/crm/tasks";
 import { nyDayLabel } from "@/lib/crm/queueView";
 import { STALE_DAYS } from "@/lib/crm/board";
-import { GATE_STAGES, PRODUCT_LABEL, SOURCE_LABEL, ageLabel, displayPhone, label, money, shortDate } from "@/lib/crm/view";
+import { GATE_STAGES, PRODUCT_LABEL, programWords, SOURCE_LABEL, ageLabel, displayPhone, label, money, shortDate } from "@/lib/crm/view";
 import { CONSENT_VERSION } from "@/lib/consent";
 import { canEmail, canText } from "@/lib/comms/consent";
 import { greetingName } from "@/lib/crm/emailTemplates";
@@ -79,7 +79,7 @@ export default async function RecordCardSlot({ searchParams, from }: { searchPar
   const card = await getRecordCard(id);
   if (!card) {
     return (
-      <RecordDrawer key={id} title="Record not found">
+      <RecordDrawer key={id} id={id} title="Record not found">
         <div className="px-5 py-6 text-sm text-slate-600">
           <p>There is no deal at this link. It may have been removed, or the link was copied incompletely.</p>
         </div>
@@ -184,7 +184,7 @@ function Card({ card, from }: { card: RecordCardData; from: CrmRoute }) {
       firstName: greetingName(contact?.name),
       street,
       address: street ? [street, cityState].filter(Boolean).join(", ") : null,
-      program: app.product ? label(PRODUCT_LABEL, app.product) : null,
+      program: programWords(app.product),
     },
   };
 
@@ -244,7 +244,7 @@ function Card({ card, from }: { card: RecordCardData; from: CrmRoute }) {
   const others = card.participants.slice(1);
 
   return (
-    <RecordDrawer title={name} badges={badges} contactLine={contactLine}>
+    <RecordDrawer id={app.id} title={name} badges={badges} contactLine={contactLine}>
       {/* ------------------------------------------------ quick actions */}
       <div className="border-b border-slate-100 bg-slate-50 px-5 py-4">
         <QuickActions applicationId={app.id} name={name} stage={app.stage} tel={tel} textGate={textGate} emailView={emailView} from={from} />

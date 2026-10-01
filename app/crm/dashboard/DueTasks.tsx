@@ -1,6 +1,8 @@
 "use client";
 
 import { useOptimistic, useState, useTransition } from "react";
+import { toast } from "@/components/ui/toast";
+import { safeCall } from "@/lib/crm/safeCall";
 import { toggleTask } from "../actions";
 import { RecordLink } from "../_record/RecordCardProvider";
 
@@ -43,8 +45,9 @@ export function DueTasks({ items }: { items: DueTaskItem[] }) {
     setError(null);
     start(async () => {
       setTick({ id: task.id, on });
-      const res = await toggleTask(task.id, on, HERE);
-      if (!res.ok) setError(`"${task.title}" was not updated: ${res.error}`);
+      const res = await safeCall(() => toggleTask(task.id, on, HERE));
+      if (res.ok) toast.success(on ? "Task done" : "Task reopened", task.title);
+      else { setError(`"${task.title}" was not updated: ${res.error}`); toast.error("Task not updated", res.error); }
     });
   }
 

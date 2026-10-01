@@ -21,7 +21,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { assertCrmStaff } from "@/lib/crm/access";
 import { fillTemplate, greetingName, templateByKey } from "./emailTemplates";
-import { PRODUCT_LABEL, label } from "./view";
+import { programWords } from "./view";
 import { CHECKIN_STEP, TS_SERIES, UNSURE_AFTER_MINUTES, followupFor, sortDue, type DueFollowup, type TsDeal } from "./termSheetFollowups";
 
 type Row = Record<string, unknown>;
@@ -121,7 +121,7 @@ export async function getTermSheetFollowups(now: Date, senderFirstName: string |
     if (!t) continue;
     const street = str(r.address_line1)?.trim() || null;
     const cityState = [str(r.city), str(r.prop_state)].filter(Boolean).join(" ");
-    const program = r.product ? label(PRODUCT_LABEL, String(r.product)) : null;
+    const program = programWords(r.product == null ? null : String(r.product));
     const filled = fillTemplate(t, {
       firstName: greetingName(str(r.first_name)),
       street,

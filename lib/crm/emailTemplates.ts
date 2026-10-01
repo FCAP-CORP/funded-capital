@@ -181,11 +181,14 @@ export function greetingName(raw: string | null | undefined): string | null {
  * placeholder in a borrower's inbox.
  */
 export function fillTemplate(t: EmailTemplate, v: TemplateVars): { subject: string; body: string } {
-  const theDeal = v.address ? `the property at ${v.address}` : v.program ? `your ${v.program} project` : "your project";
-  const theDealShort = v.street ?? (v.program ? `your ${v.program} project` : "your project");
+  // Belt and braces: a programme with no letters ("—") or a non-product label
+  // never reaches a borrower's inbox as "your — project".
+  const program = v.program && /[A-Za-z]/.test(v.program) && !/^(multiple|not our product|unknown)$/i.test(v.program.trim()) ? v.program.trim() : null;
+  const theDeal = v.address ? `the property at ${v.address}` : program ? `your ${program} project` : "your project";
+  const theDealShort = v.street ?? (program ? `your ${program} project` : "your project");
   const map: Record<string, string> = {
     firstName: v.firstName ?? "there",
-    program: v.program ?? "",
+    program: program ?? "",
     theDeal,
     theDealShort,
     senderFirstName: v.senderFirstName ?? "Luis",

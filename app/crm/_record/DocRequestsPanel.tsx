@@ -3,6 +3,8 @@
 import { useEffect, useId, useState, useTransition } from "react";
 import { Check, CircleCheck, FileText, ListChecks, Loader2, Plus, RotateCcw, Trash2, Undo2, X } from "lucide-react";
 import { MAX_LABEL, MAX_NOTE, STAFF_STATUS_LABEL, docSummary, type DocStatus } from "@/lib/crm/docRequests";
+import { toast } from "@/components/ui/toast";
+import { safeCall } from "@/lib/crm/safeCall";
 import { addDocRequest, createDocList, moveDocRequest, type CrmRoute } from "../actions";
 
 /**
@@ -61,8 +63,9 @@ function useRun() {
     setError(null);
     setDone(null);
     start(async () => {
-      const res = await call();
-      if (res.ok) { setDone(ok); after?.(); } else setError(res.error);
+      const res = await safeCall(call);
+      if (res.ok) { setDone(ok); toast.success(ok); after?.(); }
+      else { setError(res.error); toast.error("Not saved", res.error); }
     });
   }
   return { pending, error, done, run };

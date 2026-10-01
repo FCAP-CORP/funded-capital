@@ -5,6 +5,8 @@ import { Check, Link2, Loader2, Mail, Send, ShieldAlert } from "lucide-react";
 import { MAX_EMAIL_BODY, MAX_EMAIL_SUBJECT, GMAIL_STATUS_TEXT } from "@/lib/comms/email";
 import { EMAIL_TEMPLATES, fillTemplate, templateByKey, type TemplateVars } from "@/lib/crm/emailTemplates";
 import { emailPanelInfo, sendEmail, settleSend, type EmailPanelInfo } from "../emailActions";
+import { toast } from "@/components/ui/toast";
+import { safeCall } from "@/lib/crm/safeCall";
 import type { CrmRoute } from "../actions";
 
 /**
@@ -85,7 +87,10 @@ export function EmailComposer({
 
   useEffect(() => {
     let live = true;
-    emailPanelInfo().then((r) => { if (live) setInfo(r); });
+    emailPanelInfo()
+      .then((r) => { if (live) setInfo(r); })
+      // Never spin for ever: a failed check says so, and the panel can be closed.
+      .catch(() => { if (live) setInfo({ ok: false, error: "Could not check your Gmail connection. Close this and try again." }); });
     return () => { live = false; };
   }, []);
 
@@ -123,39 +128,42 @@ export function EmailComposer({
     if (!canSend) return;
     setResult(null);
     start(async () => {
-      const res = await sendEmail(applicationId, { subject, body, templateKey }, key, from);
+      const res = await safeCall(() => sendEmail(applicationId, { subject, body, templateKey }, key, from));
       if (res.ok) {
         setKey(newSendKey());
-        setTouched(false);
-        pick("blank");
-        setResult({ ok: true, message: res.status === "already_sent" ? "Already sent." : "Sent from your Gmail — it is on the timeline below and in your Sent folder." });
+        // Done means done (1 Oct 2026): a toast where Luis is looking, and the
+        // panel closes. The email is on the timeline below and in Gmail Sent.
+        toast.success(res.status === "already_sent" ? "Already sent" : `Email sent to ${name}`, "It's in your Gmail Sent folder and on the timeline below.");
+        onClose();
         return;
       }
-      if (res.status === "failed" || res.status === "blocked" || res.status === "invalid") setKey(newSendKey());
-      setResult({ ok: false, message: res.error });
-      if (res.status === "unknown") setUnsure(true);
+      const st = (res as { status?: string }).status;
+      if (st === "failed" || st === "blocked" || st === "invalid") setKey(newSendKey());
+      // No status = the request never came back: treat it like Gmail not answering.
+      setResult({ ok: false, message: st ? res.error : "The connection dropped while sending. Check your Gmail Sent folder before sending again." });
+      if (st === "unknown" || !st) setUnsure(true);
     });
   }
 
   // Gmail gave no clear answer; Luis checked his Sent folder and it is not there.
   function notInSent() {
     start(async () => {
-      const r = await settleSend(key, "not_sent", from);
+      const r = await safeCall(() => settleSend(key, "not_sent", from));
       if (!r.ok) { setResult({ ok: false, message: r.error }); return; }
       setUnsure(false);
       setResult(null);
       const fresh = newSendKey();
       setKey(fresh);
-      const res = await sendEmail(applicationId, { subject, body, templateKey }, fresh, from);
+      const res = await safeCall(() => sendEmail(applicationId, { subject, body, templateKey }, fresh, from));
       if (res.ok) {
         setKey(newSendKey());
-        setTouched(false);
-        pick("blank");
-        setResult({ ok: true, message: "Sent from your Gmail — it is on the timeline below and in your Sent folder." });
+        toast.success(`Email sent to ${name}`, "It's in your Gmail Sent folder and on the timeline below.");
+        onClose();
         return;
       }
-      if (res.status === "unknown") setUnsure(true);
-      else if (res.status === "failed" || res.status === "blocked" || res.status === "invalid") setKey(newSendKey());
+      const st = (res as { status?: string }).status;
+      if (st === "unknown" || !st) setUnsure(true);
+      else if (st === "failed" || st === "blocked" || st === "invalid") setKey(newSendKey());
       setResult({ ok: false, message: res.error });
     });
   }
@@ -185,6 +193,7 @@ export function EmailComposer({
         <p className="inline-flex items-center gap-1.5 text-xs text-slate-500">
           <Loader2 size={13} className="animate-spin" aria-hidden="true" /> Checking your Gmail connection…
         </p>
+        <button type="button" className={`${btn} self-start`} onClick={onClose}>Close</button>
       </div>
     );
   }
@@ -224,7 +233,12 @@ export function EmailComposer({
     <form
       id={id}
       className={shell}
-      onKeyDown={(e) => { if (e.key === "Escape") { e.preventDefault(); onClose(); } }}
+      onKeyDown={(e) => {
+        if (e.key !== "Escape") return;
+        e.preventDefault();
+        // Escape never throws away an edited draft; Close does that on purpose.
+        if (!touched) onClose();
+      }}
       onSubmit={(e) => { e.preventDefault(); submit(); }}
     >
       {Notice}

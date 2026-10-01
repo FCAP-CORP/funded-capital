@@ -4,6 +4,8 @@ import { useEffect, useId, useRef, useState, useTransition } from "react";
 import {
   AlarmClock, Check, Loader2, Mail, MessageSquare, MoreHorizontal, Phone, StickyNote, Undo2,
 } from "lucide-react";
+import { toast } from "@/components/ui/toast";
+import { safeCall } from "@/lib/crm/safeCall";
 import { MAX_NOTE_LENGTH } from "@/lib/crm/followup";
 import { LOG_ACTIONS, snoozeOptions, stageOptions, type SnoozeOption } from "@/lib/crm/queueView";
 import { clearSnooze, logContact, markLost, setSnooze, setStage } from "../actions";
@@ -120,12 +122,16 @@ export function QueueRowActions({
     setError(null);
     setDone(null);
     start(async () => {
-      const res = await call();
+      const res = await safeCall(call);
       if (res.ok) {
         setDone(ok);
+        // A toast as well: the row usually leaves the queue on success and
+        // takes its inline "Call logged" with it.
+        toast.success(ok);
         after?.();
       } else {
         setError(res.error);
+        toast.error("Not saved", res.error);
         onFail?.();
       }
     });
@@ -351,8 +357,9 @@ export function BringBackButton({ applicationId, name }: { applicationId: string
         onClick={() => {
           setError(null);
           start(async () => {
-            const res: Result = await clearSnooze(applicationId, HERE);
-            if (!res.ok) setError(res.error);
+            const res = await safeCall<Result>(() => clearSnooze(applicationId, HERE));
+            if (!res.ok) { setError(res.error); toast.error("Not brought back", res.error); }
+            else toast.success(`${name} is back in the queue`);
           });
         }}
       >

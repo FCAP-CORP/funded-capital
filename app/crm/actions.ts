@@ -44,6 +44,9 @@ async function requireUser(): Promise<string> {
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
+/** Shown when a save fails for a reason Luis cannot act on (the detail goes to the server log). */
+const SAVE_FAILED = "That didn't save. Try again in a moment, or refresh the page.";
+
 /**
  * The routes an action in this file may be called from, and so may refresh.
  *
@@ -593,36 +596,56 @@ export async function deleteTask(
  * is open on (`from`, guard §8b).
  */
 export async function createDocList(applicationId: string, from: CrmRoute): Promise<ActionResult> {
-  const userId = await requireUser();
-  const r = await createDocListRows(applicationId, userId);
-  if (r.ok) {
-    tellBrokerDocs(applicationId, null, false, await senderOf(userId));
-    revalidateFrom(from, "/crm");
+  try {
+    const userId = await requireUser();
+    const r = await createDocListRows(applicationId, userId);
+    if (r.ok) {
+      tellBrokerDocs(applicationId, null, false, await senderOf(userId));
+      revalidateFrom(from, "/crm");
+    }
+    return r;
+  } catch (err) {
+    console.error("[crm] createDocList failed", err);
+    return { ok: false, error: SAVE_FAILED };
   }
-  return r;
 }
 
 export async function addDocRequest(applicationId: string, label: string, note: string, from: CrmRoute): Promise<ActionResult> {
-  const userId = await requireUser();
-  const r = await addDocRequestRow(applicationId, label, note, userId);
-  if (!r.ok) return r;
-  tellBrokerDocs(applicationId, [r.id], true, await senderOf(userId));
-  revalidateFrom(from, "/crm");
-  return { ok: true };
+  try {
+    const userId = await requireUser();
+    const r = await addDocRequestRow(applicationId, label, note, userId);
+    if (!r.ok) return r;
+    tellBrokerDocs(applicationId, [r.id], true, await senderOf(userId));
+    revalidateFrom(from, "/crm");
+    return { ok: true };
+  } catch (err) {
+    console.error("[crm] addDocRequest failed", err);
+    return { ok: false, error: SAVE_FAILED };
+  }
 }
 
 export async function moveDocRequest(requestId: string, move: string, note: string, from: CrmRoute): Promise<ActionResult> {
-  const userId = await requireUser();
-  const r = await moveDocRequestRow(requestId, move, note, userId);
-  if (r.ok) revalidateFrom(from, "/crm");
-  return r;
+  try {
+    const userId = await requireUser();
+    const r = await moveDocRequestRow(requestId, move, note, userId);
+    if (r.ok) revalidateFrom(from, "/crm");
+    return r;
+  } catch (err) {
+    console.error("[crm] moveDocRequest failed", err);
+    return { ok: false, error: SAVE_FAILED };
+  }
 }
 
 /** The record card's "Email the broker about this deal" switch. */
 export async function setBrokerUpdates(applicationId: string, on: boolean, from: CrmRoute): Promise<ActionResult> {
-  await requireUser();
-  const ok = await setBrokerUpdatesOff(applicationId, !on);
-  if (!ok) return { ok: false, error: "Deal not found." };
-  revalidateFrom(from, "/crm");
-  return { ok: true };
+  try {
+    await requireUser();
+    const ok = await setBrokerUpdatesOff(applicationId, !on);
+    if (!ok) return { ok: false, error: "Deal not found." };
+    revalidateFrom(from, "/crm");
+    return { ok: true };
+  } catch (err) {
+    console.error("[crm] setBrokerUpdates failed", err);
+    return { ok: false, error: SAVE_FAILED };
+  }
 }

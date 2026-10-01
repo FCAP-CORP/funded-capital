@@ -3,20 +3,26 @@
 import { useState, useTransition, useRef, useEffect } from "react";
 import { Check, Loader2, AlertCircle } from "lucide-react";
 import { STAGE_ORDER, STAGE_LABEL, GATE_STAGES } from "@/lib/crm/view";
+import { toast } from "@/components/ui/toast";
+import { safeCall } from "@/lib/crm/safeCall";
 
 /**
  * The two in-place editors the grid uses.
  *
  * Both are optimistic with an honest failure: the new value shows immediately,
- * and if the write is rejected the field snaps back to what the database
- * actually holds and says so. A CRM that silently keeps a failed edit on screen
- * is worse than one that never had inline editing, because the operator walks
- * away believing the deal moved.
+ * and if the write is rejected it SAYS SO in words — red text under the field
+ * and a toast, never only an icon. A CRM that silently keeps a failed edit on
+ * screen is worse than one that never had inline editing, because the operator
+ * walks away believing the deal moved.
+ *
+ * On failure a stage snaps back to what the database holds. A text field KEEPS
+ * what was typed (marked unsaved), so a dropped connection never throws away a
+ * paragraph of notes; leaving the field again retries the save.
  */
 
 type Result = { ok: true } | { ok: false; error: string };
 
-function useSaver<T>(initial: T, save: (v: T) => Promise<Result>) {
+function useSaver<T>(initial: T, save: (v: T) => Promise<Result>, keepOnFail = false) {
   const [value, setValue] = useState<T>(initial);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -30,18 +36,22 @@ function useSaver<T>(initial: T, save: (v: T) => Promise<Result>) {
   }, [initial]);
 
   function commit(next: T) {
-    if (next === committed.current) return;
+    if (next === committed.current) {
+      setError(null);
+      return;
+    }
     setValue(next);
     setError(null);
     start(async () => {
-      const res = await save(next);
+      const res = await safeCall(() => save(next));
       if (res.ok) {
         committed.current = next;
         setSaved(true);
         setTimeout(() => setSaved(false), 1600);
       } else {
-        setValue(committed.current); // snap back to the truth
+        if (!keepOnFail) setValue(committed.current); // snap back to the truth
         setError(res.error);
+        toast.error("Not saved", res.error);
       }
     });
   }
@@ -92,7 +102,7 @@ export function StageSelect({
         {!STAGE_ORDER.includes(s.value) && <option value={s.value}>{s.value}</option>}
       </select>
       <Status pending={s.pending} saved={s.saved} error={s.error} />
-      {s.error && <span className="sr-only">{s.error}</span>}
+      {s.error && <span className="sr-only" role="alert">{s.error}</span>}
     </div>
   );
 }
@@ -123,7 +133,7 @@ export function InlineText({
    */
   compact?: boolean;
 }) {
-  const s = useSaver(initial ?? "", (v) => onSave(id, field ?? "", v));
+  const s = useSaver(initial ?? "", (v) => onSave(id, field ?? "", v), true);
 
   const shared = {
     value: s.value,
@@ -137,6 +147,7 @@ export function InlineText({
   };
 
   return (
+    <div>
     <div className="flex items-start gap-1.5">
       {multiline ? (
         <textarea
@@ -158,6 +169,10 @@ export function InlineText({
         />
       )}
       <span className="pt-1.5"><Status pending={s.pending} saved={s.saved} error={s.error} /></span>
+    </div>
+      {s.error && (
+        <p role="alert" className="mt-0.5 px-2 text-[11px] leading-snug text-red-600">Not saved. Click away to try again. {s.error}</p>
+      )}
     </div>
   );
 }

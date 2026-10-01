@@ -2,6 +2,8 @@
 
 import { useOptimistic, useTransition } from "react";
 import { setBrokerUpdates, type CrmRoute } from "../actions";
+import { toast } from "@/components/ui/toast";
+import { safeCall } from "@/lib/crm/safeCall";
 
 /**
  * "Email the broker when this deal moves" — Luis's per-deal switch for the
@@ -23,7 +25,11 @@ export function BrokerUpdatesToggle({ applicationId, on, from }: { applicationId
           const next = e.target.checked;
           start(async () => {
             setShown(next);
-            await setBrokerUpdates(applicationId, next, from);
+            // This switch decides whether the broker is emailed on the next
+            // move, so a silent failure is not acceptable: say what happened.
+            const res = await safeCall(() => setBrokerUpdates(applicationId, next, from));
+            if (res.ok) toast.success(next ? "Broker emails on for this deal" : "Broker emails off for this deal", next ? "The broker hears about stage moves and document requests." : "Nothing is sent to the broker until you tick it again.");
+            else toast.error("Not changed — broker emails are still " + (next ? "off" : "on"), (res as { error?: string }).error);
           });
         }}
         className="mt-0.5 h-3.5 w-3.5 rounded border-slate-300 accent-navy-900"

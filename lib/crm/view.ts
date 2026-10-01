@@ -95,6 +95,16 @@ export const PRODUCT_LABEL: Record<string, string> = {
   unknown: "—",
 };
 
+/**
+ * The loan programme as words for an email or a deal line — only for a real
+ * product. "unknown" ("—"), "multiple" and "not_our_product" return null, so a
+ * template falls back to "your project" instead of "your — project".
+ */
+export const REAL_PRODUCTS = ["fix_and_flip", "ground_up", "dscr", "bridge", "multifamily"] as const;
+export function programWords(product: string | null | undefined): string | null {
+  return product && (REAL_PRODUCTS as readonly string[]).includes(product) ? PRODUCT_LABEL[product] : null;
+}
+
 export const SOURCE_LABEL: Record<string, string> = {
   website: "Website",
   biggerpockets: "BiggerPockets",

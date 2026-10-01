@@ -20,14 +20,26 @@ import type { CrmRoute } from "../actions";
  * click paints an empty drawer at once, from the browser, and the real card
  * replaces it the moment it arrives.
  *
- * CLOSING. If this page pushed the card onto history, close goes BACK — so
- * Back and the close button do the same thing and history does not fill up
- * with open/close pairs. A card that arrived by link (nothing to go back to
- * inside this page) closes by replacing the address instead.
+ * CLOSING (rewritten 1 Oct 2026: Luis had to press X twice). Two changes:
+ *
+ * 1. The card disappears ON THE CLICK, in the browser, before any navigation:
+ *    `hidden` names the card that was closed and RecordDrawer renders nothing
+ *    for it. A server re-render that arrives late (a refresh from the note or
+ *    email just saved, still in flight when X was pressed) can no longer put
+ *    the card back on screen.
+ * 2. Close REPLACES the address with the bare page instead of going Back.
+ *    Back depended on knowing that this page had pushed the card — not true
+ *    for a card opened from ⌘K or a link — and when it guessed wrong, X went
+ *    back to the previous card instead of closing. Replace is the same every
+ *    time; the browser's Back button still closes a card it opened.
  */
 
 type Ctx = {
   here: CrmRoute;
+  /** The card just closed, hidden at once while the address catches up. */
+  hidden: string | null;
+  /** Called when a closed card has left the page, so opening it again (⌘K, a link) shows it. */
+  unhide: (applicationId: string) => void;
   href: (applicationId: string) => string;
   open: (applicationId: string) => void;
   close: () => void;
@@ -44,8 +56,8 @@ export function useRecordCard(): Ctx | null {
 export function RecordCardProvider({ here, children }: { here: CrmRoute; children: React.ReactNode }) {
   const router = useRouter();
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [hidden, setHidden] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  const pushed = useRef(false);
   const opener = useRef<HTMLElement | null>(null);
 
   const href = useCallback((id: string) => `${here}?open=${encodeURIComponent(id)}`, [here]);
@@ -53,9 +65,9 @@ export function RecordCardProvider({ here, children }: { here: CrmRoute; childre
   const open = useCallback(
     (id: string) => {
       opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setHidden(null);
       setPendingId(id);
       start(() => {
-        pushed.current = true;
         router.push(href(id), { scroll: false });
       });
     },
@@ -63,12 +75,13 @@ export function RecordCardProvider({ here, children }: { here: CrmRoute; childre
   );
 
   const close = useCallback(() => {
-    if (pushed.current) {
-      pushed.current = false;
-      router.back();
-    } else {
-      router.replace(here, { scroll: false });
-    }
+    const params = new URLSearchParams(window.location.search);
+    setHidden(params.get("open"));
+    setPendingId(null);
+    // Keep anything else in the address (a filter, a tab); drop only the card.
+    params.delete("open");
+    const rest = params.toString();
+    router.replace(rest ? `${here}?${rest}` : here, { scroll: false });
   }, [router, here]);
 
   const returnFocus = useCallback(() => {
@@ -79,12 +92,14 @@ export function RecordCardProvider({ here, children }: { here: CrmRoute; childre
     if (el && el.isConnected) el.focus({ preventScroll: true });
   }, []);
 
-  const value = useMemo(() => ({ here, href, open, close, returnFocus }), [here, href, open, close, returnFocus]);
+  const unhide = useCallback((id: string) => setHidden((h) => (h === id ? null : h)), []);
+
+  const value = useMemo(() => ({ here, hidden, unhide, href, open, close, returnFocus }), [here, hidden, unhide, href, open, close, returnFocus]);
 
   return (
     <RecordCardContext.Provider value={value}>
       {children}
-      {pending && pendingId && <DrawerSkeleton />}
+      {pending && pendingId && pendingId !== hidden && <DrawerSkeleton />}
     </RecordCardContext.Provider>
   );
 }

@@ -1386,3 +1386,38 @@ runs in production before the push** (widens `nurture_enrollments_stop_reason_ch
 - Verified: every regress suite passes (guards 431); Postgres harnesses nurture 49, cockpit 48,
   cockpit2 89, documents 44, broker updates 34, follow-ups 40; scratch `next build` passes; each fix
   mutation-tested (break it, watch a test fail, restore).
+
+### Record card polish (1 Oct 2026)
+
+From Luis's first days of daily use: after sending an email or logging a note the panel stayed
+open with only a small green line under it ("I almost thought it didn't send"), and X had to be
+pressed twice to close the card.
+
+- **Every save answers with a toast** (`components/ui/toast`, mounted in `WorkspaceShell`) and the
+  panel that did the work closes: Email, Text, Log a call/meeting, Save note. Failures keep the
+  panel open with the draft intact and say why. Same for the dashboard queue buttons, tasks,
+  documents and the broker-email switch.
+- **`lib/crm/safeCall.ts` wraps every client call to a server action.** A dropped connection or a
+  deploy mid-session used to throw inside a transition and leave a button spinning or the page on
+  Next's error screen; now it returns `{ ok: false, error: OFFLINE_MESSAGE }` like any refusal.
+  New client code calling an action should go through it.
+- **X closes in one click.** `RecordCardProvider.close()` hides the card in the browser at once
+  (`hidden`; `RecordDrawer` renders nothing for that id, which unmounts the panel and runs its
+  clean-up) and then `router.replace`s the address without `?open`, keeping any other params. It no
+  longer uses `router.back()`, which went to the previous card when the card had been opened from
+  ⌘K or a link. A server refresh arriving late cannot put a closed card back.
+- **Escape never throws away a draft.** The email form closes on Escape only when untouched;
+  Escape in a field with text is left to the field.
+- **The email panel can't spin forever**: `emailPanelInfo` failing shows a sentence and Close.
+- **`app/crm/error.tsx`**: any `/crm` page that fails to load shows a plain sentence, Try again and
+  Reload, inside the CRM frame — not Next's blank error. The four document/broker-switch actions
+  that could throw now return `{ ok: false }` with `SAVE_FAILED` and log the detail.
+- **Inline edits (`app/crm/Editable.tsx`) fail out loud**: red text under the field and a toast. A
+  text field keeps what was typed (blur retries); a stage snaps back to the database's value.
+- **"your — project" is gone.** Templates received `PRODUCT_LABEL.unknown` ("—"). `programWords()`
+  in `lib/crm/view.ts` returns words only for the five real products, and `fillTemplate` refuses a
+  programme with no letters or a non-product label as well. `emailTemplates.regress.ts` §4
+  (mutation-tested).
+- Verified: guards 433, guards.ui 68, all regress suites, follow-ups Postgres harness 50, scratch
+  `next build`. Not changed: removing a document item still has no undo, and adding an item
+  emails the broker at once (by design, 30 Sep).
