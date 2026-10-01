@@ -1148,6 +1148,16 @@ book: the drips cover new leads' first two weeks, Klaviyo covers people quiet fo
   `ts-checkin` ("How did … turn out? Working on something new?") and nothing after it, or nothing at
   all if ts-4 already went. Check-ins list after live term sheets, newest first; the row says "Dead
   deal? Close it as lost on the card." 58 tests; Postgres harness 42.
+- **Unknown sends are settled by Luis (1 Oct 2026).** A ts-1 to cdwesselhoft@gmail.com got no
+  answer from Gmail (timeout or 5xx); the row stayed `sending`, the panel kept the key, and every
+  press replayed "This email may already have gone…" with no way forward — while it had NOT gone.
+  Now: a `sending` row under `UNSURE_AFTER_MINUTES` (10) counts as done (in flight); an older one is
+  shown again on the dashboard FLAGGED (`unsureKey`, its own stored subject/body) with two buttons —
+  **Not in my Sent folder: send it now** (`settleSend` → `settleUnknownSend` marks it `failed`, then
+  sends with a NEW key) and **It's in my Sent folder** (marks it `sent`, dated when tried). Only the
+  person who tried it, only while still `sending`, only after a minute. The record card's composer
+  gets the same "send it now" button after an unknown result. Guard §16 allows exactly two send
+  calls in FollowUps (Send, and send-after-settle). Postgres harness 50.
 
 ### Saved applications in the broker portal (28 Sep 2026)
 
@@ -1342,8 +1352,8 @@ runs in production before the push** (widens `nurture_enrollments_stop_reason_ch
   then the history row only if that update landed (matched on its exact `stage_entered_at`), and the
   document-list seed carries the same guard (`seedRequestsSql(…, { to, at })`). A refused move tells
   Luis "This deal changed while you had it open. Refresh the page and try again." Guard §19.
-- **A term-sheet nudge whose send outcome is unknown counts as done** (`followups.server.ts`
-  counts `sent` or `sending`), so an uncertain send is never followed by the same step again.
+- ~~A term-sheet nudge whose send outcome is unknown counts as done~~ — replaced 1 Oct 2026, see
+  "Unknown sends are settled by Luis" below.
 - **One blog post a morning.** `decideRun` (`lib/marketing/dailyBlog.ts`) runs before anything is
   claimed: a blog request claimed under 20 minutes ago and still being written blocks the run, even
   with `?force=1`; a draft already landed today (New York date) blocks unless forced; a claim older

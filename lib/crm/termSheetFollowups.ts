@@ -192,7 +192,16 @@ export type DueFollowup = {
   daysSinceTermSheet: number;
   subject: string;
   body: string;
+  /**
+   * Set when the last Send for this step got no clear answer from Gmail
+   * (outbound row stuck at `sending`). The dashboard asks Luis to check his
+   * Sent folder and settle it, instead of counting it done or resending blind.
+   */
+  unsureKey?: string | null;
 };
+
+/** A `sending` row younger than this is a send in flight and counts as done; older is "unsure". */
+export const UNSURE_AFTER_MINUTES = 10;
 
 export function isFollowupTemplate(key: string | null | undefined): boolean {
   return !!key && TS_TEMPLATE_KEYS.includes(key);

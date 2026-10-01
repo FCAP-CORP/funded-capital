@@ -8,7 +8,7 @@ import { toast } from "@/components/ui/toast";
 import { MAX_EMAIL_BODY, MAX_EMAIL_SUBJECT } from "@/lib/comms/email";
 import { NOT_NOW_DAYS, TS_SERIES, isCheckin, type DueFollowup } from "@/lib/crm/termSheetFollowups";
 import { setSnooze, stopFollowups } from "../actions";
-import { sendEmail } from "../emailActions";
+import { sendEmail, settleSend } from "../emailActions";
 import { RecordLink } from "../_record/RecordCardProvider";
 
 /**
@@ -70,7 +70,9 @@ function FollowUpRow({ f }: { f: DueFollowup }) {
   const [open, setOpen] = useState(false);
   const [subject, setSubject] = useState(f.subject);
   const [body, setBody] = useState(f.body);
-  const [key, setKey] = useState(newKey);
+  // An unsure earlier send keeps ITS key, so nothing goes twice until Luis settles it.
+  const [key, setKey] = useState(() => f.unsureKey ?? newKey());
+  const [unsure, setUnsure] = useState(!!f.unsureKey);
   const [stopping, setStopping] = useState(false);
   const [notice, setNotice] = useState<{ ok: boolean; text: string; connect?: boolean } | null>(null);
   const [pending, start] = useTransition();
@@ -89,7 +91,29 @@ function FollowUpRow({ f }: { f: DueFollowup }) {
       }
       // An unknown outcome keeps the key, so pressing Send again asks the server what happened.
       if (r.status === "failed" || r.status === "blocked" || r.status === "invalid") setKey(newKey());
+      if (r.status === "unknown") { setUnsure(true); setOpen(true); setNotice(null); return; }
       setNotice({ ok: false, text: r.error, connect: r.status === "not_connected" });
+    });
+
+  // Luis looked in his Sent folder after Gmail gave no clear answer.
+  const settle = (outcome: "not_sent" | "sent") =>
+    start(async () => {
+      setNotice(null);
+      const r = await settleSend(key, outcome, HERE);
+      if (!r.ok) { setNotice({ ok: false, text: r.error }); return; }
+      if (outcome === "sent") {
+        toast.success("Marked as sent", `${f.name} — it counts as this follow-up.`);
+        return;
+      }
+      // Not sent: send it now, with a fresh key.
+      const fresh = newKey();
+      setKey(fresh);
+      setUnsure(false);
+      const s2 = await sendEmail(f.applicationId, { subject, body, templateKey: f.step.templateKey }, fresh, HERE);
+      if (s2.ok) { setKey(newKey()); toast.success(`Sent to ${f.name}`, "It's in your Gmail Sent folder and on their timeline."); return; }
+      if (s2.status === "unknown") { setUnsure(true); return; }
+      if (s2.status === "failed" || s2.status === "blocked" || s2.status === "invalid") setKey(newKey());
+      setNotice({ ok: false, text: s2.error, connect: s2.status === "not_connected" });
     });
 
   const notNow = () =>
@@ -125,6 +149,7 @@ function FollowUpRow({ f }: { f: DueFollowup }) {
               : <>Follow-up {f.step.step} of {TS_SERIES.length} · term sheet sent {f.daysSinceTermSheet} day{f.daysSinceTermSheet === 1 ? "" : "s"} ago</>}
           </p>
           {!open && <p className="mt-1 truncate text-sm text-slate-800">&ldquo;{subject}&rdquo;</p>}
+          {!open && unsure && <p className="mt-1 text-[13px] font-medium text-amber-800">Last send did not confirm. Open it to check and finish.</p>}
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           <Button size="sm" variant={open ? "secondary" : "primary"} onClick={() => setOpen((o) => !o)} aria-expanded={open}>
@@ -151,6 +176,22 @@ function FollowUpRow({ f }: { f: DueFollowup }) {
             Message
             <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} maxLength={MAX_EMAIL_BODY} disabled={pending} className={`${input} mt-1 font-normal leading-relaxed`} />
           </label>
+          {unsure && (
+            <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p>
+                Gmail did not give a clear answer when this was sent, so it may or may not have gone. Look in your Gmail
+                Sent folder for an email to {f.email} with this subject.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button size="sm" onClick={() => settle("not_sent")} loading={pending}>
+                  {!pending && <Send size={14} aria-hidden="true" />} Not in my Sent folder: send it now
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => settle("sent")} disabled={pending}>
+                  It&apos;s in my Sent folder
+                </Button>
+              </div>
+            </div>
+          )}
           {notice && (
             <p role="alert" className={`text-sm ${notice.ok ? "text-emerald-700" : "text-red-700"}`}>
               {notice.text}
@@ -162,7 +203,7 @@ function FollowUpRow({ f }: { f: DueFollowup }) {
               )}
             </p>
           )}
-          <div className="flex justify-end">
+          <div className={unsure ? "hidden" : "flex justify-end"}>
             <Button onClick={send} disabled={!canSend} loading={pending}>
               {!pending && <Send size={14} aria-hidden="true" />} Send
             </Button>

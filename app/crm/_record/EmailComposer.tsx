@@ -4,7 +4,7 @@ import { useEffect, useId, useState, useTransition } from "react";
 import { Check, Link2, Loader2, Mail, Send, ShieldAlert } from "lucide-react";
 import { MAX_EMAIL_BODY, MAX_EMAIL_SUBJECT, GMAIL_STATUS_TEXT } from "@/lib/comms/email";
 import { EMAIL_TEMPLATES, fillTemplate, templateByKey, type TemplateVars } from "@/lib/crm/emailTemplates";
-import { emailPanelInfo, sendEmail, type EmailPanelInfo } from "../emailActions";
+import { emailPanelInfo, sendEmail, settleSend, type EmailPanelInfo } from "../emailActions";
 import type { CrmRoute } from "../actions";
 
 /**
@@ -78,6 +78,7 @@ export function EmailComposer({
   const [body, setBody] = useState("");
   const [touched, setTouched] = useState(false);
   const [key, setKey] = useState(newSendKey);
+  const [unsure, setUnsure] = useState(false);
   const [pending, start] = useTransition();
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
   const ids = useId();
@@ -131,6 +132,30 @@ export function EmailComposer({
         return;
       }
       if (res.status === "failed" || res.status === "blocked" || res.status === "invalid") setKey(newSendKey());
+      setResult({ ok: false, message: res.error });
+      if (res.status === "unknown") setUnsure(true);
+    });
+  }
+
+  // Gmail gave no clear answer; Luis checked his Sent folder and it is not there.
+  function notInSent() {
+    start(async () => {
+      const r = await settleSend(key, "not_sent", from);
+      if (!r.ok) { setResult({ ok: false, message: r.error }); return; }
+      setUnsure(false);
+      setResult(null);
+      const fresh = newSendKey();
+      setKey(fresh);
+      const res = await sendEmail(applicationId, { subject, body, templateKey }, fresh, from);
+      if (res.ok) {
+        setKey(newSendKey());
+        setTouched(false);
+        pick("blank");
+        setResult({ ok: true, message: "Sent from your Gmail — it is on the timeline below and in your Sent folder." });
+        return;
+      }
+      if (res.status === "unknown") setUnsure(true);
+      else if (res.status === "failed" || res.status === "blocked" || res.status === "invalid") setKey(newSendKey());
       setResult({ ok: false, message: res.error });
     });
   }
@@ -263,6 +288,12 @@ export function EmailComposer({
           {result.ok && <Check size={12} aria-hidden="true" className="mt-px" />}
           {result.message}
         </p>
+      )}
+      {unsure && (
+        <button type="button" onClick={notInSent} disabled={pending}
+          className="self-start rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:opacity-50">
+          Not in my Sent folder: send it now
+        </button>
       )}
     </form>
   );

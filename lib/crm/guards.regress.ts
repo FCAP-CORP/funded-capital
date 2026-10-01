@@ -1331,7 +1331,11 @@ console.log("\n=== 16. Term-sheet follow-ups: Luis sends each one, through the G
   if (fuSrc) {
     const code = codeOnly(fuSrc);
     const sends = code.match(/\bsendEmail\(/g) ?? [];
-    check(`  ${FU} sends only by Luis pressing Send, through sendEmail`, sends.length === 1 && /onClick=\{send\}/.test(code), `${sends.length} send call(s)`);
+    // Two presses can send: Send, and "Not in my Sent folder: send it now" after
+    // Gmail gave no clear answer (1 Oct 2026). Both are buttons; nothing else.
+    check(`  ${FU} sends only by Luis pressing a button, through sendEmail`,
+      sends.length === 2 && /onClick=\{send\}/.test(code) && /onClick=\{\(\) => settle\("not_sent"\)\}/.test(code), `${sends.length} send call(s)`);
+    check("  ...and an unsure send is re-sent only after settleSend marks the old one not sent", /settleSend\(key, outcome, HERE\)[\s\S]*?if \(!r\.ok\)[\s\S]*?sendEmail\(/.test(code), "settle first");
     check("  ...with the series step as the template key, so the step counts as done", /templateKey: f\.step\.templateKey/.test(code), "templateKey");
     check("  ...and never sends on load", !/useEffect\(/.test(code), "no effects");
   }

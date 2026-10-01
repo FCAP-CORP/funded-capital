@@ -299,3 +299,44 @@ export async function composeInfo(userEmail: string | null): Promise<
     ? { state: "connected", email: st.email, displayName: who.sendAs.displayName, signatureHtml: who.sendAs.signature, signatureError: null }
     : { state: "connected", email: st.email, displayName: null, signatureHtml: null, signatureError: "Could not read your Gmail signature just now." };
 }
+
+/**
+ * Settle a send whose outcome was UNKNOWN (Gmail did not answer in time, or
+ * had a problem on its side). Only a person can say what happened, by looking
+ * in their Sent folder, so this is what the "Not in my Sent folder" / "It's in
+ * my Sent folder" buttons call (1 Oct 2026: a term-sheet follow-up timed out,
+ * and every retry replayed "may already have gone" with no way forward).
+ *
+ * - not_sent: the row becomes `failed`, so it no longer counts as a step done
+ *   and the caller sends again with a NEW key.
+ * - sent: the row becomes `sent` (dated when it was tried), so the step counts.
+ *
+ * Only the person who tried the send can settle it, only while it is still
+ * `sending`, and only after a minute (a send in flight is not "unknown" yet).
+ */
+export async function settleUnknownSend(
+  idempotencyKey: string,
+  userId: string,
+  outcome: "not_sent" | "sent",
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  if (!isUuid(idempotencyKey)) return { ok: false, message: "That send could not be found." };
+  const now = new Date();
+  const stillOpen = and(
+    eq(outboundEmails.idempotencyKey, idempotencyKey),
+    eq(outboundEmails.status, "sending"),
+    eq(outboundEmails.createdBy, userId),
+    sql`${outboundEmails.createdAt} < ${new Date(now.getTime() - 60_000).toISOString()}::timestamptz`,
+  );
+  const done = await db
+    .update(outboundEmails)
+    .set(
+      outcome === "not_sent"
+        ? { status: "failed", error: "Not in the Sent folder (checked by hand after Gmail did not answer)", updatedAt: now }
+        : { status: "sent", sentAt: sql`${outboundEmails.createdAt}`, error: "Found in the Sent folder by hand after Gmail did not answer", updatedAt: now },
+    )
+    .where(stillOpen)
+    .returning({ id: outboundEmails.id });
+  if (done.length) return { ok: true };
+  return { ok: false, message: "Give it a minute and try again — or it was already settled. Refresh the page." };
+}
+

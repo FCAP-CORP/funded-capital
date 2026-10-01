@@ -22,7 +22,7 @@ import { db } from "@/lib/db";
 import { assertCrmStaff } from "@/lib/crm/access";
 import { fillTemplate, greetingName, templateByKey } from "./emailTemplates";
 import { PRODUCT_LABEL, label } from "./view";
-import { followupFor, sortDue, type DueFollowup, type TsDeal } from "./termSheetFollowups";
+import { CHECKIN_STEP, TS_SERIES, UNSURE_AFTER_MINUTES, followupFor, sortDue, type DueFollowup, type TsDeal } from "./termSheetFollowups";
 
 type Row = Record<string, unknown>;
 const rowsOf = (r: unknown): Row[] => (r as { rows?: Row[] }).rows ?? (r as Row[]);
@@ -57,10 +57,12 @@ export async function getTermSheetFollowups(now: Date, senderFirstName: string |
         WHERE ac.contact_id = c.contact_id AND ac.kind IN ('email_in', 'sms_in')) AS last_inbound_at,
       (SELECT max(ac.occurred_at) FROM activities ac
         WHERE ac.contact_id = c.contact_id AND ac.kind IN ('email_out', 'sms_out', 'call')) AS last_outbound_at,
-      -- 'sending' counts as done (audit 30 Sep 2026): Gmail may have accepted
-      -- it even though the row was never marked sent, and nudging a borrower
-      -- twice is worse than skipping one nudge. Its time is when it was tried.
-      (SELECT json_agg(json_build_object('k', oe.template_key, 'at', COALESCE(oe.sent_at, oe.created_at)))
+      -- 'sent' counts as done. 'sending' is a send whose outcome is not known
+      -- yet: in flight (young) or Gmail never answered (old). Both come back
+      -- with their status; the code below decides (1 Oct 2026).
+      (SELECT json_agg(json_build_object('k', oe.template_key, 'at', COALESCE(oe.sent_at, oe.created_at),
+                                         's', oe.status, 'key', oe.idempotency_key, 'subj', oe.subject, 'body', oe.body)
+                       ORDER BY oe.created_at)
         FROM outbound_emails oe
         WHERE oe.application_id = a.id AND oe.status IN ('sent', 'sending') AND oe.template_key LIKE 'ts-%') AS sent,
       pr.address_line1, pr.city, pr.state AS prop_state
@@ -80,10 +82,20 @@ export async function getTermSheetFollowups(now: Date, senderFirstName: string |
   let upcoming = 0;
   for (const r of rows) {
     const sentRaw = jsonOf(r.sent);
-    const sent = (Array.isArray(sentRaw) ? sentRaw : [])
-      .map((x) => x as { k?: unknown; at?: unknown })
-      .map((x) => ({ templateKey: String(x.k ?? ""), at: iso(x.at) ?? "" }))
+    const attempts = (Array.isArray(sentRaw) ? sentRaw : [])
+      .map((x) => x as { k?: unknown; at?: unknown; s?: unknown; key?: unknown; subj?: unknown; body?: unknown })
+      .map((x) => ({
+        templateKey: String(x.k ?? ""), at: iso(x.at) ?? "", status: String(x.s ?? ""),
+        key: str(x.key), subject: str(x.subj), body: str(x.body),
+      }))
       .filter((x) => x.templateKey && x.at);
+    // A send still in flight counts as done, so two tabs cannot both send it.
+    // One that Gmail never answered (older than UNSURE_AFTER_MINUTES) does
+    // NOT: it is shown again, flagged, for Luis to settle from his Sent folder.
+    const unsureCutoff = now.getTime() - UNSURE_AFTER_MINUTES * 60_000;
+    const isUnsure = (x: { status: string; at: string }) => x.status === "sending" && Date.parse(x.at) < unsureCutoff;
+    const sent = attempts.filter((x) => !isUnsure(x)).map((x) => ({ templateKey: x.templateKey, at: x.at }));
+    const unsure = attempts.filter(isUnsure).pop() ?? null;
     const d: TsDeal = {
       applicationId: String(r.id),
       stage: String(r.stage),
@@ -97,10 +109,15 @@ export async function getTermSheetFollowups(now: Date, senderFirstName: string |
       sent,
     };
     const decision = followupFor(d, now);
-    if (decision.state === "upcoming") upcoming++;
-    if (decision.state !== "due") continue;
+    const termSheetMs = d.termSheetAt ? Date.parse(d.termSheetAt) : NaN;
+    const stuck = unsure && decision.state !== "off" && Date.parse(unsure.at) >= termSheetMs ? unsure : null;
+    if (decision.state === "upcoming" && !stuck) upcoming++;
+    if (decision.state !== "due" && !stuck) continue;
+    if (decision.state === "off") continue;
 
-    const t = templateByKey(decision.step.templateKey);
+    // An unsure send is shown as the step it tried, with the words it tried.
+    const step = stuck ? [...TS_SERIES, CHECKIN_STEP].find((x) => x.templateKey === stuck.templateKey) ?? decision.step : decision.step;
+    const t = templateByKey(step.templateKey);
     if (!t) continue;
     const street = str(r.address_line1)?.trim() || null;
     const cityState = [str(r.city), str(r.prop_state)].filter(Boolean).join(" ");
@@ -118,11 +135,12 @@ export async function getTermSheetFollowups(now: Date, senderFirstName: string |
       name,
       email: d.email ?? "",
       deal: [street, program].filter(Boolean).join(" · ") || "Deal",
-      step: decision.step,
-      dueAt: decision.dueAt,
+      step,
+      dueAt: stuck ? stuck.at : decision.dueAt,
       daysSinceTermSheet: decision.daysSinceTermSheet,
-      subject: filled.subject,
-      body: filled.body,
+      subject: stuck?.subject ?? filled.subject,
+      body: stuck?.body ?? filled.body,
+      unsureKey: stuck?.key ?? null,
     });
   }
   return { due: sortDue(due), upcoming };

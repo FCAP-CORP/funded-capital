@@ -3,7 +3,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 import { assertCrmStaff, signedInUser } from "@/lib/crm/access";
-import { composeInfo, executeSendEmail, type EmailStatus } from "@/lib/comms/emailOutbox.server";
+import { composeInfo, executeSendEmail, settleUnknownSend, type EmailStatus } from "@/lib/comms/emailOutbox.server";
 import { signatureToText } from "@/lib/comms/email";
 import type { CrmRoute } from "./actions";
 
@@ -108,3 +108,25 @@ export async function sendEmail(
     };
   }
 }
+
+/**
+ * After an UNKNOWN send: Luis checked his Gmail Sent folder and says whether
+ * it went. "not_sent" frees the step so he can send again with a new key;
+ * "sent" records it as sent. See settleUnknownSend.
+ */
+export async function settleSend(
+  idempotencyKey: string,
+  outcome: "not_sent" | "sent",
+  from: CrmRoute = "/crm",
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const me = await requireStaff();
+    const res = await settleUnknownSend(idempotencyKey, me.userId, outcome === "sent" ? "sent" : "not_sent");
+    if (!res.ok) return { ok: false, error: res.message };
+    revalidateFrom(from, "/crm");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error && err.message === "not signed in" ? "You are signed out. Sign in again." : "Could not update that send. Refresh and try again." };
+  }
+}
+
