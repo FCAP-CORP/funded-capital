@@ -1142,6 +1142,12 @@ book: the drips cover new leads' first two weeks, Klaviyo covers people quiet fo
   on load.
 - Verified on Postgres 16 (due, early, replied, unsubscribed, signed, step 2 after step 1, failed
   send not counted, stop, re-issue).
+- **Catch-up and old term sheets (1 Oct 2026).** Luis's first live look offered a 172-day-old term
+  sheet from the legacy CRM "making sure the term sheet reached you". Now: a missed step is skipped
+  (12 days, nothing sent → ts-3, never ts-1 late); past `SERIES_WINDOW_DAYS` (30) a deal gets ONE
+  `ts-checkin` ("How did … turn out? Working on something new?") and nothing after it, or nothing at
+  all if ts-4 already went. Check-ins list after live term sheets, newest first; the row says "Dead
+  deal? Close it as lost on the card." 58 tests; Postgres harness 42.
 
 ### Saved applications in the broker portal (28 Sep 2026)
 

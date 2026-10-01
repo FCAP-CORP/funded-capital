@@ -146,6 +146,21 @@ export const EMAIL_TEMPLATES: readonly EmailTemplate[] = [
       "And if you have another deal coming up, send it my way.\n\n" +
       "Best,",
   },
+  {
+    // One email for a term sheet older than 30 days (lib/crm/termSheetFollowups.ts
+    // SERIES_WINDOW_DAYS). That deal has almost certainly closed elsewhere or
+    // died, so it asks how it went and invites the NEXT deal — it never
+    // pretends the term sheet just went out.
+    key: "ts-checkin",
+    label: "Old term sheet — check in",
+    hint: "A term sheet more than 30 days old with no reply. One email, then nothing.",
+    subject: "How did {theDealShort} turn out?",
+    body:
+      "Hi {firstName},\n\n" +
+      "It's been a while since we sent terms on {theDeal}. I'm guessing that one either closed or moved on. How did it turn out?\n\n" +
+      "If you're working on something new, send it over and I'll get you numbers quickly.\n\n" +
+      "Best,",
+  },
 ];
 
 /**

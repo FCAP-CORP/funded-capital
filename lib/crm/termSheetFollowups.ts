@@ -30,9 +30,25 @@
  * IT STOPS WHEN: the deal leaves term_sheet_issued (signed, lost, anything);
  * the borrower writes or texts back; Luis presses "Stop follow-ups"; the
  * address is missing or unsubscribed; or all four have been sent.
+ *
+ * CATCH-UP, NOT REPLAY (1 Oct 2026). A missed step is skipped: a term sheet
+ * that is 12 days old with nothing sent gets ts-3 ("still moving forward?"),
+ * never ts-1 ("did it arrive?") a week and a half late.
+ *
+ * OLD TERM SHEETS GET ONE CHECK-IN, NOT THE SERIES (1 Oct 2026). Past
+ * SERIES_WINDOW_DAYS the deal on that term sheet has almost certainly closed
+ * elsewhere or died — Luis's first live look showed a 172-day-old term sheet
+ * from the old CRM offered "making sure the term sheet reached you". Those
+ * deals get a single "ts-checkin" ("how did it turn out, anything new?"),
+ * listed after the live series, newest first, and nothing after it. If the
+ * series already reached ts-4 ("closing the loop"), there is no check-in.
  */
 
-export type FollowupStep = { step: 1 | 2 | 3 | 4; templateKey: "ts-1" | "ts-2" | "ts-3" | "ts-4"; afterDays: number };
+export type FollowupStep = {
+  step: 1 | 2 | 3 | 4 | 5;
+  templateKey: "ts-1" | "ts-2" | "ts-3" | "ts-4" | "ts-checkin";
+  afterDays: number;
+};
 
 export const TS_SERIES: readonly FollowupStep[] = [
   { step: 1, templateKey: "ts-1", afterDays: 2 },
@@ -41,7 +57,15 @@ export const TS_SERIES: readonly FollowupStep[] = [
   { step: 4, templateKey: "ts-4", afterDays: 17 },
 ];
 
-export const TS_TEMPLATE_KEYS: readonly string[] = TS_SERIES.map((s) => s.templateKey);
+/** After this many days the series is over and an old term sheet gets one check-in instead. */
+export const SERIES_WINDOW_DAYS = 30;
+
+/** The one email an old term sheet gets. Not part of the numbered series. */
+export const CHECKIN_STEP: FollowupStep = { step: 5, templateKey: "ts-checkin", afterDays: SERIES_WINDOW_DAYS + 1 };
+
+export const isCheckin = (s: FollowupStep): boolean => s.templateKey === CHECKIN_STEP.templateKey;
+
+export const TS_TEMPLATE_KEYS: readonly string[] = [...TS_SERIES.map((s) => s.templateKey), CHECKIN_STEP.templateKey];
 
 /** Never two touches closer than this. */
 export const MIN_GAP_DAYS = 2;
@@ -109,13 +133,28 @@ export function followupFor(d: TsDeal, now: Date): TsDecision {
   // The highest step already sent since this term sheet went out. A step sent
   // for an EARLIER term sheet on the same deal does not count.
   let done = 0;
+  let checkedIn = false;
   for (const s of d.sent) {
     const at = ms(s.at);
+    if (at === null || at < ts) continue;
+    if (s.templateKey === CHECKIN_STEP.templateKey) checkedIn = true;
     const step = TS_SERIES.find((x) => x.templateKey === s.templateKey);
-    if (step && at !== null && at >= ts) done = Math.max(done, step.step);
+    if (step) done = Math.max(done, step.step);
   }
-  const next = TS_SERIES.find((x) => x.step === done + 1);
-  if (!next) return { state: "off", why: "finished" };
+  const elapsedDays = (now.getTime() - ts) / DAY;
+  const last = TS_SERIES[TS_SERIES.length - 1];
+
+  let next: FollowupStep | undefined;
+  if (elapsedDays > SERIES_WINDOW_DAYS) {
+    // Old term sheet: one check-in, unless the series already closed the loop.
+    if (checkedIn || done >= last.step) return { state: "off", why: "finished" };
+    next = CHECKIN_STEP;
+  } else {
+    // Catch up: the latest step whose day has come, never one already passed over.
+    const reached = TS_SERIES.filter((x) => x.step > done && x.afterDays <= elapsedDays);
+    next = reached.length ? reached[reached.length - 1] : TS_SERIES.find((x) => x.step === done + 1);
+    if (!next) return { state: "off", why: "finished" };
+  }
 
   let due = ts + next.afterDays * DAY;
   const out = ms(d.lastOutboundAt);
@@ -128,9 +167,18 @@ export function followupFor(d: TsDeal, now: Date): TsDecision {
   return now.getTime() >= due ? { state: "due", ...decision } : { state: "upcoming", ...decision };
 }
 
-/** Due first: longest waiting term sheet first, then the earliest step. */
-export function sortDue<T extends { dueAt: string; daysSinceTermSheet: number }>(rows: T[]): T[] {
-  return [...rows].sort((a, b) => b.daysSinceTermSheet - a.daysSinceTermSheet || a.dueAt.localeCompare(b.dueAt));
+/**
+ * Live term sheets first (longest waiting first, then the earliest step); old
+ * term sheets' check-ins after them, NEWEST first — a 40-day-old one is far
+ * likelier to be alive than a 400-day-old one.
+ */
+export function sortDue<T extends { dueAt: string; daysSinceTermSheet: number; step: FollowupStep }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const ca = isCheckin(a.step) ? 1 : 0, cb = isCheckin(b.step) ? 1 : 0;
+    if (ca !== cb) return ca - cb;
+    if (ca) return a.daysSinceTermSheet - b.daysSinceTermSheet || a.dueAt.localeCompare(b.dueAt);
+    return b.daysSinceTermSheet - a.daysSinceTermSheet || a.dueAt.localeCompare(b.dueAt);
+  });
 }
 
 /** A follow-up that is due, already written, as the dashboard shows it. */

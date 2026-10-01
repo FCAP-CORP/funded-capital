@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/toast";
 import { MAX_EMAIL_BODY, MAX_EMAIL_SUBJECT } from "@/lib/comms/email";
-import { NOT_NOW_DAYS, TS_SERIES, type DueFollowup } from "@/lib/crm/termSheetFollowups";
+import { NOT_NOW_DAYS, TS_SERIES, isCheckin, type DueFollowup } from "@/lib/crm/termSheetFollowups";
 import { setSnooze, stopFollowups } from "../actions";
 import { sendEmail } from "../emailActions";
 import { RecordLink } from "../_record/RecordCardProvider";
@@ -95,7 +95,7 @@ function FollowUpRow({ f }: { f: DueFollowup }) {
   const notNow = () =>
     start(async () => {
       const until = new Date(Date.now() + NOT_NOW_DAYS * 86_400_000).toISOString();
-      const r = await setSnooze(f.applicationId, until, `Term sheet follow-up ${f.step.step}: not now`, HERE);
+      const r = await setSnooze(f.applicationId, until, isCheckin(f.step) ? "Old term sheet check-in: not now" : `Term sheet follow-up ${f.step.step}: not now`, HERE);
       if (r.ok) toast.success(`Back in ${NOT_NOW_DAYS} days`, f.name);
       else toast.error("Not saved", r.error);
     });
@@ -120,7 +120,9 @@ function FollowUpRow({ f }: { f: DueFollowup }) {
           </RecordLink>
           <span className="text-[13px] text-slate-600"> · {f.deal}</span>
           <p className="mt-0.5 text-[13px] text-slate-600">
-            Follow-up {f.step.step} of {TS_SERIES.length} · term sheet sent {f.daysSinceTermSheet} day{f.daysSinceTermSheet === 1 ? "" : "s"} ago
+            {isCheckin(f.step)
+              ? <>Old term sheet · sent {f.daysSinceTermSheet} days ago · one check-in, then nothing. Dead deal? Close it as lost on the card.</>
+              : <>Follow-up {f.step.step} of {TS_SERIES.length} · term sheet sent {f.daysSinceTermSheet} day{f.daysSinceTermSheet === 1 ? "" : "s"} ago</>}
           </p>
           {!open && <p className="mt-1 truncate text-sm text-slate-800">&ldquo;{subject}&rdquo;</p>}
         </div>
