@@ -453,5 +453,23 @@ console.log("\n=== 11. The whole page from one book ===");
   eq("sources", m.sources.slices.map((s) => s.count), [3, 1, 0, 0]);
 }
 
+console.log("\n=== Nurture on 'No movement' (1 Oct 2026) ===");
+{
+  const old = "2026-07-01T12:00:00.000Z";
+  const book = [
+    row({ stageEnteredAt: old, lastContactAt: old }),
+    row({ stageEnteredAt: old, lastContactAt: old, inNurture: true }),
+    row({ stageEnteredAt: old, lastContactAt: old, inNurture: true }),
+    // In nurture but NOT stalled (a fresh deal): must not be counted.
+    row({ inNurture: true }),
+  ];
+  const m = buildDashboardModel(book, [], NOW);
+  const stalled = m.tabs.find((t) => t.reason === "stalled");
+  check("people in nurture are left off 'No movement'", stalled?.count === 1, String(stalled?.count));
+  check("…and counted, only where they would have been stalled", m.stalledInNurture === 2, String(m.stalledInNurture));
+  check("queue rows carry the contact id (for the nurture line)", stalled?.rows[0].contactId === book[0].contactId, String(stalled?.rows[0].contactId));
+  check("nobody in nurture: count is 0", buildDashboardModel([row({ stageEnteredAt: old, lastContactAt: old })], [], NOW).stalledInNurture === 0, "");
+}
+
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

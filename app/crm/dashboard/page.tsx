@@ -5,6 +5,7 @@ import { Plus } from "lucide-react";
 import { isCrmStaff, signedInUser } from "@/lib/crm/access";
 import { getDashboardData } from "@/lib/crm/dashboard.server";
 import { getTermSheetFollowups } from "@/lib/crm/followups.server";
+import { nurtureStatusForContacts, type QueueNurture } from "@/lib/nurture/nurture.server";
 import { buildDashboardModel, dateLine, greeting } from "@/lib/crm/dashboardView";
 import { DashboardBody } from "./DashboardView";
 import { FollowUps } from "./FollowUps";
@@ -119,10 +120,25 @@ async function Dashboard() {
   ]);
   const model = buildDashboardModel(apps, tasks, now);
 
+  // Where each person on "No movement" stands with nurture (a second, small
+  // read: only those contacts). Optional by design — if it fails, the queue
+  // still renders, just without the nurture line and button.
+  const stalledIds = (model.tabs.find((t) => t.reason === "stalled")?.rows ?? [])
+    .map((r) => r.contactId)
+    .filter((id): id is string => Boolean(id));
+  let nurture: QueueNurture | null = null;
+  if (stalledIds.length > 0) {
+    try {
+      nurture = await nurtureStatusForContacts(stalledIds, now);
+    } catch (err) {
+      console.error("[crm/dashboard] nurture status unavailable", err);
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <FollowUps items={followups.due} upcoming={followups.upcoming} />
-      <DashboardBody model={model} now={now} />
+      <DashboardBody model={model} now={now} nurture={nurture} />
     </div>
   );
 }

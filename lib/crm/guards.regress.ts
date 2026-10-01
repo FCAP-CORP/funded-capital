@@ -677,8 +677,17 @@ if (queueUi) {
  * be /crm/dashboard — so a new file there cannot quietly refresh /crm.
  */
 const DASH_DIR = join(ROOT, "app", "crm", "dashboard");
-const DASH_ACTIONS =
-  /\b(setStage|markLost|logContact|setSnooze|clearSnooze|setApplicationNotes|setContactField|addTask|toggleTask|deleteTask|stopFollowups|sendEmail)\(([^()]|\([^()]*\))*\)/g;
+// The hand-kept names, plus EVERY action in app/crm/actions.ts that takes a
+// `from: CrmRoute` (1 Oct 2026: addToNurture was new and the hand list would
+// not have known it). A new action is covered without anyone remembering to.
+const FROM_ACTIONS = [...readFileSync(join(ROOT, "app", "crm", "actions.ts"), "utf8")
+  .matchAll(/export async function (\w+)\([^)]*\bfrom: CrmRoute/g)].map((m) => m[1]);
+const DASH_ACTION_NAMES = [...new Set([
+  "setStage", "markLost", "logContact", "setSnooze", "clearSnooze", "setApplicationNotes", "setContactField",
+  "addTask", "toggleTask", "deleteTask", "stopFollowups", "sendEmail", ...FROM_ACTIONS,
+])];
+check("§8 knows addToNurture (read from actions.ts, not typed here)", FROM_ACTIONS.includes("addToNurture"), FROM_ACTIONS.length + " actions take from");
+const DASH_ACTIONS = new RegExp(`\\b(${DASH_ACTION_NAMES.join("|")})\\(([^()]|\\([^()]*\\))*\\)`, "g");
 let dashCalls = 0;
 for (const f of walk(DASH_DIR).filter((x) => x.endsWith(".tsx"))) {
   const code = codeOnly(readFileSync(f, "utf8"));

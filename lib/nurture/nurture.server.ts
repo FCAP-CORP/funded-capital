@@ -21,7 +21,7 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { assertCrmStaff } from "@/lib/crm/access";
-import { PROGRAMS, classify, programByKey, summarize, type Candidate, type EnrollmentLite, type ProgramKey, type ProgramSummary } from "./nurture";
+import { PROGRAMS, classify, nurtureStatus, programByKey, summarize, type Candidate, type EnrollmentLite, type NurtureStatus, type ProgramKey, type ProgramSummary } from "./nurture";
 import {
   HEALTH_DAYS, deliverability, flowIsLive, flowProblems, isPermissionError, nextReleaseLabel, nyClock, parseMode,
   planRelease, snapshotOf, warmupStatus,
@@ -338,4 +338,71 @@ export async function retryEnrollmentSync(p: { enrollmentId: string }): Promise<
     RETURNING id
   `));
   return r.length > 0;
+}
+
+/* ------------------------------------------- the dashboard's "No movement" */
+
+export type QueueNurture = {
+  /** Contact id → where they stand with nurture, in words. */
+  byContact: Record<string, NurtureStatus>;
+  /** Per programme: its emails are on in Klaviyo, and how people join. */
+  programs: Record<ProgramKey, { name: string; emailsOn: boolean; mode: Mode }>;
+};
+
+/**
+ * Nurture status for the people on the dashboard's "No movement" list. Same
+ * read and the same `classify()` as /crm/nurture, for these contacts only —
+ * so the dashboard and the Nurture page can never disagree about a person.
+ */
+export async function nurtureStatusForContacts(contactIds: string[], now: Date): Promise<QueueNurture> {
+  await assertCrmStaff();
+  const ids = [...new Set(contactIds)].slice(0, 1000);
+  // An empty id list would read the WHOLE book (nurtureContactsSql with no
+  // ids), so it is replaced by an id that matches nobody.
+  const [people, programRows] = await db.batch([
+    db.execute(nurtureContactsSql(ids.length > 0 ? ids : ["00000000-0000-0000-0000-000000000000"])),
+    db.execute(sql`SELECT program, mode, flow_status FROM nurture_programs`),
+  ]);
+  const byContact: Record<string, NurtureStatus> = {};
+  for (const c of rowsOf(people).map(toNurtureContact)) byContact[c.id] = nurtureStatus(c, now);
+  const byKey = new Map(rowsOf(programRows).map((r) => [String(r.program), r]));
+  const programs = Object.fromEntries(PROGRAMS.map((p) => {
+    const r = byKey.get(p.key);
+    return [p.key, { name: p.name, emailsOn: strOf(r?.flow_status) === "live", mode: parseMode(r?.mode) ?? "review" }];
+  })) as QueueNurture["programs"];
+  return { byContact, programs };
+}
+
+/**
+ * "Add to nurture" from the dashboard: each chosen person goes into the ONE
+ * programme `classify()` picks for them, on a fresh read — the browser sends
+ * ids only, never a programme, so a stale page cannot put anyone in the wrong
+ * one. Everyone is QUEUED, exactly like the Enrol button on /crm/nurture; the
+ * warm-up releases them on weekday mornings while that programme's emails are
+ * on. All programmes are written in one db.batch (one transaction).
+ */
+export async function enrollBestFit(p: { contactIds: string[]; by: string; now: Date }): Promise<{
+  added: { program: ProgramKey; name: string; count: number }[];
+  skipped: number;
+}> {
+  await assertCrmStaff();
+  if (p.contactIds.length === 0) return { added: [], skipped: 0 };
+  const fresh = rowsOf(await db.execute(nurtureContactsSql(p.contactIds))).map(toNurtureContact);
+  const groups = new Map<ProgramKey, string[]>();
+  for (const c of fresh) {
+    const k = classify(c, p.now);
+    if (k.program) groups.set(k.program, [...(groups.get(k.program) ?? []), c.id]);
+  }
+  const plan = PROGRAMS.filter((prog) => (groups.get(prog.key)?.length ?? 0) > 0);
+  if (plan.length === 0) return { added: [], skipped: p.contactIds.length };
+
+  const statements = plan.map((prog) => db.execute(enrolQueuedSql({
+    program: prog.key, listId: prog.klaviyoListId, ids: groups.get(prog.key)!, by: p.by,
+    subject: `Added to nurture: ${prog.name} (Klaviyo)`,
+  })));
+  const results = await db.batch(statements as [typeof statements[number], ...typeof statements]);
+  const added = plan.map((prog, i) => ({ program: prog.key, name: prog.name, count: Number(rowsOf(results[i])[0]?.n ?? 0) }))
+    .filter((a) => a.count > 0);
+  const total = added.reduce((n, a) => n + a.count, 0);
+  return { added, skipped: p.contactIds.length - total };
 }

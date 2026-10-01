@@ -24,6 +24,9 @@ import { stageMoveSql } from "@/lib/crm/stageMoveSql";
 import { addDocRequest as addDocRequestRow, createDocList as createDocListRows, moveDocRequest as moveDocRequestRow } from "@/lib/crm/docRequests.server";
 import { sendBrokerDocsUpdate, sendBrokerStageUpdate, setBrokerUpdatesOff, type Sender } from "@/lib/crm/brokerUpdates.server";
 import { and, asc, desc, isNull, sql as dsql } from "drizzle-orm";
+import { parseContactIds } from "@/lib/nurture/nurture";
+import { enrollBestFit } from "@/lib/nurture/nurture.server";
+import { drainNurtureSoon } from "@/lib/nurture/sync.server";
 
 /**
  * Write actions for the CRM grid.
@@ -646,6 +649,38 @@ export async function setBrokerUpdates(applicationId: string, on: boolean, from:
     return { ok: true };
   } catch (err) {
     console.error("[crm] setBrokerUpdates failed", err);
+    return { ok: false, error: SAVE_FAILED };
+  }
+}
+
+/* ------------------------------------------------------- nurture, in bulk */
+
+export type NurtureAddResult = { ok: true; message: string; added: number } | { ok: false; error: string };
+
+/**
+ * The dashboard's "Add to nurture" button on "No movement" (1 Oct 2026).
+ *
+ * The browser sends contact ids and nothing else: lib/nurture/nurture.server.ts
+ * `enrollBestFit` re-reads each person and puts them in the ONE programme
+ * classify() picks today, or skips them. Everyone is queued; the warm-up
+ * releases them on weekday mornings while that programme's emails are on.
+ * `after()` nudges the queue straight away, as the Enrol button does.
+ */
+export async function addToNurture(contactIds: unknown, from: CrmRoute): Promise<NurtureAddResult> {
+  try {
+    const userId = await requireUser();
+    const ids = parseContactIds(contactIds);
+    if (!ids.ok) return { ok: false, error: ids.error };
+    const r = await enrollBestFit({ contactIds: ids.ids, by: userId, now: new Date() });
+    const total = r.added.reduce((n, a) => n + a.count, 0);
+    if (total === 0) return { ok: false, error: "Nobody was added. They no longer qualify: someone got in touch, a deal moved, or they are already in a programme." };
+    revalidateFrom(from, "/crm/dashboard");
+    after(() => drainNurtureSoon());
+    const parts = r.added.map((a) => `${a.count} to ${a.name}`).join(", ");
+    const skipped = r.skipped > 0 ? ` ${r.skipped} skipped: they no longer qualify.` : "";
+    return { ok: true, added: total, message: `Added ${parts}.${skipped}` };
+  } catch (err) {
+    console.error("[crm] addToNurture failed", err);
     return { ok: false, error: SAVE_FAILED };
   }
 }

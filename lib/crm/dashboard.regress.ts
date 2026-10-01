@@ -229,6 +229,16 @@ check(
   String(reasonOf(app({ stageEnteredAt: daysAgo(40) }))),
 );
 check(
+  "40 days in one stage, but the person is in a nurture programme: not on 'No movement'",
+  reasonOf(app({ stageEnteredAt: daysAgo(40), inNurture: true })) === null,
+  String(reasonOf(app({ stageEnteredAt: daysAgo(40), inNurture: true }))),
+);
+check(
+  "…while a borrower who WROTE to us still surfaces, in nurture or not",
+  reasonOf(app({ stageEnteredAt: daysAgo(40), inNurture: true, lastContactAt: daysAgo(5), lastContactDirection: "email_in" })) === "awaiting_reply",
+  String(reasonOf(app({ stageEnteredAt: daysAgo(40), inNurture: true, lastContactAt: daysAgo(5), lastContactDirection: "email_in" }))),
+);
+check(
   "a healthy recent deal is not in the queue at all",
   reasonOf(app()) === null,
   String(reasonOf(app())),

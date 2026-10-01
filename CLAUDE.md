@@ -1421,3 +1421,33 @@ pressed twice to close the card.
 - Verified: guards 433, guards.ui 68, all regress suites, follow-ups Postgres harness 50, scratch
   `next build`. Not changed: removing a document item still has no undo, and adding an item
   emails the broker at once (by design, 30 Sep).
+
+### Nurture from the dashboard's "No movement" list (1 Oct 2026)
+
+Luis had 77 deals under "No movement" and asked how to contact them all. Checking by hand: 38 were
+ready for a programme, 23 had been contacted in the last 30 days, and 16 looked quiet on their card
+but were held out for a reason the list could not show. Now the list says it, and acts on it.
+
+- **Every row on "No movement" says where the person stands with nurture**, in words:
+  "Ready for nurture: BiggerPockets, no term sheet", "In nurture: Quiet leads", "Not yet: in touch
+  Sep 24, can join from Oct 24", "Not yet: new enquiry Sep 19, …" or "Not for nurture: Unsubscribed".
+  `nurtureStatus()` in `lib/nurture/nurture.ts` (pure) explains `classify()`'s verdict — it never
+  re-decides, and a test checks the two always agree.
+- **"Add N to nurture"** (`app/crm/dashboard/NurtureBulkButton.tsx`) asks first, listing each
+  programme, its count, and whether its emails are on. The action `addToNurture` (app/crm/actions.ts,
+  takes `from`) sends ids only; `enrollBestFit` (nurture.server, staff-only) re-reads each person,
+  puts them in the ONE programme `classify()` picks today, queues them through the same
+  `enrolQueuedSql` as the Nurture page (one `db.batch` for all programmes), and `after()` nudges the
+  drain. The warm-up and the emails-on switch still decide when anything is sent.
+- **People already in a programme leave "No movement"** (`inNurture` on the dashboard read, an
+  EXISTS on active `nurture_enrollments`; `queueReasonFor` step 5 skips them). They come back when
+  the programme ends without a reply; a reply puts them under "Waiting on you" regardless. The bar
+  over the list counts them (`stalledInNurture`, computed by re-running the same rules).
+- The status read is a second small query, only for the contacts on "No movement", and optional:
+  if it fails the queue renders without the line and button.
+- **Guard §8 now reads its action list from `app/crm/actions.ts`** (every export taking
+  `from: CrmRoute`) instead of a hand-kept list that would not have known `addToNurture`.
+  Negative-tested: a wrong route in the new button fails the build.
+- Verified: nurture regress §8 (mutation-tested), dashboard + dashboardView regress (mutation-
+  tested), guards 440, Postgres harness 21 (statuses, the dashboard flag, non-staff refused, two
+  simultaneous clicks enrol each person once, a third click adds nobody), scratch `next build`.

@@ -12,7 +12,7 @@
 import {
   ENROLL_MAX, LOST_MIN_DAYS, MAX_SYNC_ATTEMPTS, PAST_BORROWER_MIN_DAYS, PROGRAMS, PROGRAM_KEYS, QUIET_DAYS,
   STAGE_ORDER, STOP_LABEL, WIN_REASONS,
-  candidateOf, classify, isForwardMove, klaviyoVerdict, loanWords, lostReasonExcluded, parseContactIds, profilePayload,
+  candidateOf, classify, isForwardMove, nurtureStatus, klaviyoVerdict, loanWords, lostReasonExcluded, parseContactIds, profilePayload,
   programByKey, retryDelayMinutes, stateAfterStop, stopReason, summarize,
   type NurtureApp, type NurtureContact, type StopSignals,
 } from "./nurture";
@@ -256,6 +256,33 @@ const s2 = summarize([], [
 ], NOW).byProgram.find((b) => b.key === "quiet")!;
 check("results: a reply counts as a win, an unsubscribe does not", s2.wins === 1 && s2.stopped.unsubscribed === 1, JSON.stringify(s2));
 check("results: failed syncs surfaced", s2.syncFailed === 1 && s2.active === 2, "");
+
+console.log("\n=== §8 one person's status, in words (dashboard 'No movement', 1 Oct 2026) ===");
+{
+  const ready = nurtureStatus(person({ leadSource: "biggerpockets", apps: [app({ leadSource: "biggerpockets" })] }), NOW);
+  check("ready: names the programme classify() picks", ready.kind === "ready" && ready.program === "bp_no_term_sheet" && ready.text === "Ready for nurture: BiggerPockets, no term sheet", ready.text);
+  const quiet = nurtureStatus(person(), NOW);
+  check("ready agrees with classify() for a quiet lead", quiet.kind === "ready" && quiet.program === classify(person(), NOW).program, quiet.text);
+  const inProg = nurtureStatus(person({ activeProgram: "quiet" }), NOW);
+  check("in a programme: says which", inProg.kind === "in" && inProg.text === "In nurture: Quiet leads", inProg.text);
+  // 2026-09-26T16:00Z minus 10 days = Sep 16; +30 = Oct 16 (New York dates).
+  const touched = nurtureStatus(person({ lastTouchAt: ago(10) }), NOW);
+  check("in touch 10 days ago: not yet, with the date they can join", touched.kind === "out" && touched.exclusion === "recent_contact" && touched.text === "Not yet: in touch Sep 16, can join from Oct 16", touched.text);
+  // An old touch but a fresh enquiry: the enquiry is what holds them out, and the text says so.
+  const refiled = nurtureStatus(person({ lastTouchAt: ago(80), apps: [app({ arrivedAt: ago(90) }), app({ arrivedAt: ago(7) })] }), NOW);
+  check("a new enquiry 7 days ago: says 'new enquiry', dated from the enquiry", refiled.kind === "out" && refiled.text === "Not yet: new enquiry Sep 19, can join from Oct 19", refiled.text);
+  check("…and readyOn is 30 days after the enquiry", refiled.kind === "out" && refiled.readyOn === new Date(Date.parse(ago(7)) + QUIET_DAYS * 86_400_000).toISOString(), "");
+  const unsub = nurtureStatus(person({ emailSubscribed: false }), NOW);
+  check("unsubscribed: the plain reason, no date", unsub.kind === "out" && unsub.text === "Not for nurture: Unsubscribed" && unsub.readyOn === null, unsub.text);
+  const noMail = nurtureStatus(person({ email: "not an email" }), NOW);
+  check("no usable email: says so", noMail.kind === "out" && noMail.text === "Not for nurture: No usable email address", noMail.text);
+  // Every classification maps to a status of the same verdict.
+  const people = [person(), person({ lastTouchAt: ago(3) }), person({ emailSubscribed: false }), person({ activeProgram: "lost" }), person({ apps: [app({ stage: "underwriting" })] })];
+  check("status kind always agrees with classify()", people.every((c) => {
+    const k = classify(c, NOW); const st = nurtureStatus(c, NOW);
+    return k.program ? st.kind === "ready" && st.program === k.program : k.exclusion === "enrolled" ? st.kind === "in" : st.kind === "out" && st.exclusion === k.exclusion;
+  }), "");
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail > 0 ? 1 : 0);

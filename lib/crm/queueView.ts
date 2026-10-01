@@ -195,6 +195,8 @@ export function stageOptions(current: string): { value: string; label: string }[
 
 export interface QueueRowView {
   applicationId: string;
+  /** The person on the deal (null for an unlinked application). */
+  contactId?: string | null;
   name: string;
   email: string | null;
   stage: string;
@@ -231,6 +233,7 @@ export function queueRows(
     .filter((a) => broken.has(a.id) && !inQueue.has(a.id))
     .map((a) => ({
       applicationId: a.id,
+      contactId: a.contactId,
       name: a.name,
       email: a.email,
       stage: a.stage,
@@ -243,6 +246,7 @@ export function queueRows(
 
   const listed: QueueRowView[] = queue.map((q) => ({
     applicationId: q.applicationId,
+    contactId: q.contactId,
     name: q.name,
     email: q.email,
     stage: q.stage,

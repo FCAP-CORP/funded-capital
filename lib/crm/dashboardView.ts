@@ -421,6 +421,7 @@ export function subLine(row: Pick<QueueRowView, "reason">, openFiles: number): s
 
 export type QueueCard = {
   applicationId: string;
+  contactId: string | null;
   name: string;
   initials: string;
   sub: string;
@@ -443,6 +444,7 @@ export function queueTabs(rows: QueueRowView[], openFiles: Map<string, number>):
     const list = buckets.get(key) ?? [];
     list.push({
       applicationId: r.applicationId,
+      contactId: r.contactId ?? null,
       name: r.name,
       initials: initials(r.name),
       sub: subLine(r, openFiles.get(r.applicationId) ?? 0),
@@ -462,6 +464,18 @@ export function queueTabs(rows: QueueRowView[], openFiles: Map<string, number>):
     count: buckets.get(k)!.length,
     rows: buckets.get(k)!,
   }));
+}
+
+/**
+ * How many deals are off "No movement" only because a nurture programme is
+ * working the person. Counted by re-running the same queue rules as if
+ * nobody were in nurture, so the number can never drift from the rule.
+ */
+export function stalledInNurture(apps: DashboardRow[], now: Date): number {
+  const inNurture = new Set(apps.filter((a) => a.inNurture).map((a) => a.id));
+  if (inNurture.size === 0) return 0;
+  const asIfNone = buildWorkQueue(apps.map((a) => ({ ...a, inNurture: false })), QUEUE_DEFAULTS, now);
+  return asIfNone.filter((q) => q.reason === "stalled" && inNurture.has(q.applicationId)).length;
 }
 
 /** Rows shown before "Show all N". */
@@ -760,6 +774,8 @@ export type DashboardModel = {
   kpis: { pipeline: Kpi; submitted: Kpi; termSheets: Kpi; funded: Kpi };
   tabs: QueueTab[];
   queueTotal: number;
+  /** Deals that would be under "No movement" but whose person is in a nurture programme. */
+  stalledInNurture: number;
   parked: SnoozedItem[];
   parkedHeading: string | null;
   tasks: DueTaskView[];
@@ -792,6 +808,7 @@ export function buildDashboardModel(apps: DashboardRow[], tasks: DueTaskInput[],
     },
     tabs,
     queueTotal: rows.length,
+    stalledInNurture: stalledInNurture(apps, now),
     parked,
     parkedHeading: putDownHeading(parked, now),
     tasks: dueTasks(tasks, now),

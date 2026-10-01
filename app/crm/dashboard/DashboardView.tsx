@@ -15,6 +15,9 @@ import {
   type WeekBucket,
 } from "@/lib/crm/dashboardView";
 import type { SnoozedItem } from "@/lib/crm/dashboard";
+import type { NurtureStatus } from "@/lib/nurture/nurture";
+import type { QueueNurture } from "@/lib/nurture/nurture.server";
+import { NurtureBulkButton, type NurtureGroup } from "./NurtureBulkButton";
 import { RecordLink } from "../_record/RecordCardProvider";
 import { BringBackButton, QueueRowActions } from "./QueueRowActions";
 import { QueueTabs } from "./QueueTabs";
@@ -123,7 +126,23 @@ function WroteBackBadge() {
   );
 }
 
-function QueueRow({ r }: { r: QueueCard }) {
+const NURTURE_TONE: Record<NurtureStatus["kind"], string> = {
+  ready: "text-emerald-800",
+  in: "text-navy-800",
+  out: "text-slate-500",
+};
+
+/** One line under the name on "No movement": where this person stands with nurture, and why. */
+function NurtureLine({ s }: { s: NurtureStatus }) {
+  return (
+    <span className={`pl-12 text-[11px] leading-snug ${NURTURE_TONE[s.kind]}`}>
+      {s.kind !== "out" && <span aria-hidden="true" className="mr-1 inline-block h-1.5 w-1.5 rounded-full bg-current align-middle" />}
+      {s.text}
+    </span>
+  );
+}
+
+function QueueRow({ r, nurture }: { r: QueueCard; nurture?: NurtureStatus }) {
   return (
     <li className={`grid ${ROW_COLS} items-center gap-x-3 gap-y-2 border-t border-slate-100 px-4 py-3 sm:px-5`}>
       <div className="col-span-2 flex min-w-0 flex-col gap-1 md:col-span-1 lg:col-span-2 xl:col-span-1">
@@ -148,6 +167,7 @@ function QueueRow({ r }: { r: QueueCard }) {
         {r.wroteBack && r.sub !== "Wrote back while snoozed" && (
           <span className="pl-12"><WroteBackBadge /></span>
         )}
+        {nurture && <NurtureLine s={nurture} />}
       </div>
 
       {/* Three facts: a wrapped line on a narrow row, three columns on a wide one. */}
@@ -178,11 +198,46 @@ function QueueRow({ r }: { r: QueueCard }) {
   );
 }
 
-function QueuePanel({ tab }: { tab: QueueTab }) {
+/**
+ * The bar over "No movement": how many of these people nurture can take today,
+ * and the button that adds them. Counted per PERSON — two open files for one
+ * borrower is one person and one programme.
+ */
+function NurtureBar({ tab, nurture, inNurture }: { tab: QueueTab; nurture: QueueNurture | null; inNurture: number }) {
+  if (!nurture) return null;
+  const ready = new Map<string, string>();
+  for (const r of tab.rows) {
+    const s = r.contactId ? nurture.byContact[r.contactId] : undefined;
+    if (r.contactId && s?.kind === "ready") ready.set(r.contactId, s.program);
+  }
+  const people = new Set(tab.rows.map((r) => r.contactId).filter(Boolean)).size;
+  const counts = new Map<string, number>();
+  for (const program of ready.values()) counts.set(program, (counts.get(program) ?? 0) + 1);
+  const groups: NurtureGroup[] = [...counts.entries()].map(([program, count]) => {
+    const p = nurture.programs[program as keyof QueueNurture["programs"]];
+    return { program, name: p?.name ?? program, count, emailsOn: p?.emailsOn ?? false };
+  });
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/60 px-4 py-2.5 sm:px-5">
+      <p className="text-[13px] text-slate-600">
+        {ready.size > 0
+          ? <><span className="font-semibold text-navy-900">{ready.size} of {people}</span> {people === 1 ? "person" : "people"} can go into nurture now. Each row says why or why not.</>
+          : "Nobody here can go into nurture today. Each row says why."}
+        {inNurture > 0 && <> {inNurture} more {inNurture === 1 ? "is" : "are"} already in nurture and left off this list.</>}
+      </p>
+      <NurtureBulkButton contactIds={[...ready.keys()]} groups={groups} />
+    </div>
+  );
+}
+
+function QueuePanel({ tab, nurture, inNurture }: { tab: QueueTab; nurture: QueueNurture | null; inNurture: number }) {
   const first = tab.rows.slice(0, QUEUE_PREVIEW);
   const rest = tab.rows.slice(QUEUE_PREVIEW);
+  const showNurture = tab.reason === "stalled" && nurture !== null;
+  const statusOf = (r: QueueCard) => (showNurture && r.contactId ? nurture!.byContact[r.contactId] : undefined);
   return (
     <>
+      {showNurture && <NurtureBar tab={tab} nurture={nurture} inNurture={inNurture} />}
       <div
         aria-hidden="true"
         className={`hidden ${ROW_COLS} gap-x-3 px-4 py-2.5 text-[11px] font-bold uppercase tracking-[0.1em] text-slate-500 sm:px-5 md:grid lg:hidden xl:grid`}
@@ -190,7 +245,7 @@ function QueuePanel({ tab }: { tab: QueueTab }) {
         <span>Borrower</span><span>Waiting</span><span>Stage</span><span className="text-right">Requested</span><span />
       </div>
       <ul aria-label={`${tab.label}: ${tab.count} ${tab.count === 1 ? "file" : "files"}`}>
-        {first.map((r) => <QueueRow key={r.applicationId} r={r} />)}
+        {first.map((r) => <QueueRow key={r.applicationId} r={r} nurture={statusOf(r)} />)}
       </ul>
       {rest.length > 0 ? (
         <details className="group/more">
@@ -206,7 +261,7 @@ function QueuePanel({ tab }: { tab: QueueTab }) {
             </span>
           </summary>
           <ul aria-label={`The other ${rest.length} in ${tab.label}`}>
-            {rest.map((r) => <QueueRow key={r.applicationId} r={r} />)}
+            {rest.map((r) => <QueueRow key={r.applicationId} r={r} nurture={statusOf(r)} />)}
           </ul>
         </details>
       ) : (
@@ -261,7 +316,7 @@ function PutDown({ items, heading, now }: { items: SnoozedItem[]; heading: strin
   );
 }
 
-function WorkQueue({ model, now }: { model: DashboardModel; now: Date }) {
+function WorkQueue({ model, now, nurture }: { model: DashboardModel; now: Date; nurture: QueueNurture | null }) {
   const { tabs, queueTotal } = model;
   return (
     <section aria-labelledby="queue-h" className={`${card} flex min-w-0 flex-col`}>
@@ -280,7 +335,7 @@ function WorkQueue({ model, now }: { model: DashboardModel; now: Date }) {
         <QueueTabs
           label="Work queue by reason"
           tabs={tabs.map((t) => ({ key: t.reason, label: t.label, count: t.count }))}
-          panels={tabs.map((t) => <QueuePanel key={t.reason} tab={t} />)}
+          panels={tabs.map((t) => <QueuePanel key={t.reason} tab={t} nurture={nurture} inNurture={model.stalledInNurture} />)}
         />
       )}
       <PutDown items={model.parked} heading={model.parkedHeading} now={now} />
@@ -507,7 +562,7 @@ function WeeklyTrend({ weeks, peak }: { weeks: WeekBucket[]; peak: number }) {
 
 /* ------------------------------------------------------------- the page */
 
-export function DashboardBody({ model, now }: { model: DashboardModel; now: Date }) {
+export function DashboardBody({ model, now, nurture = null }: { model: DashboardModel; now: Date; nurture?: QueueNurture | null }) {
   const { kpis } = model;
   return (
     <div className="flex flex-col gap-6">
@@ -521,7 +576,7 @@ export function DashboardBody({ model, now }: { model: DashboardModel; now: Date
       </section>
 
       <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        <WorkQueue model={model} now={now} />
+        <WorkQueue model={model} now={now} nurture={nurture} />
         <div className="flex min-w-0 flex-col gap-5">
           <DueToday model={model} />
           <PipelineByStage stages={model.stages} />

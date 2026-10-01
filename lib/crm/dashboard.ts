@@ -94,6 +94,15 @@ export interface DashboardApplication {
   nextActionSetAt: string | null;
   /** Why it was put down, shown when it comes back. */
   nextActionNote: string | null;
+
+  /**
+   * The person is in a nurture programme right now (an ACTIVE row in
+   * nurture_enrollments). Klaviyo is working them, so "No movement" leaves
+   * them off: they come back when the programme ends without a reply, and a
+   * reply puts them under "Waiting on you" anyway. Optional so older callers
+   * and fixtures read as "not in nurture".
+   */
+  inNurture?: boolean;
 }
 
 const amount = (v: string | null | undefined): number => {
@@ -410,9 +419,10 @@ export function queueReasonFor(
     return { reason: "never_contacted", waitingDays: d };
   }
 
-  // 5. Sitting in one stage too long.
+  // 5. Sitting in one stage too long — unless a nurture programme is already
+  //    working them (1 Oct 2026: a list of 77 Luis could not act on today).
   const stalled = daysSince(app.stageEnteredAt, now);
-  if (stalled !== null && stalled >= th.stalledDays) return { reason: "stalled", waitingDays: stalled };
+  if (stalled !== null && stalled >= th.stalledDays && !app.inNurture) return { reason: "stalled", waitingDays: stalled };
 
   return null;
 }

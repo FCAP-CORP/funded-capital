@@ -715,3 +715,52 @@ export function parseContactIds(raw: unknown): { ok: true; ids: string[] } | { o
   if (ids.length > ENROLL_MAX) return { ok: false, error: `Enrol at most ${ENROLL_MAX} people at a time.` };
   return { ok: true, ids };
 }
+
+/* ------------------------------------------- one person's status, in words */
+
+/**
+ * Where one person stands with nurture, for the dashboard's "No movement"
+ * list (1 Oct 2026): ready for a programme, already in one, or not — and
+ * WHY not, in a sentence. `classify()` decides; this only explains.
+ *
+ * For "in touch recently" it also says WHEN they could join: QUIET_DAYS after
+ * whichever came last — the latest email, text or call either way, or the
+ * latest enquiry. On 1 Oct 2026 sixteen leads that looked quiet on their
+ * record card were held out for a reason the list could not show; the date
+ * says which signal it is.
+ */
+export type NurtureStatus =
+  | { kind: "ready"; program: ProgramKey; text: string }
+  | { kind: "in"; program: string | null; text: string }
+  | { kind: "out"; exclusion: Exclusion; text: string; readyOn: string | null };
+
+const NY_SHORT = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", month: "short", day: "numeric" });
+
+export function nurtureStatus(c: NurtureContact, now: Date): NurtureStatus {
+  const k = classify(c, now);
+  if (k.program) {
+    return { kind: "ready", program: k.program, text: `Ready for nurture: ${programByKey(k.program)?.name ?? k.program}` };
+  }
+  if (k.exclusion === "enrolled") {
+    const name = programByKey(c.activeProgram)?.name ?? null;
+    return { kind: "in", program: c.activeProgram, text: name ? `In nurture: ${name}` : "In a nurture programme" };
+  }
+  if (k.exclusion === "recent_contact") {
+    const touch = ms(c.lastTouchAt);
+    const arrivals = c.apps.length > 0 ? c.apps.map((a) => ms(a.arrivedAt)) : [ms(c.addedAt)];
+    const arrival = arrivals.reduce<number | null>((m, v) => (v === null ? m : m === null ? v : Math.max(m, v)), null);
+    const latest = Math.max(touch ?? -Infinity, arrival ?? -Infinity);
+    if (!Number.isFinite(latest)) {
+      return { kind: "out", exclusion: k.exclusion, text: "Not yet: no date on their enquiry", readyOn: null };
+    }
+    const readyOn = new Date(latest + QUIET_DAYS * DAY);
+    const what = touch !== null && touch >= (arrival ?? -Infinity) ? "In touch" : "New enquiry";
+    return {
+      kind: "out",
+      exclusion: k.exclusion,
+      text: `Not yet: ${what.toLowerCase()} ${NY_SHORT.format(new Date(latest))}, can join from ${NY_SHORT.format(readyOn)}`,
+      readyOn: readyOn.toISOString(),
+    };
+  }
+  return { kind: "out", exclusion: k.exclusion, text: `Not for nurture: ${EXCLUSION_LABEL[k.exclusion]}`, readyOn: null };
+}

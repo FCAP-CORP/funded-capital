@@ -102,7 +102,10 @@ export async function getDashboardData(now: Date): Promise<{ apps: DashboardRow[
           WHERE ac.contact_id = c.contact_id AND ac.kind IN ${CONTACT_KINDS}) AS last_contact_at,
         (SELECT ac.kind FROM activities ac
           WHERE ac.contact_id = c.contact_id AND ac.kind IN ${CONTACT_KINDS}
-          ORDER BY ac.occurred_at DESC LIMIT 1) AS last_contact_direction
+          ORDER BY ac.occurred_at DESC LIMIT 1) AS last_contact_direction,
+        /* In a nurture programme right now: "No movement" leaves them off. */
+        EXISTS (SELECT 1 FROM nurture_enrollments ne
+          WHERE ne.contact_id = c.contact_id AND ne.status = 'active') AS in_nurture
       FROM applications a
       LEFT JOIN LATERAL (
         SELECT ct.id AS contact_id, ct.first_name, ct.last_name, ct.email
@@ -169,6 +172,7 @@ export async function getDashboardData(now: Date): Promise<{ apps: DashboardRow[
     nextActionAt: iso(r.next_action_at),
     nextActionSetAt: iso(r.next_action_set_at),
     nextActionNote: str(r.next_action_note),
+    inNurture: r.in_nurture === true || r.in_nurture === "t",
   }));
 
   const tasks = rowsOf(taskResult).map((r): DueTaskInput => ({
