@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { cn } from "@/lib/utils";
 import {
-  EXCLUSION_LABEL, MAX_SYNC_ATTEMPTS, PROGRAMS, STOP_LABEL, SYNC_LABEL, WIN_REASONS,
+  EXCLUSION_LABEL, MAX_SYNC_ATTEMPTS, OUTREACH_COOL_OFF_DAYS, PROGRAMS, STOP_LABEL, SYNC_LABEL, WIN_REASONS,
   type Exclusion, type ProgramKey, type StopReason, type SyncState,
 } from "@/lib/nurture/nurture";
 import { EVENT_LABEL, MODE_LABEL, RELEASE_BLOCK_LABEL, afterLabel } from "@/lib/nurture/cockpit";
@@ -172,7 +172,7 @@ export function NurtureView({ data, program, tab }: { data: NurturePageData; pro
         <div role="tabpanel">
           {tab === "ready" && (
             candidates.length === 0 ? (
-              <EmptyState icon={Inbox} title="Nobody is waiting" description="Everyone who fits this programme is already in it, or in touch with you. New people appear here as leads go quiet." />
+              <EmptyState icon={Inbox} title="Nobody is waiting" description="Everyone who fits this programme is already in it, or has responded to you recently. New people appear here as leads go quiet." />
             ) : (
               <EnrollPanel
                 program={program}
@@ -304,8 +304,8 @@ function HowItWorks({ excluded }: { excluded: Record<string, number> }) {
           <li>New people wait in a queue and go out on weekday mornings from 9:30 New York time — a few dozen a day at first, more each sending day — so Gmail and Outlook learn to trust the sender. Bounces or spam complaints over the line pause sending by themselves.</li>
           <li>Automatic programmes add everyone who qualifies each weekday morning; &ldquo;You choose&rdquo; programmes add only who you tick.</li>
           <li>One programme per person at a time, and never the same one twice.</li>
-          <li>Anyone you emailed, texted or called — or who contacted you — in the last 30 days is left alone, and so is anyone with a deal in progress.</li>
-          <li>They leave automatically when they reply, a new enquiry arrives, their deal moves forward, you contact them yourself, or they unsubscribe. An unsubscribe in Klaviyo is copied into Lending OS and blocks email from the record card too.</li>
+          <li>The 30 days run from their last response, not from your last email: anyone who wrote, texted, called you or spoke with you on a call in the last 30 days is left alone, and so is anyone with a deal in progress. Your own email, text or unanswered call holds them back only {OUTREACH_COOL_OFF_DAYS} days, so a drip never lands the morning after a personal note.</li>
+          <li>They leave automatically when they reply (including a call where you spoke), a new enquiry arrives, their deal moves forward, or they unsubscribe. Reaching out yourself does not stop their emails. An unsubscribe in Klaviyo is copied into Lending OS and blocks email from the record card too.</li>
           <li>Each programme is 3–4 emails over about 6–13 weeks, then it stops. A few days after the last email they&apos;re taken off the list and show under Stopped as &ldquo;{STOP_LABEL.finished}&rdquo;. They can join a different programme later if they qualify, never the same one again.</li>
           <li>Klaviyo adds the unsubscribe link and our address to every email.</li>
         </ul>

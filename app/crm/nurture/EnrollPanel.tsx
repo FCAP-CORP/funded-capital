@@ -117,7 +117,7 @@ export function EnrollPanel({
               <th scope="col" className="px-3 py-2.5">Person</th>
               <th scope="col" className="hidden px-3 py-2.5 sm:table-cell">Source</th>
               <th scope="col" className="hidden px-3 py-2.5 sm:table-cell">Loan</th>
-              <th scope="col" className="px-3 py-2.5 text-right">Last in touch</th>
+              <th scope="col" className="px-3 py-2.5 text-right">Last heard from them</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -150,7 +150,7 @@ export function EnrollPanel({
         open={asking}
         onClose={() => !pending && setAsking(false)}
         title={`Add ${n} ${n === 1 ? "person" : "people"} to ${programName}?`}
-        description="Lending OS adds them to the Klaviyo list, and the Klaviyo flow for this programme emails them. Anyone who got in touch or started a deal since this page loaded is skipped."
+        description="Lending OS adds them to the Klaviyo list, and the Klaviyo flow for this programme emails them. Anyone who responded or started a deal since this page loaded is skipped."
         footer={
           <>
             <Button variant="secondary" data-autofocus onClick={() => setAsking(false)} disabled={pending}>Cancel</Button>

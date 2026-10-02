@@ -14,7 +14,7 @@
  */
 
 import { snoozePresets } from "./followup";
-import type { LoggableKind } from "./followup";
+import type { LogKindInput } from "./followup";
 import { STAGE_LABEL, STAGE_ORDER, daysSince } from "./view";
 import type { DashboardApplication, QueueItem, QueueReason, SnoozedItem } from "./dashboard";
 
@@ -153,25 +153,38 @@ export function putDownHeading(items: Pick<SnoozedItem, "until">[], now: Date): 
  * a label here ever loses the word.
  */
 export const LOG_ACTIONS: readonly {
-  kind: Exclude<LoggableKind, "note">;
+  /** What logContact receives. A call carries whether we spoke (lib/crm/followup.ts CALL_OUTCOMES). */
+  kind: Exclude<LogKindInput, "note" | "call">;
+  /** Which icon: the three channels. */
+  icon: "call" | "email_out" | "sms_out";
   label: string;
   hint: string;
   done: string;
 }[] = [
   {
-    kind: "call",
-    label: "Log call",
-    hint: "Record a call you already made. This does not place a call.",
+    kind: "call:spoke",
+    icon: "call",
+    label: "Log call: spoke with them",
+    hint: "Record a call you already made where you talked. This does not place a call.",
+    done: "Call recorded",
+  },
+  {
+    kind: "call:no_answer",
+    icon: "call",
+    label: "Log call: no answer",
+    hint: "Record a call you already made that nobody picked up, or a voicemail. This does not place a call.",
     done: "Call recorded",
   },
   {
     kind: "email_out",
+    icon: "email_out",
     label: "Log email",
     hint: "Record an email you already sent. This does not send an email.",
     done: "Email recorded",
   },
   {
     kind: "sms_out",
+    icon: "sms_out",
     label: "Log text",
     hint: "Record a text you already sent. This does not send a text.",
     done: "Text recorded",

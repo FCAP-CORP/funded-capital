@@ -188,7 +188,8 @@ check("a broken id that is not in the book is ignored", queueRows(queue, book, [
 check("empty book, empty table", queueRows([], [], [], NOW).length === 0, "0");
 
 console.log("\n=== 9. Log buttons record, they never send ===");
-check("three log buttons: call, email, text", LOG_ACTIONS.map((a) => a.kind).join(",") === "call,email_out,sms_out", LOG_ACTIONS.map((a) => a.kind).join(","));
+check("four log buttons: call (spoke / no answer), email, text", LOG_ACTIONS.map((a) => a.kind).join(",") === "call:spoke,call:no_answer,email_out,sms_out", LOG_ACTIONS.map((a) => a.kind).join(","));
+check("every logged call says whether you spoke (1 Oct 2026)", LOG_ACTIONS.filter((a) => a.icon === "call").every((a) => a.kind === "call:spoke" || a.kind === "call:no_answer"), "");
 check("every label starts with 'Log '", LOG_ACTIONS.every((a) => a.label.startsWith("Log ")), LOG_ACTIONS.map((a) => a.label).join(" | "));
 check("no bare Call / Email / Text / Send label", LOG_ACTIONS.every((a) => !/^(call|email|text|sms|send)$/i.test(a.label.trim())), "none");
 check("every hint says it does not send or place anything", LOG_ACTIONS.every((a) => /does not (place|send)/.test(a.hint)), "all say so");

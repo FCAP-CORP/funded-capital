@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 import {
-  AlarmClock, Check, Loader2, Mail, MessageSquare, MoreHorizontal, Phone, StickyNote, Undo2,
+  AlarmClock, Check, Loader2, Mail, MessageSquare, MoreHorizontal, Phone, StickyNote, Undo2, X,
 } from "lucide-react";
 import { toast } from "@/components/ui/toast";
 import { safeCall } from "@/lib/crm/safeCall";
@@ -43,8 +43,12 @@ type Result = { ok: true } | { ok: false; error: string };
 
 const LOG_ICON = { call: Phone, email_out: Mail, sms_out: MessageSquare } as const;
 
-const CALL = LOG_ACTIONS.find((a) => a.kind === "call")!;
-const OTHER_LOGS = LOG_ACTIONS.filter((a) => a.kind !== "call");
+// "Log call" asks one question first — did you speak? — because a call where
+// you talked restarts nurture's quiet clock and one nobody answered does not
+// (lib/db/contactKinds.ts isResponse, 1 Oct 2026).
+const SPOKE = LOG_ACTIONS.find((a) => a.kind === "call:spoke")!;
+const NO_ANSWER = LOG_ACTIONS.find((a) => a.kind === "call:no_answer")!;
+const OTHER_LOGS = LOG_ACTIONS.filter((a) => a.icon !== "call");
 
 const btn =
   "inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-lg border border-slate-200 bg-white px-3 text-[13px] font-semibold text-navy-900 " +
@@ -77,6 +81,7 @@ export function QueueRowActions({
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [noteOpen, setNoteOpen] = useState(false);
+  const [askCall, setAskCall] = useState(false);
   const [note, setNote] = useState("");
   const [reason, setReason] = useState("");
   const [options, setOptions] = useState<SnoozeOption[]>([]);
@@ -142,17 +147,53 @@ export function QueueRowActions({
   return (
     <div className="relative flex flex-col items-end">
       <div className="flex items-center gap-1.5">
-        <button
-          type="button"
-          className={btn}
-          disabled={pending}
-          title={CALL.hint}
-          aria-label={`${CALL.label} with ${name}. ${CALL.hint}`}
-          onClick={() => run(() => logContact(applicationId, "call", "", HERE), CALL.done)}
-        >
-          {pending ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <CallIcon size={14} aria-hidden="true" />}
-          {CALL.label}
-        </button>
+        {askCall ? (
+          <div role="group" aria-label={`Log a call with ${name}: did you speak?`} className="flex items-center gap-1">
+            <button
+              type="button"
+              className={btn}
+              disabled={pending}
+              title={SPOKE.hint}
+              aria-label={`${SPOKE.label} (${name}). ${SPOKE.hint}`}
+              onClick={() => run(() => logContact(applicationId, "call:spoke", "", HERE), SPOKE.done, () => setAskCall(false))}
+            >
+              {pending ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <CallIcon size={14} aria-hidden="true" />}
+              Spoke
+            </button>
+            <button
+              type="button"
+              className={btn}
+              disabled={pending}
+              title={NO_ANSWER.hint}
+              aria-label={`${NO_ANSWER.label} (${name}). ${NO_ANSWER.hint}`}
+              onClick={() => run(() => logContact(applicationId, "call:no_answer", "", HERE), NO_ANSWER.done, () => setAskCall(false))}
+            >
+              No answer
+            </button>
+            <button
+              type="button"
+              className={`${btn} w-9 justify-center px-0`}
+              disabled={pending}
+              aria-label="Cancel logging a call"
+              title="Cancel"
+              onClick={() => setAskCall(false)}
+            >
+              <X size={14} aria-hidden="true" />
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            className={btn}
+            disabled={pending}
+            title="Record a call you already made. You'll be asked whether you spoke. This does not place a call."
+            aria-label={`Log call with ${name}. Record a call you already made; you'll be asked whether you spoke. This does not place a call.`}
+            onClick={() => setAskCall(true)}
+          >
+            <CallIcon size={14} aria-hidden="true" />
+            Log call
+          </button>
+        )}
 
         <details
           ref={menu}
@@ -183,7 +224,7 @@ export function QueueRowActions({
           >
             <p className={heading}>Record</p>
             {OTHER_LOGS.map((a) => {
-              const Icon = LOG_ICON[a.kind];
+              const Icon = LOG_ICON[a.icon];
               return (
                 <button
                   key={a.kind}

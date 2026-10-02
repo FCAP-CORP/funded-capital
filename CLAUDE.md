@@ -1465,3 +1465,40 @@ but were held out for a reason the list could not show. Now the list says it, an
   contain nested brackets (`act(xs.map((x) => x.id), "/crm")`), so a wrong route there passed.
   Every action a dashboard file IMPORTS must now appear among the calls the scan saw, or the build
   fails ("rewrite the call so its arguments are simple"). Negative-tested both ways. Guards 452.
+
+### Nurture's quiet clock runs from THEIR last response (1 Oct 2026)
+
+Luis, on Kaine Black (last wrote June 30; Luis called Sep 24, so the old rule held him out until
+Oct 24): "His last response to me was on June 30th, which is what ultimately matters. Not when was
+the last time I emailed." Until now any email, text or call in either direction restarted the 30
+days, so chasing a silent lead kept him out of nurture for ever.
+
+- **One definition of "their response"**, `isResponse` + `RESPONSE_WHERE` / `OUTREACH_WHERE` in
+  `lib/db/contactKinds.ts`: an email or text FROM them, a call they placed (Quo `direction:
+  incoming`), any call where we spoke (Quo `answered`, or `spoke: true` on a hand-logged call).
+  Everything else we send — email/text out, an unanswered call, a call logged before this change
+  or with no metadata — is OUR outreach. The SQL COALESCEs every jsonb read: a NULL there made a
+  metadata-less call vanish from OUTREACH too (caught on Postgres, pinned by a harness check).
+- **classify()**: no response from them AND no new enquiry for `QUIET_DAYS` (30) → may join;
+  then our own outreach holds them back only `OUTREACH_COOL_OFF_DAYS` (**5**, Luis's number) —
+  exclusion `recent_outreach`, "You reached out in the last 5 days" — so a drip never lands the
+  morning after a personal note. NurtureContact has `lastResponseAt` + `lastOutreachAt` (was
+  `lastTouchAt`). Row/status text: "Not yet: last heard from them Jun 30, …" / "Not yet: you
+  reached out Sep 30, can join from Oct 5".
+- **Auto-stop**: a response (incl. an answered / incoming / "spoke" call) stops as `replied`.
+  **Luis reaching out himself no longer stops a programme** (his choice); `contacted` stays in
+  StopReason only for rows stopped that way before.
+- **Log call asks whether you spoke** (Luis's choice): `LOG_ACTIONS` has `call:spoke` and
+  `call:no_answer` (`lib/crm/followup.ts` `parseLogKind`, kind string so the
+  `logContact(..., from)` shape guard §8 checks is unchanged); metadata `{ spoke }`, timeline
+  "Called · spoke with them" / "Called · no answer". The dashboard row's Log call opens Spoke /
+  No answer / ×. A bare "call" is still accepted (outcome unknown → outreach).
+- Not changed: the dashboard queue's "last contact" and the term-sheet follow-ups still use the
+  last touch either way — they answer "when did we last talk", a different question.
+- Verified: contactKinds regress (12 cases + SQL shape), nurture regress §9 (mutation-tested:
+  cool-off removed, or outreach held 30 days, each fails 3), followup + queueView regress, all
+  suites, guards; Postgres: bulk harness 42 (Kaine's shape ready; unanswered Quo call → cool-off
+  only; answered / incoming / logged-spoke → 30 days; no-metadata call counted as outreach both
+  ways; auto-stop: Luis's own email + unanswered call do NOT stop, an answered call and a logged
+  "spoke" stop as replied), nurture 49, cockpit 48, cockpit2 89. Two harness checks were date
+  artifacts (fixed WED_13 clock vs the database's real `now()` after 30 Sep) — fixed in the harness.

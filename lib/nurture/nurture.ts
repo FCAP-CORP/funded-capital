@@ -30,9 +30,17 @@
  * time, picked by PRIORITY below. Four emails from four programmes in one week
  * is how a lender ends up in the spam folder.
  *
- * NOBODY IN A CONVERSATION GETS MARKETING. Anyone emailed, texted or called —
- * either direction — in the last QUIET_DAYS is left alone, and so is anyone
- * whose deal is being worked (term sheet out through closing).
+ * NOBODY IN A CONVERSATION GETS MARKETING. Anyone who RESPONDED in the last
+ * QUIET_DAYS — wrote, texted, called us, or spoke with us on a call
+ * (lib/db/contactKinds.ts isResponse) — is left alone, and so is anyone whose
+ * deal is being worked (term sheet out through closing).
+ *
+ * OUR OWN OUTREACH DOES NOT RESET THE CLOCK (1 Oct 2026, Luis: "his last
+ * response to me was on June 30th, which is what ultimately matters"). Until
+ * then any email, text or call either way restarted the 30 days, so chasing a
+ * silent lead kept him out of nurture for ever. Our outreach now only holds a
+ * person back OUTREACH_COOL_OFF_DAYS (5, Luis's number), so a drip email does
+ * not land the morning after a personal note.
  *
  * CONSENT FLOWS INBOUND ONLY. Nothing here can make someone emailable who was
  * not. `emailSubscribed === false` (a Klaviyo unsubscribe mirrored in) is a
@@ -72,6 +80,8 @@ export type Program = {
 };
 
 export const QUIET_DAYS = 30;
+/** After Luis's own email, text or unanswered call, wait this long before nurture may start. */
+export const OUTREACH_COOL_OFF_DAYS = 5;
 export const LOST_MIN_DAYS = 90;
 export const PAST_BORROWER_MIN_DAYS = 180;
 
@@ -106,7 +116,7 @@ export const PROGRAMS: readonly Program[] = [
   {
     key: "bp_no_term_sheet",
     name: "BiggerPockets, no term sheet",
-    who: `Came from BiggerPockets, never got a term sheet, quiet ${QUIET_DAYS}+ days.`,
+    who: `Came from BiggerPockets, never got a term sheet, no response from them in ${QUIET_DAYS}+ days.`,
     what: "A short series on how our loans work: 3–4 emails over about 6–13 weeks, then they stop.",
     klaviyoListId: "VYBzq9",
     klaviyoFlowId: "WSv8R7",
@@ -116,7 +126,7 @@ export const PROGRAMS: readonly Program[] = [
   {
     key: "quiet",
     name: "Quiet leads",
-    who: `Asked about a loan, nothing in progress, nobody in touch for ${QUIET_DAYS}+ days.`,
+    who: `Asked about a loan, nothing in progress, no response from them in ${QUIET_DAYS}+ days.`,
     what: "A short series picking the conversation back up: 3–4 emails over about 6–13 weeks, then they stop.",
     klaviyoListId: "Yq4vxf",
     klaviyoFlowId: "TWFaDN",
@@ -136,7 +146,7 @@ export const PROGRAMS: readonly Program[] = [
   {
     key: "contacts",
     name: "Investor contacts",
-    who: `In your contacts but never sent us a deal; nobody in touch for ${QUIET_DAYS}+ days.`,
+    who: `In your contacts but never sent us a deal; no response from them in ${QUIET_DAYS}+ days.`,
     what: "A short introduction to how we lend: 3–4 emails over about 6–13 weeks, then they stop.",
     klaviyoListId: "S2b2zL",
     klaviyoFlowId: "UTRYvx",
@@ -238,8 +248,10 @@ export type NurtureContact = {
   /** Every role this person holds on any application. */
   roles: string[];
   apps: NurtureApp[];
-  /** Latest email, text or call in EITHER direction. */
-  lastTouchAt: string | null;
+  /** Latest RESPONSE from them: email or text in, a call they placed, or a call where we spoke (contactKinds.ts isResponse). */
+  lastResponseAt: string | null;
+  /** Latest outreach from us that was not a conversation: email or text out, an unanswered call. */
+  lastOutreachAt: string | null;
   /** Programmes this person has ever been enrolled in (active or stopped). */
   priorPrograms: string[];
   /** The programme they are in right now, if any. */
@@ -284,6 +296,7 @@ export type Exclusion =
   | "recent_borrower"
   | "recently_lost"
   | "recent_contact"
+  | "recent_outreach"
   | "enrolled"
   | "stopped_before"
   | "already_done"
@@ -299,7 +312,8 @@ export const EXCLUSION_LABEL: Record<Exclusion, string> = {
   in_progress: "Deal in progress",
   recent_borrower: `Funded in the last ${PAST_BORROWER_MIN_DAYS / 30} months`,
   recently_lost: `Lost in the last ${LOST_MIN_DAYS} days`,
-  recent_contact: `In touch in the last ${QUIET_DAYS} days`,
+  recent_contact: `They were in touch in the last ${QUIET_DAYS} days`,
+  recent_outreach: `You reached out in the last ${OUTREACH_COOL_OFF_DAYS} days`,
   enrolled: "Already in a programme",
   stopped_before: "You stopped their nurture before",
   already_done: "Already went through this programme",
@@ -341,11 +355,14 @@ export function classify(c: NurtureContact, now: Date): Classification {
   const fundedAge = (a: NurtureApp) => daysSince(a.fundedAt, now) ?? daysSince(a.arrivedAt, now) ?? 0;
   if (funded.some((a) => fundedAge(a) < PAST_BORROWER_MIN_DAYS)) return out("recent_borrower");
 
-  // Quiet: no conversation either way, and no enquiry arrived, in QUIET_DAYS.
+  // Quiet: no response from them, and no enquiry arrived, in QUIET_DAYS.
   // An arrival with no date at all counts as recent — the safe side.
-  const touch = daysSince(c.lastTouchAt, now);
-  if (touch !== null && touch < QUIET_DAYS) return out("recent_contact");
+  const reply = daysSince(c.lastResponseAt, now);
+  if (reply !== null && reply < QUIET_DAYS) return out("recent_contact");
   if (apps.some((a) => (daysSince(a.arrivedAt, now) ?? 0) < QUIET_DAYS)) return out("recent_contact");
+  // Our own outreach holds them back only a few days.
+  const reached = daysSince(c.lastOutreachAt, now);
+  if (reached !== null && reached < OUTREACH_COOL_OFF_DAYS) return out("recent_outreach");
 
   if (c.activeProgram) return out("enrolled");
   if (c.staffStopped) return out("stopped_before");
@@ -358,15 +375,17 @@ export function classify(c: NurtureContact, now: Date): Classification {
 
 /**
  * Someone with no deal on file — mostly the old spreadsheet's contacts. They
- * get the same quiet rule (nobody in touch either way for QUIET_DAYS, and not
+ * get the same quiet rule (no response from them for QUIET_DAYS, and not
  * added in that window), and only ever the "contacts" programme. A contact
  * marked as a broker is left out, as a broker participant would be.
  */
 function classifyNoDeal(c: NurtureContact, now: Date): Classification {
   if (c.leadSource === "broker") return out("broker");
-  const touch = daysSince(c.lastTouchAt, now);
-  if (touch !== null && touch < QUIET_DAYS) return out("recent_contact");
+  const reply = daysSince(c.lastResponseAt, now);
+  if (reply !== null && reply < QUIET_DAYS) return out("recent_contact");
   if ((daysSince(c.addedAt, now) ?? 0) < QUIET_DAYS) return out("recent_contact");
+  const reached = daysSince(c.lastOutreachAt, now);
+  if (reached !== null && reached < OUTREACH_COOL_OFF_DAYS) return out("recent_outreach");
   if (c.activeProgram) return out("enrolled");
   if (c.staffStopped) return out("stopped_before");
   if (c.priorPrograms.includes("contacts")) return out("already_done");
@@ -430,10 +449,8 @@ export type StopSignals = {
   enrolledAt: string;
   email: string | null;
   emailSubscribed: boolean | null;
-  /** Latest email_in / sms_in. */
+  /** Latest response from them (contactKinds.ts isResponse): email or text in, a call they placed or one where we spoke. */
   lastInboundAt: string | null;
-  /** Latest email_out / sms_out / call — Luis reaching out himself. */
-  lastOutboundAt: string | null;
   /** Latest arrival of any application for this person. */
   lastArrivalAt: string | null;
   /** Latest FORWARD stage move (isForwardMove). A correction backwards, or marking a deal lost, is not a reason to stop. */
@@ -450,8 +467,13 @@ export type StopSignals = {
 /**
  * Should this enrolment stop, and why. Checked every sync run against a fresh
  * read. The order puts consent first (it is a legal line, not a preference),
- * then the wins, then Luis reaching out himself, then — once the flow has run
- * its course (`finishAt` passed, measured against `now`) — "finished".
+ * then the wins, then — once the flow has run its course (`finishAt` passed,
+ * measured against `now`) — "finished".
+ *
+ * Luis reaching out himself NO LONGER stops a programme (his call, 1 Oct
+ * 2026: only their reply, a new enquiry, the deal moving forward or an
+ * unsubscribe does). "contacted" stays in StopReason for rows stopped that
+ * way before.
  *
  * Only signals between enrolling and `finishAt` count, so a cron that was down
  * over the finish date cannot turn a later reply into a programme win.
@@ -469,7 +491,6 @@ export function stopReason(s: StopSignals, now?: Date): StopReason | null {
   if (after(s.lastInboundAt)) return "replied";
   if (after(s.lastArrivalAt)) return "new_deal";
   if (after(s.lastForwardMoveAt)) return "deal_moved";
-  if (after(s.lastOutboundAt)) return "contacted";
   if (end !== null && now && now.getTime() >= end) return "finished";
   return null;
 }
@@ -625,7 +646,7 @@ export type Candidate = {
   email: string;
   source: string;
   loan: string;
-  /** Days since anyone was in touch, or null for never. */
+  /** Days since they last responded, or null for never. */
   quietDays: number | null;
   /** For people with no deal: when they were added and their tags, to judge who they are. */
   note: string;
@@ -640,7 +661,7 @@ export function candidateOf(c: NurtureContact, now: Date): Candidate {
     email: cleanEmail(c.email) ?? "",
     source: SOURCE_LABEL[c.leadSource] ?? SOURCE_LABEL[newest?.leadSource ?? ""] ?? "—",
     loan: PRODUCT_LABEL[newest?.product ?? ""] ?? "—",
-    quietDays: daysSince(c.lastTouchAt, now),
+    quietDays: daysSince(c.lastResponseAt, now),
     note: c.apps.length > 0 ? "" : contactNote(c),
   };
 }
@@ -724,8 +745,8 @@ export function parseContactIds(raw: unknown): { ok: true; ids: string[] } | { o
  * WHY not, in a sentence. `classify()` decides; this only explains.
  *
  * For "in touch recently" it also says WHEN they could join: QUIET_DAYS after
- * whichever came last — the latest email, text or call either way, or the
- * latest enquiry. On 1 Oct 2026 sixteen leads that looked quiet on their
+ * whichever came last — their latest response or their latest enquiry — or,
+ * for our own recent outreach, OUTREACH_COOL_OFF_DAYS after it. On 1 Oct 2026 sixteen leads that looked quiet on their
  * record card were held out for a reason the list could not show; the date
  * says which signal it is.
  */
@@ -746,20 +767,32 @@ export function nurtureStatus(c: NurtureContact, now: Date): NurtureStatus {
     return { kind: "in", program: c.activeProgram, text: name ? `In nurture: ${name}` : "In a nurture programme" };
   }
   if (k.exclusion === "recent_contact") {
-    const touch = ms(c.lastTouchAt);
+    const reply = ms(c.lastResponseAt);
     const arrivals = c.apps.length > 0 ? c.apps.map((a) => ms(a.arrivedAt)) : [ms(c.addedAt)];
     const arrival = arrivals.reduce<number | null>((m, v) => (v === null ? m : m === null ? v : Math.max(m, v)), null);
-    const latest = Math.max(touch ?? -Infinity, arrival ?? -Infinity);
+    const latest = Math.max(reply ?? -Infinity, arrival ?? -Infinity);
     if (!Number.isFinite(latest)) {
       return { kind: "out", exclusion: k.exclusion, text: "Not yet: no date on their enquiry", readyOn: null };
     }
     const readyOn = new Date(latest + QUIET_DAYS * DAY);
-    const what = touch !== null && touch >= (arrival ?? -Infinity) ? "In touch" : "New enquiry";
+    const what = reply !== null && reply >= (arrival ?? -Infinity) ? "last heard from them" : "new enquiry";
     return {
       kind: "out",
       exclusion: k.exclusion,
-      text: `Not yet: ${what.toLowerCase()} ${NY_SHORT.format(new Date(latest))}, can join from ${NY_SHORT.format(readyOn)}`,
+      text: `Not yet: ${what} ${NY_SHORT.format(new Date(latest))}, can join from ${NY_SHORT.format(readyOn)}`,
       readyOn: readyOn.toISOString(),
+    };
+  }
+  if (k.exclusion === "recent_outreach") {
+    const at = ms(c.lastOutreachAt);
+    const readyOn = at === null ? null : new Date(at + OUTREACH_COOL_OFF_DAYS * DAY);
+    return {
+      kind: "out",
+      exclusion: k.exclusion,
+      text: at === null || !readyOn
+        ? `Not yet: you reached out in the last ${OUTREACH_COOL_OFF_DAYS} days`
+        : `Not yet: you reached out ${NY_SHORT.format(new Date(at))}, can join from ${NY_SHORT.format(readyOn)}`,
+      readyOn: readyOn ? readyOn.toISOString() : null,
     };
   }
   if (k.exclusion === "not_a_fit" && c.apps.some((a) => a.product === "not_our_product")) {

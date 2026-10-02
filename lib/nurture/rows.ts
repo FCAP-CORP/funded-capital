@@ -14,7 +14,7 @@
  */
 
 import { sql, type SQL } from "drizzle-orm";
-import { CONTACT_KINDS } from "@/lib/db/contactKinds";
+import { OUTREACH_WHERE, RESPONSE_WHERE } from "@/lib/db/contactKinds";
 import { STAGE_ORDER, type NurtureApp, type NurtureContact } from "./nurture";
 
 type Row = Record<string, unknown>;
@@ -51,7 +51,9 @@ export function nurtureContactsSql(ids?: string[]): SQL {
       c.id, c.first_name, c.last_name, c.email, c.email_subscribed, c.lead_source, c.state, c.created_at, c.tags,
       (SELECT array_agg(DISTINCT p.role::text) FROM participants p WHERE p.contact_id = c.id) AS roles,
       (SELECT max(ac.occurred_at) FROM activities ac
-        WHERE ac.contact_id = c.id AND ac.kind IN ${CONTACT_KINDS}) AS last_touch_at,
+        WHERE ac.contact_id = c.id AND ${RESPONSE_WHERE}) AS last_response_at,
+      (SELECT max(ac.occurred_at) FROM activities ac
+        WHERE ac.contact_id = c.id AND ${OUTREACH_WHERE}) AS last_outreach_at,
       (SELECT array_agg(DISTINCT e.program) FROM nurture_enrollments e WHERE e.contact_id = c.id) AS prior_programs,
       (SELECT e.program FROM nurture_enrollments e WHERE e.contact_id = c.id AND e.status = 'active' LIMIT 1) AS active_program,
       EXISTS (SELECT 1 FROM nurture_enrollments e
@@ -114,7 +116,8 @@ export function toNurtureContact(r: Row): NurtureContact {
     state: str(r.state),
     roles: arr(r.roles),
     apps: (Array.isArray(apps) ? apps : []).map(toApp).filter((a): a is NurtureApp => a !== null),
-    lastTouchAt: iso(r.last_touch_at),
+    lastResponseAt: iso(r.last_response_at),
+    lastOutreachAt: iso(r.last_outreach_at),
     priorPrograms: arr(r.prior_programs),
     activeProgram: str(r.active_program),
     staffStopped: r.staff_stopped === true || r.staff_stopped === "t",
@@ -145,9 +148,7 @@ export function activeSignalsSql(): SQL {
       e.id, e.contact_id, e.program, e.enrolled_at, e.sync_state, e.synced_at, e.released_at,
       c.email, c.email_subscribed,
       (SELECT max(ac.occurred_at) FROM activities ac
-        WHERE ac.contact_id = e.contact_id AND ac.kind IN ('email_in', 'sms_in')) AS last_inbound_at,
-      (SELECT max(ac.occurred_at) FROM activities ac
-        WHERE ac.contact_id = e.contact_id AND ac.kind IN ('email_out', 'sms_out', 'call')) AS last_outbound_at,
+        WHERE ac.contact_id = e.contact_id AND ${RESPONSE_WHERE}) AS last_inbound_at,
       (SELECT max(COALESCE(a.submitted_at, a.created_at)) FROM applications a
         WHERE a.id IN (SELECT p.application_id FROM participants p WHERE p.contact_id = e.contact_id)) AS last_arrival_at,
       (SELECT max(st.changed_at) FROM stage_transitions st

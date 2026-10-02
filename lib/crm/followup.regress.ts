@@ -5,6 +5,8 @@
  */
 
 import {
+  callLogSubject,
+  parseLogKind,
   KIND_LABEL,
   LOGGABLE_KINDS,
   MAX_NOTE_LENGTH,
@@ -110,6 +112,14 @@ check("in winter time, Tomorrow is Monday the 2nd", snoozePresets(WINTER)[0].iso
 // Just after midnight Eastern the NY date has advanced; tomorrow is the next day.
 const AFTER_MIDNIGHT = new Date("2026-09-24T04:05:00.000Z"); // 00:05 EDT Thu 24 Sep
 check("just after midnight Eastern, Tomorrow is Friday the 25th", snoozePresets(AFTER_MIDNIGHT)[0].iso === "2026-09-25T13:00:00.000Z", snoozePresets(AFTER_MIDNIGHT)[0].iso);
+
+console.log("\n=== a logged call says whether you spoke (1 Oct 2026) ===");
+check("call:spoke → a call, spoke", JSON.stringify(parseLogKind("call:spoke")) === JSON.stringify({ kind: "call", spoke: true }), "");
+check("call:no_answer → a call, not spoke", JSON.stringify(parseLogKind("call:no_answer")) === JSON.stringify({ kind: "call", spoke: false }), "");
+check("bare call still accepted, outcome unknown", JSON.stringify(parseLogKind("call")) === JSON.stringify({ kind: "call", spoke: null }), "");
+check("email/text/note unchanged", parseLogKind("email_out")?.kind === "email_out" && parseLogKind("note")?.spoke === null, "");
+check("inbound and made-up kinds refused", parseLogKind("email_in") === null && parseLogKind("call:maybe") === null && parseLogKind("sms_in") === null && parseLogKind(7) === null, "");
+check("timeline wording", callLogSubject(true) === "Called · spoke with them" && callLogSubject(false) === "Called · no answer" && callLogSubject(null) === "Called", "");
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

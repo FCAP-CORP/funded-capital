@@ -27,6 +27,28 @@ export function isLoggableKind(kind: unknown): kind is LoggableKind {
   return typeof kind === "string" && (LOGGABLE_KINDS as readonly string[]).includes(kind);
 }
 
+/**
+ * A call logged by hand says whether we spoke (1 Oct 2026). "Spoke with them"
+ * counts as THEIR response — it restarts nurture's 30-day quiet clock — and
+ * "No answer" counts as us reaching out (lib/db/contactKinds.ts isResponse).
+ * The choice travels in the kind string ("call:spoke") so every caller keeps
+ * the same four-argument logContact(..., from) shape that guard §8 checks.
+ * A bare "call" is still accepted and records no answer either way.
+ */
+export const CALL_OUTCOMES = { "call:spoke": true, "call:no_answer": false } as const;
+export type LogKindInput = LoggableKind | keyof typeof CALL_OUTCOMES;
+
+export function parseLogKind(raw: unknown): { kind: LoggableKind; spoke: boolean | null } | null {
+  if (typeof raw !== "string") return null;
+  if (raw in CALL_OUTCOMES) return { kind: "call", spoke: CALL_OUTCOMES[raw as keyof typeof CALL_OUTCOMES] };
+  return isLoggableKind(raw) ? { kind: raw, spoke: null } : null;
+}
+
+/** The timeline line for a call logged by hand. */
+export function callLogSubject(spoke: boolean | null): string {
+  return spoke === true ? "Called · spoke with them" : spoke === false ? "Called · no answer" : "Called";
+}
+
 export const KIND_LABEL: Record<LoggableKind, string> = {
   call: "Called",
   email_out: "Emailed",

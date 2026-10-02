@@ -155,7 +155,6 @@ async function applyAutoStops(now: Date): Promise<{ stopped: number; finished: n
       email: strOf(r.email),
       emailSubscribed: r.email_subscribed === null || r.email_subscribed === undefined ? null : r.email_subscribed === true,
       lastInboundAt: isoOf(r.last_inbound_at),
-      lastOutboundAt: isoOf(r.last_outbound_at),
       lastArrivalAt: isoOf(r.last_arrival_at),
       lastForwardMoveAt: isoOf(r.last_forward_move_at),
       finishAt: finishAt(addedAt, flowDays.get(String(r.program)) ?? null),

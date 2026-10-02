@@ -38,7 +38,7 @@ export async function enrollAction(program: string, contactIds: unknown): Promis
   revalidatePath(HERE);
   if (r.enrolled > 0) after(() => drainNurtureSoon());
 
-  if (r.enrolled === 0) return { ok: false, error: "Nobody was added — they no longer qualify (someone got in touch, a deal started, or they are already in)." };
+  if (r.enrolled === 0) return { ok: false, error: "Nobody was added — they no longer qualify (someone responded, a deal started, or they are already in)." };
   const skipped = r.skipped > 0 ? ` ${r.skipped} skipped because they no longer qualify.` : "";
   return { ok: true, message: `Added ${r.enrolled} to ${p.name}. They're queued and go out on weekday mornings, within the warm-up limit, while this programme's emails are on.${skipped}` };
 }

@@ -267,7 +267,7 @@ export function QuickActions({
           className="flex flex-wrap items-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-white/60 p-2"
         >
           {LOG_ACTIONS.map((a) => {
-            const Icon = LOG_ICON[a.kind];
+            const Icon = LOG_ICON[a.icon];
             return (
               <button
                 key={a.kind}

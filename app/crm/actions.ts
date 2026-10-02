@@ -11,10 +11,10 @@ import { assertCrmStaff, signedInUser } from "@/lib/crm/access";
 import { CLOSE_BULK_MAX, closableAsNotOurProduct, parseLostReason } from "@/lib/crm/board";
 import {
   KIND_LABEL,
-  isLoggableKind,
+  callLogSubject,
+  parseLogKind,
   parseNote,
   parseSnoozeDate,
-  type LoggableKind,
 } from "@/lib/crm/followup";
 import { isUuid, parseDueDate, parseTaskTitle } from "@/lib/crm/tasks";
 import { stopTermSheetFollowups } from "@/lib/crm/followups.server";
@@ -340,11 +340,12 @@ export async function logContact(
   try {
     const userId = await requireUser();
 
-    if (!isLoggableKind(kind)) {
+    const parsed = parseLogKind(kind);
+    if (!parsed) {
       return { ok: false, error: "that is not something you can log by hand" };
     }
     // A note with no words is nothing. A logged call needs no commentary.
-    const body = parseNote(note, kind === "note");
+    const body = parseNote(note, parsed.kind === "note");
     if (!body.ok) return { ok: false, error: body.error };
 
     const [app] = await db
@@ -359,15 +360,17 @@ export async function logContact(
     await db.insert(activities).values({
       applicationId,
       contactId,
-      kind: kind as LoggableKind,
+      kind: parsed.kind,
       occurredAt: new Date(),
       source: "crm",
-      subject: KIND_LABEL[kind as LoggableKind],
+      subject: parsed.kind === "call" ? callLogSubject(parsed.spoke) : KIND_LABEL[parsed.kind],
       body: body.value,
       // dedupKey stays null. It is the unique key for provider webhooks, which
       // are at-least-once; a person pressing a button is not, and two calls to
       // the same borrower in one day are two calls.
-      metadata: { by: userId },
+      // `spoke` decides whether the call is THEIR response for nurture's quiet
+      // clock (lib/db/contactKinds.ts isResponse).
+      metadata: parsed.spoke === null ? { by: userId } : { by: userId, spoke: parsed.spoke },
     });
 
     revalidateFrom(from, "/crm/dashboard");

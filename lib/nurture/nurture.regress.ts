@@ -10,7 +10,7 @@
  *   §5  the Klaviyo payload could subscribe anyone or wipe their data.
  */
 import {
-  ENROLL_MAX, LOST_MIN_DAYS, MAX_SYNC_ATTEMPTS, PAST_BORROWER_MIN_DAYS, PROGRAMS, PROGRAM_KEYS, QUIET_DAYS,
+  ENROLL_MAX, LOST_MIN_DAYS, MAX_SYNC_ATTEMPTS, OUTREACH_COOL_OFF_DAYS, PAST_BORROWER_MIN_DAYS, PROGRAMS, PROGRAM_KEYS, QUIET_DAYS,
   STAGE_ORDER, STOP_LABEL, WIN_REASONS,
   candidateOf, classify, isForwardMove, nurtureStatus, klaviyoVerdict, loanWords, lostReasonExcluded, parseContactIds, profilePayload,
   programByKey, retryDelayMinutes, stateAfterStop, stopReason, summarize,
@@ -51,7 +51,8 @@ const person = (o: Partial<NurtureContact> = {}): NurtureContact => ({
   state: "FL",
   roles: ["borrower"],
   apps: [app()],
-  lastTouchAt: ago(45),
+  lastResponseAt: ago(45),
+  lastOutreachAt: ago(45),
   priorPrograms: [],
   activeProgram: null,
   staffStopped: false,
@@ -88,11 +89,11 @@ check("term sheet out → in progress", why(person({ apps: [app({ stage: "term_s
 check("underwriting → in progress", why(person({ apps: [app({ stage: "underwriting" })] })) === "in_progress", "");
 check("one deal in progress blocks even with an old lead beside it",
   why(person({ apps: [app(), app({ stage: "docs_out" })] })) === "in_progress", "");
-check(`touched ${QUIET_DAYS - 1} days ago → recent`, why(person({ lastTouchAt: ago(QUIET_DAYS - 1) })) === "recent_contact", "");
-check(`touched exactly ${QUIET_DAYS} days ago → eligible`, is(person({ lastTouchAt: ago(QUIET_DAYS) }), "quiet"), "");
-check("never touched, old enquiry → eligible", is(person({ lastTouchAt: null }), "quiet"), "");
-check("never touched, enquiry 10 days old → recent", why(person({ lastTouchAt: null, apps: [app({ arrivedAt: ago(10) })] })) === "recent_contact", "");
-check("enquiry with no date at all → treated as recent (safe side)", why(person({ lastTouchAt: null, apps: [app({ arrivedAt: null })] })) === "recent_contact", "");
+check(`they responded ${QUIET_DAYS - 1} days ago → recent`, why(person({ lastResponseAt: ago(QUIET_DAYS - 1) })) === "recent_contact", "");
+check(`they responded exactly ${QUIET_DAYS} days ago → eligible`, is(person({ lastResponseAt: ago(QUIET_DAYS) }), "quiet"), "");
+check("never touched, old enquiry → eligible", is(person({ lastResponseAt: null }), "quiet"), "");
+check("never touched, enquiry 10 days old → recent", why(person({ lastResponseAt: null, apps: [app({ arrivedAt: ago(10) })] })) === "recent_contact", "");
+check("enquiry with no date at all → treated as recent (safe side)", why(person({ lastResponseAt: null, apps: [app({ arrivedAt: null })] })) === "recent_contact", "");
 check("new enquiry 5 days ago beside an old one → recent", why(person({ apps: [app(), app({ arrivedAt: ago(5) })] })) === "recent_contact", "");
 check("not our product (homebuyer) → not a fit", why(person({ apps: [app({ product: "not_our_product" })] })) === "not_a_fit", "");
 check("lost as duplicate → not a fit", why(person({ apps: [app({ stage: "closed_lost", lostReason: "Duplicate file", lostAt: ago(200) })] })) === "not_a_fit", "");
@@ -138,8 +139,8 @@ const bare = (o: Partial<NurtureContact> = {}) => person({ apps: [], roles: [], 
 check("no deal → only ever the contacts programme", is(bare(), "contacts"), "");
 check("no deal, added 10 days ago → recent", why(bare({ addedAt: ago(10) })) === "recent_contact", "");
 check("no deal, no added date → recent (safe side)", why(bare({ addedAt: null })) === "recent_contact", "");
-check("no deal, in touch 5 days ago → recent", why(bare({ lastTouchAt: ago(5) })) === "recent_contact", "");
-check("no deal, never in touch, added long ago → contacts", is(bare({ lastTouchAt: null }), "contacts"), "");
+check("no deal, in touch 5 days ago → recent", why(bare({ lastResponseAt: ago(5) })) === "recent_contact", "");
+check("no deal, never in touch, added long ago → contacts", is(bare({ lastResponseAt: null }), "contacts"), "");
 check("no deal, contact marked as a broker → excluded", why(bare({ leadSource: "broker" })) === "broker", "");
 check("no deal, unsubscribed → excluded", why(bare({ emailSubscribed: false })) === "unsubscribed", "");
 check("no deal, our own address → excluded", why(bare({ email: "x@fundedcapital.com" })) === "internal", "");
@@ -154,17 +155,17 @@ check("people with a deal get no note", candidateOf(person(), NOW).note === "", 
 console.log("\n§3 auto-stop");
 const sig = (o: Partial<StopSignals> = {}): StopSignals => ({
   enrolledAt: ago(10), email: "dana@example.com", emailSubscribed: null,
-  lastInboundAt: ago(60), lastOutboundAt: ago(60), lastArrivalAt: ago(90), lastForwardMoveAt: ago(90), ...o,
+  lastInboundAt: ago(60), lastArrivalAt: ago(90), lastForwardMoveAt: ago(90), ...o,
 });
 check("nothing new → keeps going", stopReason(sig()) === null, "");
 check("replied by email after enrolling → stop", stopReason(sig({ lastInboundAt: ago(1) })) === "replied", "");
 check("reply BEFORE enrolling does not stop", stopReason(sig({ lastInboundAt: ago(11) })) === null, "");
 check("new enquiry → stop (new_deal)", stopReason(sig({ lastArrivalAt: ago(2) })) === "new_deal", "");
 check("deal moved forward → stop", stopReason(sig({ lastForwardMoveAt: ago(2) })) === "deal_moved", "");
-check("Luis emailed/called them himself → stop", stopReason(sig({ lastOutboundAt: ago(2) })) === "contacted", "");
+check("Luis emailing/calling them himself no longer stops nurture (1 Oct 2026)", !("lastOutboundAt" in sig()) && stopReason({ ...sig(), ...({ lastOutboundAt: ago(2) } as object) } as StopSignals) === null, "");
 check("unsubscribe beats everything", stopReason(sig({ emailSubscribed: false, lastInboundAt: ago(1) })) === "unsubscribed", "");
 check("email removed → stop", stopReason(sig({ email: "" })) === "no_email", "");
-check("a reply outranks Luis's own follow-up (credit the programme)", stopReason(sig({ lastInboundAt: ago(1), lastOutboundAt: ago(1) })) === "replied", "");
+check("a reply after enrolling still stops it (credit the programme)", stopReason(sig({ lastInboundAt: ago(1) })) === "replied", "");
 console.log("\n§3b finishing (30 Sep 2026)");
 {
   const fin = ago(1); // the flow's last email + grace passed yesterday
@@ -244,9 +245,9 @@ const id1 = "11111111-1111-4111-8111-111111111111";
 check("ids: uuids only, deduped", (() => { const r = parseContactIds([id1, id1.toUpperCase(), "x", 5]); return r.ok && r.ids.length === 1; })(), "");
 check("ids: none → refused", !parseContactIds([]).ok && !parseContactIds("x").ok, "");
 check(`ids: more than ${ENROLL_MAX} → refused`, !parseContactIds(Array.from({ length: ENROLL_MAX + 1 }, (_, i) => `11111111-1111-4111-8111-${String(i).padStart(12, "0")}`)).ok, "");
-const cand = candidateOf(person({ lastTouchAt: null, firstName: null, lastName: null }), NOW);
+const cand = candidateOf(person({ lastResponseAt: null, firstName: null, lastName: null }), NOW);
 check("a nameless candidate shows the email", cand.name === "dana@example.com" && cand.quietDays === null, cand.name);
-const sorted = summarize([person({ lastTouchAt: ago(40) }), person({ lastTouchAt: null }), person({ lastTouchAt: ago(300) })], [], NOW).candidates.quiet;
+const sorted = summarize([person({ lastResponseAt: ago(40) }), person({ lastResponseAt: null }), person({ lastResponseAt: ago(300) })], [], NOW).candidates.quiet;
 check("longest-quiet first, never-contacted at the top", sorted[0].quietDays === null && sorted[1].quietDays === 300, sorted.map((s) => s.quietDays).join(","));
 const s2 = summarize([], [
   { program: "quiet", status: "active", stopReason: null, syncState: "added", syncAttempts: 0 },
@@ -257,6 +258,24 @@ const s2 = summarize([], [
 check("results: a reply counts as a win, an unsubscribe does not", s2.wins === 1 && s2.stopped.unsubscribed === 1, JSON.stringify(s2));
 check("results: failed syncs surfaced", s2.syncFailed === 1 && s2.active === 2, "");
 
+console.log("\n=== §9 the clock runs from THEIR response, not our outreach (1 Oct 2026) ===");
+{
+  // Kaine Black's shape: last response June 30, Luis called Sep 24.
+  const kaine = person({ leadSource: "biggerpockets", apps: [app({ leadSource: "biggerpockets", arrivedAt: ago(100) })], lastResponseAt: ago(88), lastOutreachAt: ago(2) });
+  check("Luis reached out 2 days ago, they last responded 88 days ago → not yet, cool-off only", why(kaine) === "recent_outreach", String(why(kaine)));
+  const k2 = { ...kaine, lastOutreachAt: ago(OUTREACH_COOL_OFF_DAYS) };
+  check(`…${OUTREACH_COOL_OFF_DAYS} days after Luis's outreach → ready (BiggerPockets)`, is(k2, "bp_no_term_sheet"), String(prog(k2).program));
+  check(`…${OUTREACH_COOL_OFF_DAYS - 1} days after → still the cool-off`, why({ ...kaine, lastOutreachAt: ago(OUTREACH_COOL_OFF_DAYS - 1) }) === "recent_outreach", "");
+  check("our outreach a week ago never holds anyone for 30 days", is(person({ lastResponseAt: ago(60), lastOutreachAt: ago(7) }), "quiet"), "");
+  check("their response 10 days ago still holds them 30 days, whatever we did", why(person({ lastResponseAt: ago(10), lastOutreachAt: ago(40) })) === "recent_contact", "");
+  check("never responded, we emailed 20 days ago → ready", is(person({ lastResponseAt: null, lastOutreachAt: ago(20) }), "quiet"), "");
+  check("no deal: same cool-off", why(bare({ lastResponseAt: null, lastOutreachAt: ago(1) })) === "recent_outreach", "");
+  const st = nurtureStatus(kaine, NOW);
+  // NOW is 2026-09-26T16:00Z; 2 days ago = Sep 24; + 5 = Sep 29.
+  check("status says when the cool-off ends", st.kind === "out" && st.exclusion === "recent_outreach" && st.text === "Not yet: you reached out Sep 24, can join from Sep 29", st.text);
+  check("the programme copy talks about THEIR response", PROGRAMS.filter((p) => p.key !== "past_borrower" && p.key !== "lost").every((p) => /no response from them/.test(p.who)), PROGRAMS.map((p) => p.who).join(" | "));
+}
+
 console.log("\n=== §8 one person's status, in words (dashboard 'No movement', 1 Oct 2026) ===");
 {
   const ready = nurtureStatus(person({ leadSource: "biggerpockets", apps: [app({ leadSource: "biggerpockets" })] }), NOW);
@@ -266,10 +285,10 @@ console.log("\n=== §8 one person's status, in words (dashboard 'No movement', 1
   const inProg = nurtureStatus(person({ activeProgram: "quiet" }), NOW);
   check("in a programme: says which", inProg.kind === "in" && inProg.text === "In nurture: Quiet leads", inProg.text);
   // 2026-09-26T16:00Z minus 10 days = Sep 16; +30 = Oct 16 (New York dates).
-  const touched = nurtureStatus(person({ lastTouchAt: ago(10) }), NOW);
-  check("in touch 10 days ago: not yet, with the date they can join", touched.kind === "out" && touched.exclusion === "recent_contact" && touched.text === "Not yet: in touch Sep 16, can join from Oct 16", touched.text);
+  const touched = nurtureStatus(person({ lastResponseAt: ago(10) }), NOW);
+  check("they responded 10 days ago: not yet, with the date they can join", touched.kind === "out" && touched.exclusion === "recent_contact" && touched.text === "Not yet: last heard from them Sep 16, can join from Oct 16", touched.text);
   // An old touch but a fresh enquiry: the enquiry is what holds them out, and the text says so.
-  const refiled = nurtureStatus(person({ lastTouchAt: ago(80), apps: [app({ arrivedAt: ago(90) }), app({ arrivedAt: ago(7) })] }), NOW);
+  const refiled = nurtureStatus(person({ lastResponseAt: ago(80), apps: [app({ arrivedAt: ago(90) }), app({ arrivedAt: ago(7) })] }), NOW);
   check("a new enquiry 7 days ago: says 'new enquiry', dated from the enquiry", refiled.kind === "out" && refiled.text === "Not yet: new enquiry Sep 19, can join from Oct 19", refiled.text);
   check("…and readyOn is 30 days after the enquiry", refiled.kind === "out" && refiled.readyOn === new Date(Date.parse(ago(7)) + QUIET_DAYS * 86_400_000).toISOString(), "");
   const unsub = nurtureStatus(person({ emailSubscribed: false }), NOW);
@@ -279,7 +298,7 @@ console.log("\n=== §8 one person's status, in words (dashboard 'No movement', 1
   const noMail = nurtureStatus(person({ email: "not an email" }), NOW);
   check("no usable email: says so", noMail.kind === "out" && noMail.text === "Not for nurture: No usable email address", noMail.text);
   // Every classification maps to a status of the same verdict.
-  const people = [person(), person({ lastTouchAt: ago(3) }), person({ emailSubscribed: false }), person({ activeProgram: "lost" }), person({ apps: [app({ stage: "underwriting" })] })];
+  const people = [person(), person({ lastResponseAt: ago(3) }), person({ emailSubscribed: false }), person({ activeProgram: "lost" }), person({ apps: [app({ stage: "underwriting" })] })];
   check("status kind always agrees with classify()", people.every((c) => {
     const k = classify(c, NOW); const st = nurtureStatus(c, NOW);
     return k.program ? st.kind === "ready" && st.program === k.program : k.exclusion === "enrolled" ? st.kind === "in" : st.kind === "out" && st.exclusion === k.exclusion;

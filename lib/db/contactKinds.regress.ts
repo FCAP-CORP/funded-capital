@@ -11,7 +11,7 @@
 import { PgDialect } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { readFileSync } from "node:fs";
-import { CONTACT_KINDS, CONTACT_KIND_LIST } from "./contactKinds";
+import { CONTACT_KINDS, CONTACT_KIND_LIST, OUTREACH_WHERE, RESPONSE_WHERE, isOutreach, isResponse } from "./contactKinds";
 
 let pass = 0, fail = 0;
 const check = (name: string, cond: boolean, detail: string) => {
@@ -52,6 +52,30 @@ check("queries.ts contains no inline kind list", inlineLists.length === 0, `${in
 check("queries.ts imports the shared definition", /from\s+"\.\/contactKinds"/.test(code), "imported");
 const uses = (code.match(/CONTACT_KINDS/g) ?? []).length;
 check("and every contact lookup uses it", uses >= 6, `${uses} uses`);
+
+console.log("\n=== their response vs our outreach (1 Oct 2026) ===");
+{
+  const cases: [string, { kind: string; metadata?: Record<string, unknown> | null }, boolean][] = [
+    ["email from them", { kind: "email_in" }, true],
+    ["text from them", { kind: "sms_in" }, true],
+    ["call they placed (Quo)", { kind: "call", metadata: { direction: "incoming", answered: false } }, true],
+    ["our call they answered (Quo)", { kind: "call", metadata: { direction: "outgoing", answered: true } }, true],
+    ["call logged by hand: spoke with them", { kind: "call", metadata: { spoke: true } }, true],
+    ["our unanswered call (Quo)", { kind: "call", metadata: { direction: "outgoing", answered: false } }, false],
+    ["call logged by hand: no answer", { kind: "call", metadata: { spoke: false } }, false],
+    ["call logged before the choice existed", { kind: "call", metadata: { by: "user_1" } }, false],
+    ["call with no metadata at all", { kind: "call", metadata: null }, false],
+    ["email we sent", { kind: "email_out" }, false],
+    ["text we sent", { kind: "sms_out" }, false],
+    ["a note", { kind: "note" }, false],
+  ];
+  for (const [name, a, resp] of cases) check(`${name}: ${resp ? "their response" : "not a response"}`, isResponse(a) === resp, "");
+  check("outreach = our email/text/call that was not a conversation", isOutreach({ kind: "email_out" }) && isOutreach({ kind: "call", metadata: null }) && !isOutreach({ kind: "call", metadata: { answered: true } }) && !isOutreach({ kind: "note" }) && !isOutreach({ kind: "email_in" }), "");
+  const r = (RESPONSE_WHERE as unknown as { queryChunks: { value: string[] }[] }).queryChunks.map((c) => c.value.join("")).join("");
+  const o = (OUTREACH_WHERE as unknown as { queryChunks: { value: string[] }[] }).queryChunks.map((c) => c.value.join("")).join("");
+  check("SQL: response reads direction, answered and spoke, null-safe", /COALESCE\(ac\.metadata->>'direction', ''\) = 'incoming'/.test(r) && /'answered'/.test(r) && /'spoke'/.test(r), r.slice(0, 80));
+  check("SQL: outreach is our kinds AND NOT a response", o.includes("ac.kind IN ('email_out', 'sms_out', 'call') AND NOT ") && o.includes(r), "");
+}
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);
