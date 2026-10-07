@@ -7,6 +7,17 @@ REM ==========================================================
 
 cd /d "C:\Users\luis\repos\funded-capital"
 
+REM (7 Oct 2026) The CRM's Publish button commits blog posts
+REM straight to GitHub, so catch up before pushing.
+git --no-pager pull --rebase --autostash origin main
+if errorlevel 1 (
+    echo.
+    echo   ^>^> Could not catch up with GitHub - read the message above.
+    echo   ^>^> If it names a file in content/blog, that post was already
+    echo   ^>^> published from the CRM. Delete your copy here and run again.
+    goto end
+)
+
 git add -A
 
 git diff --cached --quiet

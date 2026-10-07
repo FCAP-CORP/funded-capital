@@ -71,9 +71,9 @@ export interface ChannelSpec {
 export const CHANNEL_SPEC: Record<ContentChannel, ChannelSpec> = {
   blog: {
     label: "Blog",
-    produces: "a draft post in the repository",
+    produces: "a draft post, readable on this page",
     autoPublishes: false,
-    publishStep: "run publish-blog.bat",
+    publishStep: "press Publish on its row",
     publishedMeans: "live on fundedcapital.com/blog",
     hasArchive: true,
     targetDays: 1,

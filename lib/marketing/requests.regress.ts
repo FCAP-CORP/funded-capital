@@ -43,7 +43,8 @@ console.log("\n=== 1. NOTHING reaches the public without Luis ===");
 
 // The invariant, and the reason it is a test rather than a comment: if one of
 // these ever flips to true, something must genuinely be able to publish
-// unattended. Nothing here can — the blog needs publish-blog.bat, LinkedIn has
+// unattended. Nothing here can — the blog needs Luis to press Publish in /crm/marketing
+// (a staff-only action; no task, cron or token can), LinkedIn has
 // no connector, and a Klaviyo template is not a send. An earlier version of this
 // file claimed the blog published itself; it does not.
 for (const c of CHANNELS) {

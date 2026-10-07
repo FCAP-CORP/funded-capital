@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Ban, Check, RotateCcw, Send } from "lucide-react";
+import { Ban, Check, ExternalLink, Rocket, RotateCcw, Send } from "lucide-react";
 import { CHANNELS, CHANNEL_SPEC, type ContentChannel } from "@/lib/marketing/requests";
-import { requestContentAction, setRequestStatusAction } from "./actions";
+import { publishBlogAction, requestContentAction, setRequestStatusAction } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label, Textarea } from "@/components/ui/field";
@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
  * The only JavaScript on this screen.
  *
  * The cadence cards, the queue table and every status badge render on the
- * server. This file is a form and three buttons.
+ * server. This file is a form and four buttons.
  */
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -174,4 +174,72 @@ export function CancelRequest({ id }: { id: string }) {
 
 export function RetryRequest({ id }: { id: string }) {
   return <RowButton id={id} status="requested" label="Try again" icon={RotateCcw} tone="quiet" />;
+}
+
+/**
+ * Publish a blog draft to the live site — one decision, two clicks.
+ *
+ * The first click only asks ("Publish to fundedcapital.com?"); the second
+ * sends it. A post going public is the one thing on this page that cannot be
+ * quietly undone, so it is never a single stray click. Cancel is the default
+ * focus-free choice and Escape backs out.
+ *
+ * After it works the row says so in words and links the post. The page
+ * refreshes on its own and the row moves to Done.
+ */
+export function PublishBlog({ id, title }: { id: string; title: string }) {
+  const [asking, setAsking] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<{ message: string; url: string } | null>(null);
+  const [pending, start] = useTransition();
+
+  const send = () => {
+    setError(null);
+    start(async () => {
+      let res: Awaited<ReturnType<typeof publishBlogAction>>;
+      try {
+        res = await publishBlogAction(id);
+      } catch {
+        res = { ok: false, error: "The connection dropped before the site answered. Press Publish again — if it went through, it will say so." };
+      }
+      setAsking(false);
+      if (res.ok) setDone({ message: res.message, url: res.url });
+      else setError(res.error);
+    });
+  };
+
+  if (done) {
+    return (
+      <span role="status" className="inline-flex max-w-[18rem] flex-col items-end text-right text-[11px] text-emerald-800">
+        <span className="inline-flex items-center gap-1 font-semibold"><Check size={12} aria-hidden="true" /> {done.message}</span>
+        <a href={done.url} target="_blank" rel="noopener noreferrer" className="mt-0.5 inline-flex items-center gap-1 underline decoration-gold-500 underline-offset-2">
+          View the post <ExternalLink size={11} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span>
+        </a>
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex flex-col items-end">
+      {asking ? (
+        <span
+          className="inline-flex items-center gap-1.5"
+          onKeyDown={(e) => { if (e.key === "Escape" && !pending) setAsking(false); }}
+        >
+          <span className="text-[11px] text-slate-700">Publish to fundedcapital.com?</span>
+          <Button variant="accent" size="xs" onClick={send} loading={pending} aria-label={`Yes, publish ${title} now`}>
+            {!pending && <Rocket size={12} aria-hidden="true" />}
+            Publish now
+          </Button>
+          <Button variant="ghost" size="xs" onClick={() => setAsking(false)} disabled={pending}>Cancel</Button>
+        </span>
+      ) : (
+        <Button variant="accent" size="xs" onClick={() => { setError(null); setAsking(true); }} aria-label={`Publish ${title}`}>
+          <Rocket size={12} aria-hidden="true" />
+          Publish
+        </Button>
+      )}
+      {error && <span role="alert" className="mt-1 max-w-[18rem] text-right text-[11px] text-red-700">{error}</span>}
+    </span>
+  );
 }

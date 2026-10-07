@@ -152,6 +152,8 @@ const STAFF_ONLY_MODULES = [
   "lib/crm/docRequests.server.ts",
   // Broker update emails: sends from Luis's Gmail to the broker on any deal (section 18).
   "lib/crm/brokerUpdates.server.ts",
+  // One-click blog publish: commits to the live site's repository (section 20).
+  "lib/marketing/publish.server.ts",
 ];
 
 for (const relPath of STAFF_ONLY_MODULES) {
@@ -1494,6 +1496,61 @@ console.log("\n=== 19. Duplicate broker emails and racing stage moves ===");
   }
   if (fu) {
     check(`  ${FU}: a term-sheet nudge whose send outcome is unknown counts as done`, /oe\.status IN \('sent', 'sending'\)/.test(fu), "sent or sending");
+  }
+}
+
+/* ------------------------------------------------- one-click blog publish */
+
+/**
+ * 7 Oct 2026. /crm/marketing can now put a post on the live site with one
+ * button: lib/marketing/publish.server.ts commits content/blog/<slug>.mdx to
+ * GitHub and the push deploys. That is the most public thing Lending OS can
+ * do, so who can reach it, what it can write and where it can send its token
+ * are pinned here rather than trusted to comments.
+ */
+console.log("\n=== 20. One-click publish: staff only, blog files only, GitHub only ===");
+{
+  const PUB = "lib/marketing/publish.server.ts";
+  const PURE = "lib/marketing/publish.ts";
+  const MACT = "app/crm/marketing/actions.ts";
+  const pub = readOr(PUB), pure = readOr(PURE), mact = readOr(MACT);
+  if (pub) {
+    const code = codeOnly(pub);
+    check(`  ${PUB} is server-only`, /^\s*import\s+"server-only";/m.test(pub), "server-only");
+    const fn = fnBody(pub, "publishBlogDraft") ?? "";
+    const staffAt = fn.indexOf("assertCrmStaff(");
+    const readyAt = fn.indexOf("readyToPublish(");
+    const putAt = fn.indexOf('method: "PUT"');
+    const recordAt = fn.search(/\.update\(contentRequests\)/);
+    check("  order: staff → readyToPublish → GitHub create → record published",
+      staffAt >= 0 && readyAt > staffAt && putAt > readyAt && recordAt > putAt, `${staffAt} < ${readyAt} < ${putAt} < ${recordAt}`);
+    check("  the row is recorded only while it is still drafted", /eq\(contentRequests\.status, "drafted"\)/.test(fn), "conditional update");
+    check("  it can CREATE a file, never replace one (no sha is ever sent)", !/\bsha\s*:/.test(code), "create only");
+    check("  the only path it writes is the one readyToPublish built", /contentsUrl\(t, post\.path\)/.test(code) && (code.match(/contentsUrl\(/g) ?? []).length === 2, "post.path");
+    check("  the token is read through publishTarget(process.env), nowhere else", /publishTarget\(process\.env\)/.test(code) && !/process\.env\.GITHUB/.test(code), "publishTarget");
+    check("  it never logs (a log line is how a token leaks)", !/\bconsole\.\w+\(/.test(code), "no console");
+    check("  fetch is called once, inside github()", (code.match(/\bfetch\(/g) ?? []).length === 1 && (fnBody(code, "github") ?? "").includes("fetch("), "one call");
+  }
+  if (pure) {
+    const urls = [...codeOnly(pure).matchAll(/"(https:\/\/[^"]+)"/g)].map((m) => m[1]);
+    check(`  ${PURE}: the only hosts are api.github.com and the site`, urls.length > 0 && urls.every((u) => u === "https://api.github.com" || u === "https://www.fundedcapital.com"), urls.join(", "));
+    check("  ...and the target directory comes from parseDraftPath", /parseDraftPath\(row\.draftUrl\)/.test(pure) && /`content\/blog\/\$\{slug\.value\}\.mdx`/.test(pure), "content/blog only");
+  }
+  const importers = importersOf(/(^|\/)publish\.server$/);
+  check("  publish.server is imported by app/crm/marketing/actions.ts and nothing else",
+    importers.length === 1 && importers[0] === MACT, importers.join(", ") || "**NOT IMPORTED**");
+  if (mact) {
+    const body = fnBody(mact, "publishBlogAction") ?? "";
+    check(`  ${MACT} :: publishBlogAction checks staff before publishing`,
+      body.indexOf("requireStaff(") >= 0 && body.indexOf("requireStaff(") < body.indexOf("publishBlogDraft("), "staff first");
+    check("  ...and refreshes only /crm/marketing", (body.match(/revalidatePath\(/g) ?? []).length === 1 && body.includes('revalidatePath("/crm/marketing")'), "one route");
+  }
+  // A token-holding caller must never be able to publish: the queue API, the
+  // daily-blog cron and the carousel route are reachable without a staff session.
+  for (const f of ["lib/marketing/queue.api.server.ts", "app/api/cron/daily-blog/route.ts", "app/api/crm/content-queue/route.ts"]) {
+    let src = "";
+    try { src = readFileSync(join(ROOT, f), "utf8"); } catch { continue; }
+    check(`  ${f} cannot reach publishing`, !importsOf(src).some((i) => /publish(\.server)?$/.test(i)) && !/api\.github\.com/.test(codeOnly(src)), "clean");
   }
 }
 

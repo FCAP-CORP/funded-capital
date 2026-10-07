@@ -24,7 +24,7 @@ import { Badge, type BadgeTone } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Inbox } from "lucide-react";
-import { CancelRequest, MarkPublished, RequestForm, RetryRequest } from "./Controls";
+import { CancelRequest, MarkPublished, PublishBlog, RequestForm, RetryRequest } from "./Controls";
 
 /**
  * Marketing — is it running, and what have we asked for?
@@ -52,6 +52,11 @@ import { CancelRequest, MarkPublished, RequestForm, RetryRequest } from "./Contr
  * money here is not a new post, it is the 48 drafts that were written and never
  * sent. So a draft row carries its link and a one-click "Published", and a
  * failure carries the reason and a retry that keeps the brief.
+ *
+ * ONE-CLICK PUBLISH (7 Oct 2026). A drafted blog row carries a Publish button
+ * (Controls.tsx → publishBlogAction → lib/marketing/publish.server.ts), which
+ * commits the stored MDX to GitHub; the push deploys it. It replaces
+ * fc-pull-drafts.bat + publish-blog.bat. Other channels keep "Published".
  *
  * BLOG "PUBLISHED" COMES FROM THE SITE (24 Sep 2026). A drafted blog request
  * whose slug is a live post is shown as published, with the post's date, even
@@ -203,7 +208,7 @@ function DraftReader({ body }: { body: string }) {
         <FileText size={11} aria-hidden="true" /> Read the draft · {words.toLocaleString("en-US")} words
       </summary>
       <p className="mt-1 text-[11px] text-slate-600">
-        To publish it: run fc-pull-drafts.bat, look it over in content\blog, then run publish-blog.bat.
+        Read it here. When you are happy, press Publish on this row — it goes live in about 2 minutes.
       </p>
       <pre className="mt-2 max-h-96 max-w-2xl overflow-auto whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-700">
         {body}
@@ -312,7 +317,10 @@ async function Marketing() {
                     </td>
                     <td className="py-3 pr-4 text-right whitespace-nowrap">
                       <span className="inline-flex items-center gap-2">
-                        {eff.status === "drafted" && <MarkPublished id={r.id} />}
+                        {/* A blog draft with its text stored publishes from here; the
+                            other channels go out elsewhere and are only marked. */}
+                        {eff.status === "drafted" && r.channel === "blog" && r.draftBody && <PublishBlog id={r.id} title={r.topic} />}
+                        {eff.status === "drafted" && r.channel !== "blog" && <MarkPublished id={r.id} />}
                         {eff.status === "failed" && <RetryRequest id={r.id} />}
                         <CancelRequest id={r.id} />
                       </span>

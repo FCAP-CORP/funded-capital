@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { assertCrmStaff } from "@/lib/crm/access";
 import { createRequest, setRequestStatus } from "@/lib/marketing/requests.server";
 import type { ContentStatus } from "@/lib/marketing/requests";
+import { publishBlogDraft } from "@/lib/marketing/publish.server";
 
 /**
  * Server actions for the marketing queue.
@@ -46,6 +47,26 @@ export async function requestContentAction(
     return { ok: true };
   } catch (err) {
     return fail(err);
+  }
+}
+
+/**
+ * Publish a finished blog draft: commit it to the repository, which deploys
+ * it. Luis pressing the button IS the approval — nothing else can call this.
+ * Refreshes only this page (CLAUDE.md: never refresh another PPR route).
+ */
+export type PublishActionResult = { ok: true; message: string; url: string } | { ok: false; error: string };
+
+export async function publishBlogAction(id: string): Promise<PublishActionResult> {
+  try {
+    await requireStaff();
+    const res = await publishBlogDraft(id);
+    if (!res.ok) return res;
+    revalidatePath("/crm/marketing");
+    return { ok: true, message: res.message, url: res.url };
+  } catch (err) {
+    console.error("[crm/marketing] publish failed", err instanceof Error ? err.message : err);
+    return { ok: false, error: "Something went wrong before the post reached GitHub. Nothing was published. Try again in a minute." };
   }
 }
 

@@ -1502,3 +1502,50 @@ days, so chasing a silent lead kept him out of nurture for ever.
   ways; auto-stop: Luis's own email + unanswered call do NOT stop, an answered call and a logged
   "spoke" stop as replied), nurture 49, cockpit 48, cockpit2 89. Two harness checks were date
   artifacts (fixed WED_13 clock vs the database's real `now()` after 30 Sep) — fixed in the harness.
+
+### One-click blog publish from `/crm/marketing` (7 Oct 2026)
+
+Luis asked to stop running `fc-pull-drafts.bat` + `publish-blog.bat`. A drafted blog row whose text
+is stored (`draft_body`) now has a **Publish** button (asks once: "Publish to fundedcapital.com?").
+It commits `content/blog/<slug>.mdx` straight to `main` on GitHub through the contents API; the
+push deploys exactly as before, so the post is live ~2 minutes later. Git is still the record of
+every post. LinkedIn and email rows keep "Mark published".
+
+- **`lib/marketing/publish.ts`** (pure, `publish.regress.ts`, 64 tests, mutation-tested):
+  settings (fail closed), `readyToPublish` (blog + drafted + `parseDraftPath` + `validateDraftBody`
+  + the `FORBIDDEN_STRINGS` again, because a draft can sit for days), `withPublishDate` (the
+  frontmatter `date:` becomes the day it goes live; an older `updated:` moves with it; nothing else
+  changes), `samePost` (ignores date lines + CRLF, so a second click is "already sent").
+- **`lib/marketing/publish.server.ts`** (staff-only, §3 + §20): staff → settings → re-read row →
+  readyToPublish → GET the file → PUT to create it → only then mark the row `published` (with
+  `published_url`, `draft_body` cleared — it was a transit copy), and only `WHERE status =
+  'drafted'`. **It never sends a `sha`, so it can create a file and never replace one.** A
+  different post at the same slug is refused. A 409/422 on create re-reads and accepts its own file
+  (two clicks, two tabs). A timeout says "press again — it will tell you if it went".
+- Called only from `publishBlogAction` in `app/crm/marketing/actions.ts` (staff first, refreshes
+  only `/crm/marketing`). Guard §20 pins: order, conditional update, no sha, one fetch, no logging,
+  token read only via `publishTarget(process.env)`, only api.github.com + the site as hosts, and
+  that the queue API, the daily-blog cron and the content-queue route cannot import it. **Nothing
+  token-holding can publish; only a staff session pressing the button.** `autoPublishes` stays false.
+- Verified: harness with GitHub and the database faked (32 checks: happy path, second click after
+  midnight, 422 race, different post refused, 401/403/503/network leave the row alone, wrong rows
+  never reach GitHub, non-staff throws), guards 472, tsc, scratch `next build`.
+
+**Setup (one time).** Vercel → Production env:
+`GITHUB_PUBLISH_TOKEN` = a GitHub **fine-grained** token, Resource owner **FCAP-CORP**, Only select
+repositories → `funded-capital`, Repository permissions → **Contents: Read and write** (Metadata:
+read is added automatically). Nothing else. The org may need to approve it (Settings → Personal
+access tokens → Pending requests). Optional `GITHUB_PUBLISH_REPO` / `GITHUB_PUBLISH_BRANCH`
+override `FCAP-CORP/funded-capital` / `main`. When the token expires the button says so; make a
+new one and replace the value — no code change. Make the token on Luis's own GitHub account: the
+commit is authored as the token's owner, and Vercel can refuse to deploy commits from an author
+who is not on the Vercel team.
+
+**The consequence for every commit .bat: GitHub now gets commits that are not on this PC.** A plain
+`git push` after a CRM publish fails "rejected (fetch first)". `publish-blog.bat` and
+`push-site-update.bat` now run `git pull --rebase --autostash origin main` first, and **every new
+commit .bat must do the same** before pushing. If that pull stops with "untracked working tree
+files would be overwritten" naming a `content/blog/*.mdx`, it is a draft pulled down earlier with
+`fc-pull-drafts.bat` that has since been published from the CRM — delete the local copy and run
+again. `fc-pull-drafts.bat` stays as the fallback for editing a draft before it goes out, and for
+old rows with no stored text.

@@ -9,6 +9,21 @@ REM ==========================================================
 
 cd /d "C:\Users\luis\repos\funded-capital"
 
+REM ==========================================================
+REM  (7 Oct 2026) Blog posts are normally published with the
+REM  Publish button in the CRM now. That puts commits on GitHub
+REM  that are not on this PC, so catch up first or the push
+REM  below is refused.
+REM ==========================================================
+git --no-pager pull --rebase --autostash origin main
+if errorlevel 1 (
+    echo.
+    echo   ^>^> Could not catch up with GitHub - read the message above.
+    echo   ^>^> If it names a file in content/blog, that post was already
+    echo   ^>^> published from the CRM. Delete your copy here and run again.
+    goto end
+)
+
 REM Only stage blog content so unrelated edits don't get swept in
 git add content/blog
 
