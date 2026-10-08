@@ -7,7 +7,6 @@ import {
   formatDate,
   hasDesignatedLoan,
   isPaidOff,
-  money,
   moneySmart,
   statusStyle,
   todayIso,
@@ -167,7 +166,7 @@ async function ProgramBook() {
     {
       label:
         s.capitalReturning > 0
-          ? `Capital to return — ${money(s.capitalReturning)}`
+          ? `Capital to return — ${moneySmart(s.capitalReturning)}`
           : "Capital to return",
       value: s.capitalReturningCount,
       icon: Undo2,
@@ -195,17 +194,17 @@ async function ProgramBook() {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-        <Figure label="Capital Deployed" value={money(s.capitalDeployed)} note={`${s.activeParticipants} active participations of ${s.totalParticipants} · ${s.holders} holder${s.holders === 1 ? "" : "s"}`} />
-        <Figure label="Monthly Obligation" value={money(s.monthlyObligation)} note={`${money(s.monthlyObligation * 12)} annualised run-rate`} emphasis />
-        <Figure label="Due This Month" value={money(s.dueThisMonth)} note={`${s.dueThisMonthCount} payment${s.dueThisMonthCount === 1 ? "" : "s"} outstanding`} />
-        <Figure label="Loan Volume Supported" value={money(s.loanVolumeSupported)} note={`${money(s.totalPaidToDate)} paid to participants to date`} />
+        <Figure label="Capital Deployed" value={moneySmart(s.capitalDeployed)} note={`${s.activeParticipants} active participations of ${s.totalParticipants} · ${s.holders} holder${s.holders === 1 ? "" : "s"}`} />
+        <Figure label="Monthly Obligation" value={moneySmart(s.monthlyObligation)} note={`${moneySmart(s.monthlyObligation * 12)} annualised run-rate`} emphasis />
+        <Figure label="Due This Month" value={moneySmart(s.dueThisMonth)} note={`${s.dueThisMonthCount} payment${s.dueThisMonthCount === 1 ? "" : "s"} outstanding`} />
+        <Figure label="Loan Volume Supported" value={moneySmart(s.loanVolumeSupported)} note={`${moneySmart(s.totalPaidToDate)} paid to participants to date`} />
       </div>
 
       {s.overdueCount > 0 && (
         <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-5 py-4">
           <p className="text-sm font-bold text-red-800">
             {s.overdueCount} payment{s.overdueCount === 1 ? "" : "s"} past due —{" "}
-            {money(s.overdueAmount)}
+            {moneySmart(s.overdueAmount)}
           </p>
           <p className="mt-1 text-sm text-red-700">
             These are scheduled payments with a due date in the past and no matching
@@ -225,7 +224,7 @@ async function ProgramBook() {
           <p
             className={`text-sm font-bold ${s.capitalReturnOverdueCount > 0 ? "text-red-800" : "text-ink"}`}
           >
-            {money(s.capitalReturning)} of capital to return on{" "}
+            {moneySmart(s.capitalReturning)} of capital to return on{" "}
             {s.capitalReturningCount} early payoff{s.capitalReturningCount === 1 ? "" : "s"}
             {s.capitalReturnBy ? ` — first due ${formatDate(s.capitalReturnBy)}` : ""}
           </p>
@@ -297,9 +296,9 @@ async function ProgramBook() {
                       </td>
                       <td className="px-4 py-3.5 text-slate-600">{r.programVersion || "—"}</td>
                       <td className="px-4 py-3.5 text-slate-600">{r.tier || "—"}</td>
-                      <td className="px-4 py-3.5 text-right font-medium text-ink tabular-nums">{money(r.capitalContributed)}</td>
+                      <td className="px-4 py-3.5 text-right font-medium text-ink tabular-nums">{moneySmart(r.capitalContributed)}</td>
                       <td className="px-4 py-3.5 text-right text-slate-600 tabular-nums">
-                        {hasDesignatedLoan(r) ? money(r.designatedLoanSize) : "—"}
+                        {hasDesignatedLoan(r) ? moneySmart(r.designatedLoanSize) : "—"}
                       </td>
                       <td className="px-4 py-3.5 text-right font-semibold text-ink tabular-nums">{moneySmart(r.monthlyRevenueShare)}</td>
                       <td className="px-4 py-3.5 text-slate-600 tabular-nums">{formatDate(r.fundingDate)}</td>
@@ -324,9 +323,9 @@ async function ProgramBook() {
                           </>
                         )}
                       </td>
-                      <td className="px-4 py-3.5 text-right text-slate-600 tabular-nums">{money(r.totalPaidToDate)}</td>
+                      <td className="px-4 py-3.5 text-right text-slate-600 tabular-nums">{moneySmart(r.totalPaidToDate)}</td>
                       <td className={`px-4 py-3.5 text-right tabular-nums font-semibold ${owed > 0 ? "text-red-600" : "text-slate-400"}`}>
-                        {owed > 0 ? money(owed) : "—"}
+                        {owed > 0 ? moneySmart(owed) : "—"}
                       </td>
                       <td className="px-4 py-3.5">
                         <StatusPill label={r.status || "—"} className={statusStyle(r.status)} />
@@ -344,7 +343,7 @@ async function ProgramBook() {
                                     : "text-sky-600"
                                 }
                               >
-                                {money(r.capitalContributed)} due {formatDate(r.capitalReturnDue)}
+                                {moneySmart(r.capitalContributed)} due {formatDate(r.capitalReturnDue)}
                               </span>
                             )}
                           </p>

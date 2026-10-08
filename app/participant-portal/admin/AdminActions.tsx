@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { AlertTriangle, Check, Loader2, Undo2 } from "lucide-react";
-import { formatDate, money, type AdminState } from "@/lib/revenueShare";
+import { formatDate, moneySmart, type AdminState } from "@/lib/revenueShare";
 import {
   capitalReturnedAction,
   clearInitiatedAction,
@@ -92,7 +92,7 @@ function LogRun({ run }: { run: AdminState["outstanding"][number] }) {
 
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <p className="text-sm font-bold text-ink">Due {formatDate(run.due)}</p>
-        <p className="text-sm font-bold tabular-nums text-ink">{money(run.total)}</p>
+        <p className="text-sm font-bold tabular-nums text-ink">{moneySmart(run.total)}</p>
       </div>
       <p className="mt-0.5 text-xs text-slate-500">
         {run.rows.length} payment{run.rows.length === 1 ? "" : "s"}, not yet logged
@@ -104,7 +104,7 @@ function LogRun({ run }: { run: AdminState["outstanding"][number] }) {
             <span className="tabular-nums">
               {r.id} · {r.name}
             </span>
-            <span className="tabular-nums">{money(r.amount)}</span>
+            <span className="tabular-nums">{moneySmart(r.amount)}</span>
           </li>
         ))}
       </ul>
@@ -201,7 +201,7 @@ function CapitalReturn({ row, today }: { row: AdminState["awaitingCapital"][numb
         <p className="text-sm font-bold text-ink">
           {row.id} · {row.name}
         </p>
-        <p className="text-sm font-bold tabular-nums text-ink">{money(row.capital)}</p>
+        <p className="text-sm font-bold tabular-nums text-ink">{moneySmart(row.capital)}</p>
       </div>
       <p className={`mt-0.5 text-xs ${overdue ? "font-semibold text-red-700" : "text-slate-500"}`}>
         Repaid {formatDate(row.payoff)} · capital due back {formatDate(row.returnDue)}

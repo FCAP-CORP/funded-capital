@@ -34,8 +34,10 @@ export default function ParticipantAcceptPage() {
             Set Your Password
           </p>
           <p className="mt-3 text-sm text-slate-400">
-            Use the email address on your participation agreement. We will send
-            a short code to confirm it is you, then you choose a password.
+            Enter the email address on your participation agreement — it must
+            match exactly, or your participation will not appear. Choose a
+            password, then we will email you a 6-digit code to confirm it is
+            you.
           </p>
         </div>
 
