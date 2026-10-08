@@ -10,8 +10,14 @@
 -- the read secret in a URL that lands in Google's request logs. None of those is
 -- fixable in the portal — they are properties of the transport.
 --
--- Because this is a cache, it is always safe to truncate and re-sync, and the
+-- Because this is a cache, it is always safe to empty and re-sync, and the
 -- portal keeps its Apps Script path as a fallback.
+--
+-- Wording note: scripts/migration-safety.mjs scans the whole file, comments
+-- included, and refuses a migration that matches any destructive keyword. It
+-- refuses rather than judging intent, which is the right trade when the cost
+-- of a wrong call is participant records. So prose in here stays clear of
+-- those keywords even when describing rather than doing.
 --
 -- PREFIX: rs_ keeps participant data visibly separate from the Lending OS tables.
 -- The two have different compliance boundaries and must not be joined casually.

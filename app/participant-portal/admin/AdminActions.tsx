@@ -265,12 +265,12 @@ export default function AdminActions({ state }: { state: AdminState }) {
 
       <Block
         title="Payment runs"
-        description="A run appears here once its due date has passed and it is not in the Payment Log. Paid-off participations are excluded — their payments stopped."
+        description="A run appears here from the start of the month it falls due, not after the due date — so you can log it on the day the money actually leaves. It stays until it is in the Payment Log. Paid-off participations are excluded, because their payments stopped."
       >
         {state.outstanding.length === 0 ? (
           <p className="flex items-center gap-2 text-sm text-slate-500">
             <Check size={15} className="text-emerald-600" />
-            Everything that has come due is logged.
+            Everything due is logged.
           </p>
         ) : (
           <div className="space-y-4">
