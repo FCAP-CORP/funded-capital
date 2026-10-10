@@ -103,6 +103,14 @@ export interface DashboardApplication {
    * and fixtures read as "not in nurture".
    */
   inNurture?: boolean;
+  /**
+   * Broker-submitted deals only: the latest email, text or call with the deal's
+   * broker since it arrived (10 Oct 2026). Brokers usually handle the
+   * conversation, so talking to them means the deal is not "never contacted".
+   * It does not feed "Waiting on you" or the last-contact column: a broker
+   * writing about one deal is not proof every one of their deals is answered.
+   */
+  brokerContactAt?: string | null;
 }
 
 const amount = (v: string | null | undefined): number => {
@@ -413,8 +421,9 @@ export function queueReasonFor(
     return { reason: "duplicate", waitingDays: d };
   }
 
-  // 4. Nobody has ever emailed them, in either direction.
-  if (!app.lastContactAt) {
+  // 4. Nobody has ever emailed, texted or called them — or, on a broker's deal,
+  //    the broker (who usually does the talking; Luis, 10 Oct 2026).
+  if (!app.lastContactAt && !app.brokerContactAt) {
     const d = daysSince(app.submittedAt ?? app.createdAt, now) ?? 0;
     return { reason: "never_contacted", waitingDays: d };
   }

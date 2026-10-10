@@ -14,10 +14,12 @@ import { daysSince, ageLabel, shortDate } from "@/lib/crm/view";
  * that costs money.
  */
 export default function LastContact({
-  at, direction,
+  at, direction, viaBroker = false,
 }: {
   at: string | null;
   direction: string | null;
+  /** The date is the deal's BROKER's last contact, not the borrower's (10 Oct 2026). */
+  viaBroker?: boolean;
 }) {
   if (!at) {
     return (
@@ -28,6 +30,16 @@ export default function LastContact({
   }
 
   const days = daysSince(at);
+
+  if (viaBroker) {
+    return (
+      <span className="inline-flex items-center gap-1 text-slate-600" title={`${shortDate(at)} · with the broker`}>
+        {ageLabel(days)}
+        <span className="rounded bg-slate-100 px-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">broker</span>
+      </span>
+    );
+  }
+
   const inbound = direction === "email_in";
 
   // An unanswered inbound message is the loudest signal on the grid, so it

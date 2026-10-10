@@ -1549,3 +1549,53 @@ files would be overwritten" naming a `content/blog/*.mdx`, it is a draft pulled 
 `fc-pull-drafts.bat` that has since been published from the CRM — delete the local copy and run
 again. `fc-pull-drafts.bat` stays as the fallback for editing a draft before it goes out, and for
 old rows with no stored text.
+
+### Gmail sync warning, automatic welcomes, broker contact, Broker deals view (10 Oct 2026)
+
+**Why.** Luis saw "Never emailed" on two leads he had emailed a day earlier. `GmailSync.gs` had been
+pasted and its history load had run, but the 15-minute timer (`installTrigger`) was never switched
+on: for weeks nothing sent or received in Gmail reached Lending OS — no replies under "Waiting on
+you", no lead writing back stopping nurture — and no screen said so. Fixed in the Apps Script on
+7 Oct (timer on, history reloaded). This change makes the next stop visible, plus three things Luis
+asked for while looking. **Migration 0021 runs in production before the push.**
+
+- **Gmail sync heartbeat.** `integration_heartbeats` (0021, one row per outside job; seeded with
+  `gmail_sync` at migration time so a sync that never runs still turns into a warning).
+  `/api/crm/activity` stamps it on every AUTHENTICATED call, after its rows are written, and never
+  fails the call over it. `GmailSync.gs` posts an EMPTY batch when there is no new mail (one line,
+  added in the Apps Script editor with find-and-replace — save only, never Deploy), so the stamp is
+  fresh every run. `lib/crm/syncHealth.ts` (pure, 32 tests): stale at 90 minutes (six missed
+  runs); a missing row or failed read is "unknown" and shows nothing. `getGmailSyncSeenAt()` in
+  `dashboard.server.ts` (staff-asserted) is its own read, outside the main batch, so a missing table
+  cannot take the dashboard down. `app/crm/dashboard/SyncWarning.tsx` (server, no JS) shows an amber
+  box with "Open the timers" (the project's trigger list) only when stale.
+- **The automatic welcome email is not contact.** `BiggerPockets.gs` and `Website.gs` send it from
+  Luis's own address, so it sat in Sent looking like a personal reply and emptied "Never contacted"
+  of exactly the people nobody had reached. `isAutoAcknowledgement` in `lib/crm/activity.ts`:
+  subject `^Your … — Funded Capital$`, outbound only (checked against 45 days of Sent: BP "Your
+  Belton, TX deal", website "Your fix and flip" / "Your DSCR rental loan" / "Your financing"; no
+  personal subject matches; a "Re:" reply does not match and still counts). Written as
+  `automation` "Automatic welcome email: …" with `metadata.auto = "welcome"`, same dedup key.
+  0021 converts the rows already stored (Gmail-sourced `email_out` only; idempotent). Because
+  `automation` is not a contact kind, the welcome no longer counts for Never contacted, last contact,
+  awaiting reply, report first-contact speed, or the nurture clocks.
+- **Broker deals: talking to the broker counts.** `DashboardApplication.brokerContactAt` = latest
+  email/text/call with the deal's `broker` participant on or after the deal arrived (−1 day grace).
+  Used ONLY by `queueReasonFor` step 4 (never_contacted). It does not feed "Waiting on you", stalled,
+  or nurture: Gmail rows carry no application id, so a broker's email about one deal cannot prove
+  every one of their deals is answered. The row label is now "No email, text or call yet" (texts and
+  calls always counted; "Never emailed" was wrong).
+- **Broker deals view on Pipeline.** `getPipeline` adds `viaBroker` (broker participant or lead
+  source broker), `brokerName`, `brokerFirm`, `brokerContactAt` (same rule). `PipelineTable` has an
+  All / Broker deals / Website / BiggerPockets / Other switch above the grid (`lib/crm/pipelineLens.ts`,
+  22 tests; a broker on the deal wins over its lead source), `?view=broker` opens on it and the
+  address keeps the choice. Borrower cells show "via <broker> · <firm>"; Last contact shows the
+  broker's date tagged "broker" when it is newer; a hidden "Broker" column is in the CSV; search
+  finds broker names. `/crm/brokers` header links "See every broker deal" → `/crm?view=broker`.
+- Verified: activity regress 104 (welcome cases), dashboard 113, dashboardView 132, syncHealth 32,
+  pipelineLens 22, guards 474, guards.ui 68; Postgres 16 harness 40 (0021 applies and re-runs
+  cleanly; old welcomes converted, replies and non-Gmail rows untouched; welcome-only lead is Never
+  contacted; broker contact inside / before the window; Pipeline one row per deal with broker and
+  firm; route: wrong secret no stamp, empty batch stamps, real batch writes welcome as automation +
+  reply as email_in, resend is a duplicate; heartbeat read staff-only, null without a row). Each
+  rule mutation-tested. Scratch `next build`.

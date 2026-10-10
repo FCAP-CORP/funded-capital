@@ -15,6 +15,7 @@
 import {
   parseAddress, parseAddressList, isMachineAddress, isMachineSubject, isBulkMail,
   classifyMessage, isRejected, gmailDedupKey, latestByCounterparty, planActivityRows,
+  isAutoAcknowledgement, AUTO_ACK_PREFIX,
   type ClassifiedMessage,
 } from "./activity";
 
@@ -207,9 +208,9 @@ check(
 
 console.log("\n=== 12. Last contact per person ===");
 const msgs: ClassifiedMessage[] = [
-  { messageId: "a", threadId: null, direction: "email_out", counterparties: ["x@y.com"], subject: "first", occurredAt: new Date("2026-09-01T00:00:00Z") },
-  { messageId: "b", threadId: null, direction: "email_in", counterparties: ["x@y.com"], subject: "newest", occurredAt: new Date("2026-09-10T00:00:00Z") },
-  { messageId: "c", threadId: null, direction: "email_out", counterparties: ["x@y.com", "q@y.com"], subject: "middle", occurredAt: new Date("2026-09-05T00:00:00Z") },
+  { messageId: "a", threadId: null, direction: "email_out", counterparties: ["x@y.com"], subject: "first", occurredAt: new Date("2026-09-01T00:00:00Z"), automatic: false },
+  { messageId: "b", threadId: null, direction: "email_in", counterparties: ["x@y.com"], subject: "newest", occurredAt: new Date("2026-09-10T00:00:00Z"), automatic: false },
+  { messageId: "c", threadId: null, direction: "email_out", counterparties: ["x@y.com", "q@y.com"], subject: "middle", occurredAt: new Date("2026-09-05T00:00:00Z"), automatic: false },
 ];
 const latest = latestByCounterparty(msgs);
 check("newest wins regardless of input order", latest.get("x@y.com")?.subject === "newest", String(latest.get("x@y.com")?.subject));
@@ -223,9 +224,9 @@ const CONTACTS = new Map([
   ["mick-torres@hotmail.com", "contact-miguel"],
 ]);
 const planned = planActivityRows([
-  { messageId: "p1", threadId: "t1", direction: "email_out", counterparties: ["ryans2011@yahoo.com"], subject: "3 Duquesne St", occurredAt: new Date("2026-08-29T00:00:00Z") },
-  { messageId: "p2", threadId: "t2", direction: "email_in", counterparties: ["stranger@nowhere.com"], subject: "hello", occurredAt: new Date("2026-09-01T00:00:00Z") },
-  { messageId: "p3", threadId: "t3", direction: "email_out", counterparties: ["mick-torres@hotmail.com", "claudia@locationtitle.com"], subject: "83 Lamson", occurredAt: new Date("2026-09-16T00:00:00Z") },
+  { messageId: "p1", threadId: "t1", direction: "email_out", counterparties: ["ryans2011@yahoo.com"], subject: "3 Duquesne St", occurredAt: new Date("2026-08-29T00:00:00Z"), automatic: false },
+  { messageId: "p2", threadId: "t2", direction: "email_in", counterparties: ["stranger@nowhere.com"], subject: "hello", occurredAt: new Date("2026-09-01T00:00:00Z"), automatic: false },
+  { messageId: "p3", threadId: "t3", direction: "email_out", counterparties: ["mick-torres@hotmail.com", "claudia@locationtitle.com"], subject: "83 Lamson", occurredAt: new Date("2026-09-16T00:00:00Z"), automatic: false },
 ], CONTACTS);
 
 check("a known contact produces a row", planned.rows.some((r) => r.contactId === "contact-ryan"), String(planned.rows.length));
@@ -240,21 +241,69 @@ check("kind mirrors direction", planned.rows[0].kind === "email_out", planned.ro
 
 // The same message arriving twice in one batch must not break the insert.
 const dupes = planActivityRows([
-  { messageId: "same", threadId: null, direction: "email_out", counterparties: ["ryans2011@yahoo.com"], subject: "x", occurredAt: new Date() },
-  { messageId: "same", threadId: null, direction: "email_out", counterparties: ["ryans2011@yahoo.com"], subject: "x", occurredAt: new Date() },
+  { messageId: "same", threadId: null, direction: "email_out", counterparties: ["ryans2011@yahoo.com"], subject: "x", occurredAt: new Date(), automatic: false },
+  { messageId: "same", threadId: null, direction: "email_out", counterparties: ["ryans2011@yahoo.com"], subject: "x", occurredAt: new Date(), automatic: false },
 ], CONTACTS);
 check("DUPLICATE inside one batch collapses", dupes.rows.length === 1, String(dupes.rows.length));
 
 // Case folding: Gmail hands back mixed case, contacts are stored lowercased.
 const cased = planActivityRows([
-  { messageId: "c1", threadId: null, direction: "email_in", counterparties: ["RyanS2011@Yahoo.com"], subject: "x", occurredAt: new Date() },
+  { messageId: "c1", threadId: null, direction: "email_in", counterparties: ["RyanS2011@Yahoo.com"], subject: "x", occurredAt: new Date(), automatic: false },
 ], CONTACTS);
 check("uppercase address still matches", cased.rows.length === 1, String(cased.rows.length));
 
 check("empty input is safe", planActivityRows([], CONTACTS).rows.length === 0, "0");
 check("empty contact map writes nothing", planActivityRows([
-  { messageId: "z", threadId: null, direction: "email_in", counterparties: ["a@b.com"], subject: null, occurredAt: new Date() },
+  { messageId: "z", threadId: null, direction: "email_in", counterparties: ["a@b.com"], subject: null, occurredAt: new Date(), automatic: false },
 ], new Map()).rows.length === 0, "0 — fails closed");
+
+console.log("\n=== 14. Our automatic welcome email is NOT contact (10 Oct 2026) ===");
+// Real subjects from Sent, 45 days to 10 Oct 2026.
+for (const subj of [
+  "Your Belton, TX deal — Funded Capital",
+  "Your Charlotte, NC deal — Funded Capital",
+  "Your fix and flip — Funded Capital",
+  "Your DSCR rental loan — Funded Capital",
+  "Your financing — Funded Capital",
+]) check(`welcome: "${subj}"`, isAutoAcknowledgement(subj), "automatic");
+for (const subj of [
+  "Re: Your Cleveland, OH deal — Funded Capital",
+  "RE: Your Dallas, GA deal — Funded Capital",
+  "402 E 21st Ave — no HELOC, but here's how we'd pull that equity",
+  "How fast we actually close",
+  "Your term sheet for 12 Main St",
+  "Your fix and flip loan request",
+  "Funded Capital — Your Belton, TX deal",
+]) check(`personal: "${subj}"`, !isAutoAcknowledgement(subj), "counts as contact");
+check("null subject is not a welcome", !isAutoAcknowledgement(null), "false");
+
+const welcome = classifyMessage({
+  messageId: "w1", from: "Luis Fajardo <luis@fundedcapital.com>", to: "sratcliff1431@icloud.com",
+  subject: "Your Belton, TX deal — Funded Capital", dateMs: Date.parse("2026-10-06T19:54:40Z"),
+}, SELF);
+check("outbound welcome is classified, flagged automatic", !isRejected(welcome) && welcome.automatic === true, JSON.stringify(!isRejected(welcome) && welcome.automatic));
+const theirReply = classifyMessage({
+  messageId: "w2", from: "sratcliff1431@icloud.com", to: "luis@fundedcapital.com",
+  subject: "Your Belton, TX deal — Funded Capital", dateMs: Date.parse("2026-10-06T20:30:00Z"),
+}, SELF);
+check("THEIR message under that subject is a real response, not automatic", !isRejected(theirReply) && theirReply.automatic === false && theirReply.direction === "email_in", "email_in");
+const luisReply = classifyMessage({
+  messageId: "w3", from: "luis@fundedcapital.com", to: "sratcliff1431@icloud.com",
+  subject: "Re: Your Belton, TX deal — Funded Capital", dateMs: Date.parse("2026-10-07T14:00:00Z"),
+}, SELF);
+check("Luis's reply in the thread is contact", !isRejected(luisReply) && luisReply.automatic === false, "email_out");
+
+const SAM = new Map([["sratcliff1431@icloud.com", "contact-sam"]]);
+const wPlan = planActivityRows([welcome, theirReply, luisReply].filter((c): c is ClassifiedMessage => !isRejected(c)), SAM);
+const wRow = wPlan.rows.find((r) => r.metadata.messageId === "w1");
+check("the welcome is written as automation", wRow?.kind === "automation", String(wRow?.kind));
+check("its timeline subject says what it is", wRow?.subject === `${AUTO_ACK_PREFIX}Your Belton, TX deal — Funded Capital`, String(wRow?.subject));
+check("it is marked auto: welcome", wRow?.metadata.auto === "welcome", String(wRow?.metadata.auto));
+check("same dedup key as before (a re-run cannot double it)", wRow?.dedupKey === gmailDedupKey("w1", "sratcliff1431@icloud.com"), String(wRow?.dedupKey));
+check("their reply is still email_in", wPlan.rows.find((r) => r.metadata.messageId === "w2")?.kind === "email_in", "email_in");
+check("Luis's reply is still email_out", wPlan.rows.find((r) => r.metadata.messageId === "w3")?.kind === "email_out", "email_out");
+const onlyWelcome = latestByCounterparty([welcome].filter((c): c is ClassifiedMessage => !isRejected(c)));
+check("the welcome alone gives no 'last contact'", onlyWelcome.size === 0, String(onlyWelcome.size));
 
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

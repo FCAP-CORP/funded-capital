@@ -424,5 +424,19 @@ check("an unparseable snooze date is treated as no snooze", !snoozeState(app({ .
 check("and the deal still surfaces normally", buildWorkQueue([app({ ...stale(), nextActionAt: "whenever" })], QUEUE_DEFAULTS, NOW).length === 1, "present");
 check("snoozedItems on an empty book does not throw", snoozedItems([], NOW).length === 0, "empty");
 
+console.log("\n=== Broker deals: talking to the broker counts as contact (10 Oct 2026) ===");
+{
+  const brokerTalked = app({ lastContactAt: null, lastContactDirection: null, brokerContactAt: daysAgo(3), stageEnteredAt: daysAgo(5) });
+  check("broker contacted, borrower never → NOT never_contacted", reasonOf(brokerTalked) === null, String(reasonOf(brokerTalked)));
+  const brokerTalkedStalled = app({ lastContactAt: null, lastContactDirection: null, brokerContactAt: daysAgo(3), stageEnteredAt: daysAgo(40) });
+  check("...and it can still be stalled", reasonOf(brokerTalkedStalled) === "stalled", String(reasonOf(brokerTalkedStalled)));
+  const noOne = app({ lastContactAt: null, lastContactDirection: null, brokerContactAt: null });
+  check("no borrower AND no broker contact → still never_contacted", reasonOf(noOne) === "never_contacted", String(reasonOf(noOne)));
+  const undef = app({ lastContactAt: null, lastContactDirection: null });
+  check("house lead (no broker field) unchanged → never_contacted", reasonOf(undef) === "never_contacted", String(reasonOf(undef)));
+  const brokerInbound = app({ lastContactAt: null, lastContactDirection: null, brokerContactAt: daysAgo(4) });
+  check("broker contact never makes a deal 'awaiting reply'", reasonOf(brokerInbound) !== "awaiting_reply", String(reasonOf(brokerInbound)));
+}
+
 console.log(`\n================  ${pass} passed, ${fail} failed  ================`);
 process.exit(fail > 0 ? 1 : 0);

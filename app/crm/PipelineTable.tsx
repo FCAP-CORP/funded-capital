@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowRightLeft } from "lucide-react";
 import DataTable, { type BulkContext, type Column } from "./DataTable";
 import { StageSelect, InlineText } from "./Editable";
@@ -19,6 +19,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/field";
 import { toast } from "@/components/ui/toast";
+import { LENSES, LENS_LABEL, inLens, lensCounts, parseLens, effectiveLastContact, type Lens } from "@/lib/crm/pipelineLens";
+import { cn } from "@/lib/utils";
 
 /**
  * Every action on this page refreshes THIS page and no other (see CrmRoute in
@@ -56,8 +58,31 @@ const isoDay = (v: string | null) => (v ? v.slice(0, 10) : "");
  * without a reason — the gap noted in CLAUDE.md — and it was the only way in
  * the product to do so.
  */
-export default function PipelineTable({ rows }: { rows: PipelineRow[] }) {
+export default function PipelineTable({ rows: allRows }: { rows: PipelineRow[] }) {
   const [ask, setAsk] = useState<Ask | null>(null);
+
+  /*
+   * Which deals: All / Broker deals / Website / BiggerPockets / Other
+   * (10 Oct 2026 — "is there a way to see all broker leads in one section?").
+   * `?view=broker` opens straight onto it, so /crm/brokers can link here; the
+   * address keeps the choice so a refresh or a shared link lands in the same
+   * place. Read after mount, like the table's saved views, so the server's
+   * HTML and the first paint agree.
+   */
+  const [lens, setLens] = useState<Lens>("all");
+  useEffect(() => {
+    try { setLens(parseLens(new URLSearchParams(window.location.search).get("view"))); } catch { /* no URL */ }
+  }, []);
+  const chooseLens = (next: Lens) => {
+    setLens(next);
+    try {
+      const u = new URL(window.location.href);
+      if (next === "all") u.searchParams.delete("view"); else u.searchParams.set("view", next);
+      window.history.replaceState(window.history.state, "", u.toString());
+    } catch { /* the filter still works without the address */ }
+  };
+  const counts = useMemo(() => lensCounts(allRows), [allRows]);
+  const rows = useMemo(() => allRows.filter((r) => inLens(r, lens)), [allRows, lens]);
 
   const askFunded = (list: PipelineRow[]) =>
     new Promise<boolean>((resolve) => setAsk({ kind: "funded", rows: list, resolve }));
@@ -103,6 +128,12 @@ export default function PipelineTable({ rows }: { rows: PipelineRow[] }) {
               <span className="text-slate-500">no contact details</span>
             )}
           </p>
+          {r.viaBroker && (r.brokerName || r.brokerFirm) && (
+            <p className="truncate text-xs text-slate-600" title="Submitted through a broker">
+              via <span className="font-medium text-navy-900">{r.brokerName ?? "a broker"}</span>
+              {r.brokerFirm ? ` · ${r.brokerFirm}` : ""}
+            </p>
+          )}
         </div>
       ),
     },
@@ -142,8 +173,12 @@ export default function PipelineTable({ rows }: { rows: PipelineRow[] }) {
       key: "lastContactAt",
       header: "Last contact",
       size: 144,
-      csv: (r) => isoDay(r.lastContactAt),
-      render: (r) => <LastContact at={r.lastContactAt} direction={r.lastContactDirection} />,
+      csv: (r) => isoDay(effectiveLastContact(r).at),
+      // On a broker's deal, contact with the broker counts — labelled "broker".
+      render: (r) => {
+        const e = effectiveLastContact(r);
+        return <LastContact at={e.at} direction={e.direction} viaBroker={e.viaBroker} />;
+      },
     },
     { key: "product", header: "Product", size: 128, csv: (r) => label(PRODUCT_LABEL, r.product), render: (r) => label(PRODUCT_LABEL, r.product) },
     {
@@ -264,10 +299,43 @@ export default function PipelineTable({ rows }: { rows: PipelineRow[] }) {
       render: (r) => (r.phone ? displayPhone(r.phone) : <span className="text-slate-500">—</span>),
     },
     { key: "borrowerMessage", header: "Borrower's message", size: 280, defaultHidden: true, sortable: false },
+    // Hidden by default (the "via" line under the name already says it); in the CSV either way.
+    {
+      key: "brokerName",
+      header: "Broker",
+      size: 208,
+      defaultHidden: true,
+      exportWhenHidden: true,
+      csv: (r) => [r.brokerName, r.brokerFirm].filter(Boolean).join(" · "),
+      render: (r) => (r.brokerName || r.brokerFirm
+        ? <span className="block truncate text-slate-700">{[r.brokerName, r.brokerFirm].filter(Boolean).join(" · ")}</span>
+        : <span className="text-slate-500">—</span>),
+    },
   ];
 
   return (
     <>
+      <div className="mb-3 flex flex-wrap gap-1.5" role="group" aria-label="Which deals">
+        {LENSES.map((l) => {
+          const on = lens === l;
+          if (l !== "all" && counts[l] === 0) return null;
+          return (
+            <button
+              key={l}
+              type="button"
+              onClick={() => chooseLens(l)}
+              aria-pressed={on}
+              className={cn(
+                "inline-flex h-9 items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-gold-500",
+                on ? "border-navy-900 bg-navy-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:border-slate-300",
+              )}
+            >
+              {LENS_LABEL[l]}
+              <span className={cn("tabular-nums text-xs", on ? "text-gold-400" : "text-slate-500")}>{counts[l]}</span>
+            </button>
+          );
+        })}
+      </div>
       <DataTable
         tableId="pipeline"
         exportName="pipeline"
@@ -275,8 +343,8 @@ export default function PipelineTable({ rows }: { rows: PipelineRow[] }) {
         columns={columns}
         rowKey={(r) => r.id}
         rowLabel={(r) => r.name}
-        searchFields={["name", "email", "phone", "propertyAddress", "notes", "borrowerMessage"]}
-        searchPlaceholder="Search name, email, phone, address or notes…"
+        searchFields={["name", "email", "phone", "propertyAddress", "notes", "borrowerMessage", "brokerName", "brokerFirm"]}
+        searchPlaceholder="Search name, broker, email, phone, address or notes…"
         facet={{ key: "stage", labels: STAGE_LABEL, label: "Filter by stage" }}
         initialSort={{ key: "submittedAt", dir: "desc" }}
         emptyMessage="No applications yet."

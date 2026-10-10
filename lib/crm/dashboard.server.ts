@@ -27,6 +27,7 @@ import { db } from "@/lib/db";
 import { CONTACT_KINDS } from "@/lib/db/contactKinds";
 import { assertCrmStaff } from "@/lib/crm/access";
 import { nyToday } from "./tasks";
+import { GMAIL_SYNC_HEARTBEAT } from "./syncHealth";
 import type { DashboardRow, DueTaskInput } from "./dashboardView";
 
 /**
@@ -103,6 +104,20 @@ export async function getDashboardData(now: Date): Promise<{ apps: DashboardRow[
         (SELECT ac.kind FROM activities ac
           WHERE ac.contact_id = c.contact_id AND ac.kind IN ${CONTACT_KINDS}
           ORDER BY ac.occurred_at DESC LIMIT 1) AS last_contact_direction,
+        /*
+         * Broker-submitted deals: the broker usually does the talking (Luis,
+         * 10 Oct 2026), so email, text or calls with the deal's BROKER since the
+         * deal arrived count as contact for "Never contacted". Gmail rows carry
+         * no application id, so this cannot tell which of a broker's deals an
+         * email was about — any broker contact on or after this deal arrived
+         * counts for it. Never the picked contact again, never before arrival.
+         */
+        (SELECT max(ac.occurred_at) FROM participants bp
+          JOIN activities ac ON ac.contact_id = bp.contact_id
+          WHERE bp.application_id = a.id AND bp.role = 'broker'
+            AND bp.contact_id IS DISTINCT FROM c.contact_id
+            AND ac.kind IN ${CONTACT_KINDS}
+            AND ac.occurred_at >= COALESCE(a.submitted_at, a.created_at) - interval '1 day') AS broker_contact_at,
         /* In a nurture programme right now: "No movement" leaves them off. */
         EXISTS (SELECT 1 FROM nurture_enrollments ne
           WHERE ne.contact_id = c.contact_id AND ne.status = 'active') AS in_nurture
@@ -173,6 +188,7 @@ export async function getDashboardData(now: Date): Promise<{ apps: DashboardRow[
     nextActionSetAt: iso(r.next_action_set_at),
     nextActionNote: str(r.next_action_note),
     inNurture: r.in_nurture === true || r.in_nurture === "t",
+    brokerContactAt: iso(r.broker_contact_at),
   }));
 
   const tasks = rowsOf(taskResult).map((r): DueTaskInput => ({
@@ -184,4 +200,18 @@ export async function getDashboardData(now: Date): Promise<{ apps: DashboardRow[
   }));
 
   return { apps, tasks };
+}
+
+/**
+ * When the Gmail sync last reached the site (lib/crm/syncHealth.ts decides
+ * what that means). Its own small read, called separately from the main batch
+ * on purpose: if the table is missing or the read fails, the caller drops the
+ * warning and the dashboard still renders. Null = no row.
+ */
+export async function getGmailSyncSeenAt(): Promise<string | null> {
+  await assertCrmStaff();
+  const r = await db.execute(sql`
+    SELECT last_seen_at FROM integration_heartbeats WHERE name = ${GMAIL_SYNC_HEARTBEAT} LIMIT 1
+  `);
+  return iso(rowsOf(r)[0]?.last_seen_at);
 }

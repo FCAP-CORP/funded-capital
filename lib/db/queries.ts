@@ -64,6 +64,16 @@ export type PipelineRow = {
   borrowerMessage: string | null;
   lastContactAt: string | null;
   lastContactDirection: string | null;
+  /**
+   * The deal came through a broker: a `broker` participant on it, or lead
+   * source "broker" (10 Oct 2026). Drives the "Broker deals" view on the
+   * Pipeline page and the "via" line under the borrower's name.
+   */
+  viaBroker: boolean;
+  brokerName: string | null;
+  brokerFirm: string | null;
+  /** Latest email, text or call with that broker since the deal arrived. Brokers usually do the talking. */
+  brokerContactAt: string | null;
 }
 
 /**
@@ -114,9 +124,32 @@ export async function getPipeline(): Promise<PipelineRow[]> {
         WHERE ac.contact_id = c.contact_id AND ac.kind IN ${CONTACT_KINDS}) AS last_contact_at,
       (SELECT ac.kind FROM activities ac
         WHERE ac.contact_id = c.contact_id AND ac.kind IN ${CONTACT_KINDS}
-        ORDER BY ac.occurred_at DESC LIMIT 1) AS last_contact_direction
+        ORDER BY ac.occurred_at DESC LIMIT 1) AS last_contact_direction,
+      bk.broker_contact_id,
+      bk.broker_first_name,
+      bk.broker_last_name,
+      bk.broker_email,
+      bf.name AS broker_firm,
+      -- Same rule as the dashboard (lib/crm/dashboard.server.ts): contact with
+      -- the deal's broker on or after the deal arrived counts for the deal.
+      (SELECT max(ac.occurred_at) FROM activities ac
+        WHERE ac.contact_id = bk.broker_contact_id
+          AND bk.broker_contact_id IS DISTINCT FROM c.contact_id
+          AND ac.kind IN ${CONTACT_KINDS}
+          AND ac.occurred_at >= COALESCE(a.submitted_at, a.created_at) - interval '1 day') AS broker_contact_at
     FROM applications a
     LEFT JOIN properties pr ON pr.id = a.property_id
+    LEFT JOIN broker_firms bf ON bf.id = a.broker_firm_id
+    -- The deal's broker, if it has one: the earliest attachment, stable across reloads.
+    LEFT JOIN LATERAL (
+      SELECT bct.id AS broker_contact_id, bct.first_name AS broker_first_name,
+             bct.last_name AS broker_last_name, bct.email AS broker_email
+      FROM participants bp
+      JOIN contacts bct ON bct.id = bp.contact_id
+      WHERE bp.application_id = a.id AND bp.role = 'broker'
+      ORDER BY bp.created_at ASC, bct.id ASC
+      LIMIT 1
+    ) bk ON true
     LEFT JOIN LATERAL (
       SELECT ct.id AS contact_id, ct.first_name, ct.last_name, ct.email, ct.phone
       FROM participants p
@@ -152,6 +185,12 @@ export async function getPipeline(): Promise<PipelineRow[]> {
     borrowerMessage: str(r.borrower_message),
     lastContactAt: iso(r.last_contact_at),
     lastContactDirection: str(r.last_contact_direction),
+    viaBroker: r.broker_contact_id != null || String(r.lead_source) === "broker",
+    brokerName:
+      [str(r.broker_first_name), str(r.broker_last_name)].filter(Boolean).join(" ").trim()
+      || str(r.broker_email),
+    brokerFirm: str(r.broker_firm),
+    brokerContactAt: iso(r.broker_contact_at),
   }));
 }
 

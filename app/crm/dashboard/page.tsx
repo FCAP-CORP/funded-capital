@@ -3,12 +3,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Plus } from "lucide-react";
 import { isCrmStaff, signedInUser } from "@/lib/crm/access";
-import { getDashboardData } from "@/lib/crm/dashboard.server";
+import { getDashboardData, getGmailSyncSeenAt } from "@/lib/crm/dashboard.server";
+import { gmailSyncHealth, type SyncHealth } from "@/lib/crm/syncHealth";
 import { getTermSheetFollowups } from "@/lib/crm/followups.server";
 import { nurtureStatusForContacts, type QueueNurture } from "@/lib/nurture/nurture.server";
 import { buildDashboardModel, dateLine, greeting } from "@/lib/crm/dashboardView";
 import { DashboardBody } from "./DashboardView";
 import { FollowUps } from "./FollowUps";
+import { SyncWarning } from "./SyncWarning";
 import { buttonVariants } from "@/components/ui/button";
 import { RecordCardProvider } from "../_record/RecordCardProvider";
 import RecordCardSlot from "../_record/RecordCardSlot";
@@ -114,9 +116,17 @@ async function Dashboard() {
   // only deals at term sheet). `signedInUser` is cached for this request — the
   // staff check above already made the Clerk call.
   const me = await signedInUser();
-  const [{ apps, tasks }, followups] = await Promise.all([
+  // Is the Gmail sync still reaching us? Optional like the nurture read: a
+  // failure (or the table not migrated yet) means no warning, never a broken page.
+  const [{ apps, tasks }, followups, gmailSync] = await Promise.all([
     getDashboardData(now),
     getTermSheetFollowups(now, me?.firstName ?? null),
+    getGmailSyncSeenAt()
+      .then((seen): SyncHealth => gmailSyncHealth(seen, now))
+      .catch((err): SyncHealth => {
+        console.error("[crm/dashboard] gmail sync health unavailable", err);
+        return { state: "unknown" };
+      }),
   ]);
   const model = buildDashboardModel(apps, tasks, now);
 
@@ -137,6 +147,7 @@ async function Dashboard() {
 
   return (
     <div className="flex flex-col gap-6">
+      <SyncWarning health={gmailSync} />
       <FollowUps items={followups.due} upcoming={followups.upcoming} />
       <DashboardBody model={model} now={now} nurture={nurture} />
     </div>

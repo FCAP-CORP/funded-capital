@@ -127,7 +127,16 @@ function postBatch_(messages, self) {
   return JSON.parse(text);
 }
 
-/** The incremental run. This is what the trigger calls. */
+/**
+ * The incremental run. This is what the trigger calls.
+ *
+ * HEARTBEAT (10 Oct 2026): with no new mail it still posts an EMPTY batch, so
+ * the CRM hears from this script every run. The dashboard warns when it has
+ * not heard for 90 minutes (lib/crm/syncHealth.ts) — that is how a timer that
+ * was never switched on, or a revoked Gmail grant, gets noticed. The empty
+ * post is on one line on purpose: it was added through the Apps Script
+ * editor's find-and-replace, which works on single lines.
+ */
 function syncGmailToCrm() {
   var props = PropertiesService.getScriptProperties();
   var self = selfAddresses_();
@@ -141,7 +150,7 @@ function syncGmailToCrm() {
   var messages = collectMessages_(buildQuery_(after));
   Logger.log('Collected ' + messages.length + ' messages since ' + new Date(after * 1000));
 
-  var totals = { received: 0, inserted: 0, duplicates: 0, unmatched: 0 };
+  var totals = { received: 0, inserted: 0, duplicates: 0, unmatched: 0 }; if (messages.length === 0) postBatch_([], self);
   for (var i = 0; i < messages.length; i += BATCH_SIZE) {
     var result = postBatch_(messages.slice(i, i + BATCH_SIZE), self);
     totals.received += result.received || 0;

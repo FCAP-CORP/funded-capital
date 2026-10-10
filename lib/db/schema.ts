@@ -1328,3 +1328,18 @@ export const rsRollovers = pgTable("rs_rollovers", {
 }, (t) => ({
   notSelf: check("rs_rollovers_not_self", sql`${t.fromParticipationId} <> ${t.toParticipationId}`),
 }));
+
+/**
+ * When an outside job last reached the site (migration 0021, 10 Oct 2026).
+ *
+ * The Gmail sync was switched off for weeks and nothing said so: the CRM simply
+ * stopped learning about email. `/api/crm/activity` stamps `gmail_sync` on every
+ * authenticated call (GmailSync.gs posts even when there is no new mail), and the
+ * dashboard warns when the stamp goes stale (lib/crm/syncHealth.ts). One row per
+ * job; `detail` holds the last call's counts, never an address or a subject.
+ */
+export const integrationHeartbeats = pgTable("integration_heartbeats", {
+  name: text("name").primaryKey(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+  detail: jsonb("detail").$type<Record<string, unknown>>().default({}),
+});

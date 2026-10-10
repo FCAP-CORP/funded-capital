@@ -395,7 +395,7 @@ export function reasonDetail(row: Pick<QueueRowView, "reason">): string {
     case "duplicate":
       return "Filed twice within a week";
     case "never_contacted":
-      return "Never emailed";
+      return "No email, text or call yet";
     case "stalled":
       return "Same stage 30+ days";
   }

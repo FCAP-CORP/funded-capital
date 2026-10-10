@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { inArray, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import { activities, contacts } from "@/lib/db/schema";
+import { activities, contacts, integrationHeartbeats } from "@/lib/db/schema";
+import { GMAIL_SYNC_HEARTBEAT } from "@/lib/crm/syncHealth";
 import {
   classifyMessage, isRejected, planActivityRows,
   type RawMessage, type ClassifiedMessage,
@@ -48,6 +49,27 @@ function secretMatches(provided: unknown): boolean {
   const pa = Buffer.alloc(len), pb = Buffer.alloc(len);
   a.copy(pa); b.copy(pb);
   return timingSafeEqual(pa, pb) && a.length === b.length;
+}
+
+/**
+ * "The sync reached us" — what the dashboard's Gmail warning reads
+ * (lib/crm/syncHealth.ts, 10 Oct 2026). Stamped on every AUTHENTICATED call,
+ * including GmailSync.gs's empty heartbeat when there is no new mail, and only
+ * after this call's rows are written, so a call that dies half way does not
+ * look healthy. Never fails the call: a missed stamp costs a false warning at
+ * worst, while a thrown error would stop the Apps Script advancing its
+ * watermark. Counts only — no address or subject goes in `detail`.
+ */
+async function stampHeartbeat(detail: Record<string, number>): Promise<void> {
+  const now = new Date();
+  try {
+    await db
+      .insert(integrationHeartbeats)
+      .values({ name: GMAIL_SYNC_HEARTBEAT, lastSeenAt: now, detail })
+      .onConflictDoUpdate({ target: integrationHeartbeats.name, set: { lastSeenAt: now, detail } });
+  } catch (e) {
+    console.error("[api/crm/activity] heartbeat not recorded:", (e as Error).message);
+  }
 }
 
 interface Body {
@@ -102,6 +124,7 @@ export async function POST(request: Request) {
   }
 
   if (classified.length === 0) {
+    await stampHeartbeat({ received: raw.length, inserted: 0 });
     return NextResponse.json({ ok: true, received: raw.length, inserted: 0, matched: 0, skipped });
   }
 
@@ -142,6 +165,8 @@ export async function POST(request: Request) {
       .returning({ id: activities.id });
     inserted += written.length;
   }
+
+  await stampHeartbeat({ received: raw.length, inserted });
 
   return NextResponse.json({
     ok: true,

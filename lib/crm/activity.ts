@@ -53,6 +53,13 @@ export interface ClassifiedMessage {
   counterparties: string[];
   subject: string | null;
   occurredAt: Date;
+  /**
+   * Our own automatic welcome email (see isAutoAcknowledgement). Recorded on the
+   * timeline as `automation`, never as `email_out`: it goes out the minute a
+   * lead arrives, so counting it would empty "Never contacted" of exactly the
+   * people nobody has personally reached yet (Luis, 10 Oct 2026).
+   */
+  automatic: boolean;
 }
 
 export type Rejection = { rejected: true; reason: string };
@@ -186,6 +193,28 @@ export function isMachineSubject(subject: string | null | undefined): boolean {
   return MACHINE_SUBJECT.some((re) => re.test(subject.trim()));
 }
 
+/**
+ * The automatic welcome email the Apps Script sends the minute a lead arrives.
+ *
+ * BiggerPockets.gs and Website.gs both send it from Luis's own address, so it
+ * sits in his Sent folder looking exactly like a personal reply. Its subject is
+ * always "Your <something> — Funded Capital", and nothing Luis types does that
+ * (checked against 45 days of Sent on 10 Oct 2026: "Your Belton, TX deal —
+ * Funded Capital", "Your fix and flip — Funded Capital", "Your DSCR rental loan
+ * — Funded Capital", "Your financing — Funded Capital"). A REPLY in that thread
+ * starts with "Re:" and does not match, so the conversation Luis has under it
+ * still counts as contact. The record card's templates never use this shape.
+ */
+const AUTO_ACK_SUBJECT = /^Your\s.{1,120}?\s[\u2014\u2013-]\s?Funded Capital$/;
+
+export function isAutoAcknowledgement(subject: string | null | undefined): boolean {
+  if (!subject) return false;
+  return AUTO_ACK_SUBJECT.test(subject.trim());
+}
+
+/** What the timeline shows for one. The original subject stays in it. */
+export const AUTO_ACK_PREFIX = "Automatic welcome email: ";
+
 /* ------------------------------------------------------------- the ruling */
 
 export interface ClassifyOptions {
@@ -234,6 +263,7 @@ export function classifyMessage(msg: RawMessage, opts: ClassifyOptions): Classif
     counterparties,
     subject: msg.subject?.trim() || null,
     occurredAt: new Date(msg.dateMs),
+    automatic: outbound && isAutoAcknowledgement(msg.subject),
   };
 }
 
@@ -255,6 +285,8 @@ export function latestByCounterparty(
 ): Map<string, { at: Date; direction: EmailDirection; subject: string | null }> {
   const out = new Map<string, { at: Date; direction: EmailDirection; subject: string | null }>();
   for (const m of messages) {
+    // The automatic welcome is not contact (see isAutoAcknowledgement).
+    if (m.automatic) continue;
     for (const c of m.counterparties) {
       const prev = out.get(c);
       if (!prev || m.occurredAt > prev.at) {
@@ -269,11 +301,12 @@ export function latestByCounterparty(
 
 export interface PlannedActivity {
   contactId: string;
-  kind: EmailDirection;
+  /** `automation` for our automatic welcome email; never a contact kind. */
+  kind: EmailDirection | "automation";
   occurredAt: Date;
   subject: string | null;
   dedupKey: string;
-  metadata: { messageId: string; threadId: string | null; counterparty: string };
+  metadata: { messageId: string; threadId: string | null; counterparty: string; auto?: "welcome" };
 }
 
 /**
@@ -316,14 +349,23 @@ export function planActivityRows(
       if (seen.has(dedupKey)) continue;
       seen.add(dedupKey);
 
-      rows.push({
-        contactId,
-        kind: m.direction,
-        occurredAt: m.occurredAt,
-        subject: m.subject,
-        dedupKey,
-        metadata: { messageId: m.messageId, threadId: m.threadId, counterparty },
-      });
+      rows.push(m.automatic
+        ? {
+            contactId,
+            kind: "automation",
+            occurredAt: m.occurredAt,
+            subject: `${AUTO_ACK_PREFIX}${m.subject ?? ""}`.slice(0, 500),
+            dedupKey,
+            metadata: { messageId: m.messageId, threadId: m.threadId, counterparty, auto: "welcome" },
+          }
+        : {
+            contactId,
+            kind: m.direction,
+            occurredAt: m.occurredAt,
+            subject: m.subject,
+            dedupKey,
+            metadata: { messageId: m.messageId, threadId: m.threadId, counterparty },
+          });
     }
   }
 

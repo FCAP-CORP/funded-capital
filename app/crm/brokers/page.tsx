@@ -334,6 +334,16 @@ export default function BrokersPage() {
         title="Brokers"
         description={<>Who is at which firm, and what each of them can see. Linking someone to a firm is what
           lets their colleagues see their deals — and what lets them see their colleagues&rsquo;.</>}
+        actions={
+          // Every broker-submitted deal, in the Pipeline grid (10 Oct 2026).
+          <Link
+            href="/crm?view=broker"
+            className={`inline-flex items-center gap-1 rounded-sm text-sm font-semibold text-navy-900 underline decoration-gold-500 decoration-2 underline-offset-4 hover:decoration-navy-900 ${FOCUS_RING}`}
+          >
+            See every broker deal
+            <ChevronRight size={14} aria-hidden="true" />
+          </Link>
+        }
       />
 
       <Suspense fallback={<GridSkeleton />}>
